@@ -749,7 +749,6 @@ class S3SearchOptionsWidget(S3SearchWidget):
             return None
 
 # =============================================================================
-
 class S3SearchLocationHierarchyWidget(S3SearchOptionsWidget):
     """
         Displays a search widget which allows the user to search for records
@@ -767,9 +766,6 @@ class S3SearchLocationHierarchyWidget(S3SearchOptionsWidget):
 
             @keyword comment: a comment for the search widget
         """
-        super(S3SearchLocationHierarchyWidget, self).__init__(field,
-                                                              name,
-                                                              **attr)
 
         gis = current.gis
 
@@ -785,9 +781,17 @@ class S3SearchLocationHierarchyWidget(S3SearchOptionsWidget):
             config = gis.get_config()
             field = level = config.search_level or "L0"
 
+        hierarchy = gis.get_location_hierarchy()
+        if level in hierarchy:
+            label = hierarchy[level]
+        else:
+            label = level
+
         self.field = field
 
-        label = gis.get_location_hierarchy()[level]
+        super(S3SearchLocationHierarchyWidget, self).__init__(field,
+                                                              name,
+                                                              **attr)
 
         self.attr = Storage(attr)
         self.attr["label"] = label
