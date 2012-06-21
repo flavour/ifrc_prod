@@ -15,14 +15,14 @@ s3.formats = Storage()
 
 # Workaround for this Bug in Selenium with FF4:
 #    http://code.google.com/p/selenium/issues/detail?id=1604
-s3.interactive = deployment_settings.get_ui_confirm()
+s3.interactive = settings.get_ui_confirm()
 
 # Use session for persistent per-user variables (beware of a user having multiple tabs open!)
 if not session.s3:
     session.s3 = Storage()
 
-s3.base_url = "%s/%s" % (deployment_settings.get_base_public_url(),
-                         request.application)
+s3.base_url = "%s/%s" % (settings.get_base_public_url(),
+                         appname)
 s3.download_url = "%s/default/download" % s3.base_url
 
 ###############
@@ -96,8 +96,9 @@ def s3_is_mobile_client(request):
     return False
 
 # Store in session
-if session.s3.mobile is None:
-    session.s3.mobile = s3_is_mobile_client(request)
+# - commented-out until we make use of it
+#if session.s3.mobile is None:
+#    session.s3.mobile = s3_is_mobile_client(request)
 
 def s3_populate_browser_compatibility(request):
     """
@@ -145,7 +146,7 @@ def s3_populate_browser_compatibility(request):
 # Interactive view formats
 s3.interactive_view_formats = ("html", "popup", "iframe")
 
-# Strings
+# Strings to i18n
 messages["UNAUTHORISED"] = "Not authorised!"
 messages["BADFORMAT"] = "Unsupported data format!"
 messages["BADMETHOD"] = "Unsupported method!"
@@ -157,8 +158,8 @@ messages["REPORTLAB_ERROR"] = "ReportLab module not available within the running
 #messages["BREADCRUMB"] = ">> "
 messages["UNKNOWN_OPT"] = "Unknown"
 messages["NONE"] = "-"
-messages["READ"] = deployment_settings.get_ui_read_label()
-messages["UPDATE"] = deployment_settings.get_ui_update_label()
+messages["READ"] = settings.get_ui_read_label()
+messages["UPDATE"] = settings.get_ui_update_label()
 messages["DELETE"] = "Delete"
 messages["COPY"] = "Copy"
 messages["NOT_APPLICABLE"] = "N/A"
@@ -169,11 +170,6 @@ messages["SELECT_LOCATION"] = "Select a location"
 for u in messages:
     if isinstance(messages[u], str):
         globals()[u] = T(messages[u])
-try:
-    UPDATE
-except:
-    # 000_config needs updating to so that deployment_settings.ui.update_label is a str not a T()
-    UPDATE = str(messages["UPDATE"])
 
 # Pass to CRUD
 s3mgr.LABEL["READ"] = READ
@@ -186,11 +182,11 @@ ROWSPERPAGE = 20
 PRETTY_PRINT = False
 
 # To get included in <HEAD>
-response.s3.stylesheets = []
-response.s3.external_stylesheets = []
-s3_script_dir = "/%s/static/scripts/S3" % request.application
-response.s3.script_dir = s3_script_dir
+s3.stylesheets = []
+s3.external_stylesheets = []
 # To get included at the end of <BODY>
+s3_script_dir = "/%s/static/scripts/S3" % appname
+s3.script_dir = s3_script_dir
 s3.scripts = []
 s3.js_global = []
 s3.jquery_ready = []
@@ -199,7 +195,7 @@ s3.jquery_ready = []
 # Languages
 ###########
 
-s3.l10n_languages = deployment_settings.get_L10n_languages()
+s3.l10n_languages = settings.get_L10n_languages()
 
 # Default strings are in US English
 T.current_languages = ["en", "en-us"]
@@ -215,7 +211,7 @@ elif auth.is_logged_in():
     language = auth.user.language
 else:
     # Use system default
-    language = deployment_settings.get_L10n_default_language()
+    language = settings.get_L10n_default_language()
 #else:
 #    # Use what browser requests (default web2py behaviour)
 #    T.force(T.http_accept_language)
@@ -245,9 +241,6 @@ if T.accepted_language in s3_rtl_languages:
 else:
     s3.rtl = False
 
-s3_date_format = deployment_settings.get_L10n_date_format()
-s3_datetime_format = deployment_settings.get_L10n_datetime_format()
-
 ######
 # Mail
 ######
@@ -255,12 +248,12 @@ s3_datetime_format = deployment_settings.get_L10n_datetime_format()
 # These settings could be made configurable as part of the Messaging Module
 # - however also need to be used by Auth (order issues), DB calls are overheads
 # - as easy for admin to edit source here as to edit DB (although an admin panel can be nice)
-mail.settings.server = deployment_settings.get_mail_server()
-mail.settings.tls = deployment_settings.get_mail_server_tls()
-mail_server_login = deployment_settings.get_mail_server_login()
+mail.settings.server = settings.get_mail_server()
+mail.settings.tls = settings.get_mail_server_tls()
+mail_server_login = settings.get_mail_server_login()
 if mail_server_login:
     mail.settings.login = mail_server_login
-mail.settings.sender = deployment_settings.get_mail_sender()
+mail.settings.sender = settings.get_mail_sender()
 
 ######
 # Auth
@@ -273,14 +266,14 @@ _settings.password_min_length = 4
 _settings.expiration = 28800  # seconds
 
 #auth.settings.username_field = True
-_settings.hmac_key = deployment_settings.get_auth_hmac_key()
+_settings.hmac_key = settings.get_auth_hmac_key()
 auth.define_tables(migrate=migrate,
                    fake_migrate=fake_migrate)
 
-_settings.facebook = deployment_settings.get_auth_facebook()
-_settings.google = deployment_settings.get_auth_google()
+_settings.facebook = settings.get_auth_facebook()
+_settings.google = settings.get_auth_google()
 
-if deployment_settings.get_auth_openid():
+if settings.get_auth_openid():
     # Requires http://pypi.python.org/pypi/python-openid/
     try:
         from gluon.contrib.login_methods.openid_auth import OpenIDAuth
@@ -295,7 +288,7 @@ if deployment_settings.get_auth_openid():
 # Require captcha verification for registration
 #auth.settings.captcha = RECAPTCHA(request, public_key="PUBLIC_KEY", private_key="PRIVATE_KEY")
 # Require Email Verification
-_settings.registration_requires_verification = deployment_settings.get_auth_registration_requires_verification()
+_settings.registration_requires_verification = settings.get_auth_registration_requires_verification()
 # Email settings for registration verification
 _settings.mailer = mail
 _messages.verify_email = "Click on the link %(url)s%(key)s to verify your email" % \
@@ -305,7 +298,7 @@ _settings.on_failed_authorization = URL(c="default", f="user",
                                         args="not_authorized")
 
 _messages.verify_email_subject = "%(system_name)s - Verify Email" % \
-    {"system_name" : deployment_settings.get_system_name()}
+    {"system_name" : settings.get_system_name()}
 
 _settings.reset_password_requires_verification = True
 _messages.reset_password = "%s %s/default/user/reset_password/%s %s" % \
@@ -315,11 +308,11 @@ _messages.reset_password = "%s %s/default/user/reset_password/%s %s" % \
      T("to reset your password"))
 _messages.help_mobile_phone = T("Entering a phone number is optional, but doing so allows you to subscribe to receive SMS messages.")
 # Require Admin approval for self-registered users
-_settings.registration_requires_approval = deployment_settings.get_auth_registration_requires_approval()
+_settings.registration_requires_approval = settings.get_auth_registration_requires_approval()
 _messages.registration_pending = "Registration is still pending approval from Approver (%s) - please wait until confirmation received." % \
-    deployment_settings.get_mail_approver()
+    settings.get_mail_approver()
 _messages.registration_pending_approval = "Thank you for validating your email. Your user account is still pending for approval by the system administator (%s).You will get a notification by email when your account is activated." % \
-    deployment_settings.get_mail_approver()
+    settings.get_mail_approver()
 _settings.verify_email_next = URL(c="default", f="index")
 
 # Notify Approver of new pending user registration. Action may be required.
@@ -329,7 +322,7 @@ _messages["approve_user"] = \
 """Your action is required to approve a New User for %(system_name)s:
 %(name_format)s
 Please go to %(base_url)s/admin/user to approve this user.""" \
-% dict(system_name = deployment_settings.get_system_name(),
+% dict(system_name = settings.get_system_name(),
        name_format = \
 """%(first_name)s %(last_name)s
 %(email)s""",
@@ -339,7 +332,7 @@ _messages["new_user"] = \
 """A New User has registered for %(system_name)s:
 %(name_format)s
 No action is required.""" \
-% dict(system_name = deployment_settings.get_system_name(),
+% dict(system_name = settings.get_system_name(),
        name_format = \
 """%(first_name)s %(last_name)s
 %(email)s""")
@@ -368,12 +361,12 @@ _settings.allow_basic_login = True
 
 _settings.logout_onlogout = s3_auth_on_logout
 _settings.login_onaccept = s3_auth_on_login
-if deployment_settings.get_auth_registration_volunteer() and \
-   deployment_settings.has_module("vol"):
+if settings.get_auth_registration_volunteer() and \
+   settings.has_module("vol"):
     _settings.register_next = URL(c="vol", f="person")
 
 # Default Language for authenticated users
-_settings.table_user.language.default = deployment_settings.get_L10n_default_language()
+_settings.table_user.language.default = settings.get_L10n_default_language()
 
 # Languages available in User Profiles
 field = _settings.table_user.language
@@ -392,12 +385,7 @@ _settings.lock_keys = True
 #########
 def s3_sessions():
     """
-        Extend session to support:
-            Multiple flash classes
-            Settings
-                Debug mode
-                Security mode
-                Audit modes
+        Extend session to support multiple flash classes
     """
 
     response.error = session.error
@@ -408,27 +396,6 @@ def s3_sessions():
     session.confirmation = []
     session.information = []
     session.warning = []
-
-    # Are we running in debug mode?
-    session.s3.debug = s3.debug
-
-    # Should we use Content-Delivery Networks?
-    session.s3.cdn = deployment_settings.get_base_cdn()
-
-    # Security Policy
-    session.s3.security_policy = deployment_settings.get_security_policy()
-
-    # We Audit if either the Global or Module asks us to
-    # (ignore gracefully if module author hasn't implemented this)
-    try:
-        session.s3.audit_read = deployment_settings.get_security_audit_read() \
-            or deployment_settings.modules[request.controller].get("audit_read", False)
-        session.s3.audit_write = deployment_settings.get_security_audit_write() \
-            or deployment_settings.modules[request.controller].get("audit_write", False)
-    except:
-        # Controller doesn't link to a 'module' (e.g. appadmin)
-        session.s3.audit_read = False
-        session.s3.audit_write = False
 
     return
 
@@ -444,9 +411,9 @@ EDITOR = system_roles.EDITOR
 MAP_ADMIN = system_roles.MAP_ADMIN
 ORG_ADMIN = system_roles.ORG_ADMIN
 
-if session.s3.debug:
+if s3.debug:
     # Add the developer toolbar from modules/s3/s3utils.py
-    response.s3.toolbar = s3_dev_toolbar
+    s3.toolbar = s3_dev_toolbar
 
 ######
 # CRUD
@@ -483,9 +450,9 @@ s3.crud.submit_button = T("Save")
 #s3.crud.submit_style = "submit-button"
 s3.crud.confirm_delete = T("Do you really want to delete these records?")
 
-s3.crud.archive_not_delete = deployment_settings.get_security_archive_not_delete()
-s3.crud.navigate_away_confirm = deployment_settings.get_ui_navigate_away_confirm()
-#response.s3.navigate_away_confirm = s3.crud.navigate_away_confirm
+s3.crud.archive_not_delete = settings.get_security_archive_not_delete()
+s3.crud.navigate_away_confirm = settings.get_ui_navigate_away_confirm()
+#s3.navigate_away_confirm = s3.crud.navigate_away_confirm
 
 # Web2py Crud
 
@@ -524,18 +491,44 @@ s3mgr.ROWSPERPAGE = 20
 #######
 
 # Import menus and layouts
-from eden.menus import *
 from eden.layouts import *
+import eden.menus as default_menus
 
-# Create a Storage for menus
-menu = current.menu = Storage(main=MM(), options=None)
+S3MainMenu = default_menus.S3MainMenu
+S3OptionsMenu = default_menus.S3OptionsMenu
+
+current.menu = Storage(options=None, override={})
+if auth.permission.format in ("html"):
+    menus = "applications.%s.private.templates.%s.menus" % \
+            (appname, settings.get_theme())
+    try:
+        exec("import %s as deployment_menus" % menus)
+    except ImportError:
+        pass
+    else:
+        if "S3MainMenu" in deployment_menus.__dict__:
+            S3MainMenu = deployment_menus.S3MainMenu
+
+        if "S3OptionsMenu" in deployment_menus.__dict__:
+            S3OptionsMenu = deployment_menus.S3OptionsMenu
+
+    main = S3MainMenu.menu()
+else:
+    main = None
+
+menu = current.menu
+menu["main"] = main
+
+# Override controller menus
+# @todo: replace by current.menu.override
+s3_menu_dict = {}
 
 ##########
 # Messages
 ##########
 from gluon.storage import Messages
 s3.messages = Messages(T)
-system_name = deployment_settings.get_system_name_short()
+system_name = settings.get_system_name_short()
 s3.messages.confirmation_email_subject = T("Resource Mapping System account has been activated")
 s3.messages.confirmation_email = "%s %s. %s %s/%s/default/help\n\n%s,\n\n%s" % (T("Your request for Red Cross and Red Crescent Resource Mapping System (RMS) has been approved and you can now access the system at"),
                                                  deployment_settings.get_base_public_url(),
@@ -548,262 +541,5 @@ s3.messages.confirmation_email = "%s %s. %s %s/%s/default/help\n\n%s,\n\n%s" % (
 # Valid Extensions for Image Upload fields
 IMAGE_EXTENSIONS = ["png", "PNG", "jpg", "JPG", "jpeg", "JPEG", "gif", "GIF", "tif", "TIF", "tiff", "TIFF", "bmp", "BMP", "raw", "RAW"]
 s3.IMAGE_EXTENSIONS = IMAGE_EXTENSIONS
-
-# -----------------------------------------------------------------------------
-# List of Nations (ISO-3166-1 Country Codes)
-# @ToDo: Pull this list from the list of L0s in the database
-#  - or the same list as that is pre-populated from
-#  - don't want to have to maintain 2 sets of lists
-# @ToDo: Add Telephone codes (need to convert to Storage())
-#
-s3_list_of_nations = {
-    "AF": "Afghanistan",
-    "AX": "Åland Islands",
-    "AL": "Albania",
-    "DZ": "Algeria",
-    "AS": "American Samoa",
-    "AD": "Andorra",
-    "AO": "Angola",
-    "AI": "Anguilla",
-    "AQ": "Antarctica",
-    "AG": "Antigua and Barbuda",
-    "AR": "Argentina",
-    "AM": "Armenia",
-    "AW": "Aruba",
-    "AU": "Australia",
-    "AT": "Austria",
-    "AZ": "Azerbaijan",
-    "BS": "Bahamas",
-    "BH": "Bahrain",
-    "BD": "Bangladesh",
-    "BB": "Barbados",
-    "BY": "Belarus",
-    "BE": "Belgium",
-    "BZ": "Belize",
-    "BJ": "Benin",
-    "BM": "Bermuda",
-    "BT": "Bhutan",
-    "BO": "Bolivia, Plurinational State of",
-    "BA": "Bosnia and Herzegovina",
-    "BW": "Botswana",
-    "BV": "Bouvet Island",
-    "BR": "Brazil",
-    "IO": "British Indian Ocean Territory",
-    "BN": "Brunei Darussalam",
-    "BG": "Bulgaria",
-    "BF": "Burkina Faso",
-    "BI": "Burundi",
-    "KH": "Cambodia",
-    "CM": "Cameroon",
-    "CA": "Canada",
-    "CV": "Cape Verde",
-    "KY": "Cayman Islands",
-    "CF": "Central African Republic",
-    "TD": "Chad",
-    "CL": "Chile",
-    "CN": "China",
-    "CX": "Christmas Island",
-    "CC": "Cocos (Keeling) Islands",
-    "CO": "Colombia",
-    "KM": "Comoros",
-    "CG": "Congo",
-    "CD": "Congo, The Democratic Republic of the",
-    "CK": "Cook Islands",
-    "CR": "Costa Rica",
-    "CI": "Côte d'Ivoire",
-    "HR": "Croatia",
-    "CU": "Cuba",
-    "CY": "Cyprus",
-    "CZ": "Czech Republic",
-    "DK": "Denmark",
-    "DJ": "Djibouti",
-    "DM": "Dominica",
-    "DO": "Dominican Republic",
-    "EC": "Ecuador",
-    "EG": "Egypt",
-    "SV": "El Salvador",
-    "GQ": "Equatorial Guinea",
-    "ER": "Eritrea",
-    "EE": "Estonia",
-    "ET": "Ethiopia",
-    "FK": "Falkland Islands (Malvinas)",
-    "FO": "Faroe Islands",
-    "FJ": "Fiji",
-    "FI": "Finland",
-    "FR": "France",
-    "GF": "French Guiana",
-    "PF": "French Polynesia",
-    "TF": "French Southern Territories",
-    "GA": "Gabon",
-    "GM": "Gambia",
-    "GE": "Georgia",
-    "DE": "Germany",
-    "GH": "Ghana",
-    "GI": "Gibraltar",
-    "GR": "Greece",
-    "GL": "Greenland",
-    "GD": "Grenada",
-    "GP": "Guadeloupe",
-    "GU": "Guam",
-    "GT": "Guatemala",
-    "GG": "Guernsey",
-    "GN": "Guinea",
-    "GW": "Guinea-Bissau",
-    "GY": "Guyana",
-    "HT": "Haiti",
-    "HM": "Heard Island and McDonald Islands",
-    "VA": "Holy See (Vatican City State)",
-    "HN": "Honduras",
-    "HK": "Hong Kong",
-    "HU": "Hungary",
-    "IS": "Iceland",
-    "IN": "India",
-    "ID": "Indonesia",
-    "IR": "Iran, Islamic Republic of",
-    "IQ": "Iraq",
-    "IE": "Ireland",
-    "IM": "Isle of man",
-    "IL": "Israel",
-    "IT": "Italy",
-    "JM": "Jamaica",
-    "JP": "Japan",
-    "JE": "Jersey",
-    "JO": "Jordan",
-    "KZ": "Kazakhstan",
-    "KE": "Kenya",
-    "KI": "Kiribati",
-    "KP": "Korea, Democratic People's Republic of",
-    "KR": "Korea, Republic of",
-    "KW": "Kuwait",
-    "KG": "Kyrgyzstan",
-    "LA": "Lao People's Democratic Republic",
-    "LV": "Latvia",
-    "LB": "Lebanon",
-    "LS": "Lesotho",
-    "LR": "Liberia",
-    "LY": "Libyan Arab Jamahiriya",
-    "LI": "Liechtenstein",
-    "LT": "Lithuania",
-    "LU": "Luxembourg",
-    "MO": "Macao",
-    "MK": "Macedonia, the former Yugoslav Republic of",
-    "MG": "Madagascar",
-    "MW": "Malawi",
-    "MY": "Malaysia",
-    "MV": "Maldives",
-    "ML": "Mali",
-    "MT": "Malta",
-    "MH": "Marshall Islands",
-    "MQ": "Martinique",
-    "MR": "Mauritania",
-    "MU": "Mauritius",
-    "YT": "Mayotte",
-    "MX": "Mexico",
-    "FM": "Micronesia, Federated States of",
-    "MD": "Moldova, Republic of",
-    "MC": "Monaco",
-    "MN": "Mongolia",
-    "ME": "Montenegro",
-    "MS": "Montserrat",
-    "MA": "Morocco",
-    "MZ": "Mozambique",
-    "MM": "Myanmar",
-    "NA": "Namibia",
-    "NR": "Nauru",
-    "NP": "Nepal",
-    "NL": "Netherlands",
-    "AN": "Netherlands Antilles",
-    "NC": "New Caledonia",
-    "NZ": "New Zealand",
-    "NI": "Nicaragua",
-    "NE": "Niger",
-    "NG": "Nigeria",
-    "NU": "Niue",
-    "NF": "Norfolk Island",
-    "MP": "Northern Mariana Islands",
-    "NO": "Norway",
-    "OM": "Oman",
-    "PK": "Pakistan",
-    "PW": "Palau",
-    "PS": "Palestinian Territory, occupied",
-    "PA": "Panama",
-    "PG": "Papua New Guinea",
-    "PY": "Paraguay",
-    "PE": "Peru",
-    "PH": "Philippines",
-    "PN": "Pitcairn",
-    "PL": "Poland",
-    "PT": "Portugal",
-    "PR": "Puerto Rico",
-    "QA": "Qatar",
-    "RE": "Réunion",
-    "RO": "Romania",
-    "RU": "Russian Federation",
-    "RW": "Rwanda",
-    "BL": "Saint Barthélemy",
-    "SH": "Saint Helena, Ascension and Tristan da Cunha",
-    "KN": "Saint Kitts and Nevis",
-    "LC": "Saint Lucia",
-    "MF": "Saint Martin",
-    "PM": "Saint Pierre and Miquelon",
-    "VC": "Saint Vincent and the Grenadines",
-    "WS": "Samoa",
-    "SM": "San Marino",
-    "ST": "Sao Tome and Principe",
-    "SA": "Saudi Arabia",
-    "SN": "Senegal",
-    "RS": "Serbia",
-    "SC": "Seychelles",
-    "SL": "Sierra Leone",
-    "SG": "Singapore",
-    "SK": "Slovakia",
-    "SI": "Slovenia",
-    "SB": "Solomon Islands",
-    "SO": "Somalia",
-    "ZA": "South Africa",
-    "GS": "South Georgia and the South Sandwich Islands",
-    "ES": "Spain",
-    "LK": "Sri Lanka",
-    "SD": "Sudan",
-    "SR": "Suriname",
-    "SJ": "Svalbard and Jan Mayen",
-    "SZ": "Swaziland",
-    "SE": "Sweden",
-    "CH": "Switzerland",
-    "SY": "Syrian Arab Republic",
-    "TW": "Taiwan, Province of China",
-    "TJ": "Tajikistan",
-    "TZ": "Tanzania, United Republic of",
-    "TH": "Thailand",
-    "TL": "Timor-Leste",
-    "TG": "Togo",
-    "TK": "Tokelau",
-    "TO": "Tonga",
-    "TT": "Trinidad and Tobago",
-    "TN": "Tunisia",
-    "TR": "Turkey",
-    "TM": "Turkmenistan",
-    "TC": "Turks and Caicos Islands",
-    "TV": "Tuvalu",
-    "UG": "Uganda",
-    "UA": "Ukraine",
-    "AE": "United Arab Emirates",
-    "GB": "United Kingdom",
-    "US": "United States",
-    "UM": "United States Minor Outlying Islands",
-    "UY": "Uruguay",
-    "UZ": "Uzbekistan",
-    "VU": "Vanuatu",
-    "VE": "Venezuela, Bolivarian Republic of",
-    "VN": "Vietnam",
-    "VG": "Virgin Islands, british",
-    "VI": "Virgin Islands, U.S.",
-    "WF": "Wallis and Futuna",
-    "EH": "Western Sahara",
-    "YE": "Yemen",
-    "ZM": "Zambia",
-    "ZW": "Zimbabwe",
-    "XX": "Unknown"
-}
 
 # END =========================================================================

@@ -337,6 +337,7 @@ class S3IRSModel(S3Model):
             title_update = T("Edit Incident Report"),
             title_upload = T("Import Incident Reports"),
             title_search = T("Search Incident Reports"),
+            title_map = T("Map of Incident Reports"),
             subtitle_create = T("Add New Incident Report"),
             label_list_button = T("List Incident Reports"),
             label_create_button = ADD_INC_REPORT,
@@ -739,7 +740,6 @@ class S3IRSModel(S3Model):
             s3db = current.s3db
             request = current.request
             response = current.response
-            session = current.session
             s3 = response.s3
             now = request.utcnow
 
@@ -750,7 +750,7 @@ class S3IRSModel(S3Model):
             s3.scripts.append("/%s/static/scripts/simile/timeline/timeline-api.js" % request.application)
 
             # Add our control script
-            if session.s3.debug:
+            if s3.debug:
                 s3.scripts.append("/%s/static/scripts/S3/s3.timeline.js" % request.application)
             else:
                 s3.scripts.append("/%s/static/scripts/S3/s3.timeline.min.js" % request.application)

@@ -3,6 +3,7 @@
 """
     Volunteer Management
 """
+
 module = request.controller
 resourcename = request.function
 
@@ -42,7 +43,7 @@ def human_resource():
                            action=s3db.hrm_service_record
                           )
 
-    
+
     _type = table.type
     _type.default = 2
     s3.filter = (_type == 2)
@@ -58,20 +59,22 @@ def human_resource():
                    "person_id",
                    "job_role_id",
                    "organisation_id",
-                   "location_id",
-                   (T("Email"), "email"),
-                   (deployment_settings.get_ui_label_mobile_phone(), "phone"),
-                   (T("Trainings"), "course"),
-                   (T("Certificates"), "certificate")
                   ]
-    if deployment_settings.get_hrm_experience() == "programme":
+    append = list_fields.append
+    if settings.get_hrm_experience() == "programme":
         # Add Programme Virtual Fields
         table.virtualfields.append(s3db.hrm_programme_virtual_fields())
         # Add VF to List Fields
-        list_fields.append((T("Programme"), "programme"))
-        list_fields.append((T("Active?"), "active"))
+        append((T("Status"), "active"))
+    append("location_id")
+    append((T("Email"), "email"))
+    append((deployment_settings.get_ui_label_mobile_phone(), "phone"))
+    append((T("Trainings"), "course"))
+    append((T("Certificates"), "certificate"))
+    if settings.get_hrm_experience() == "programme":
+        append((T("Programme"), "programme"))
     else:
-        list_fields.append("status")
+        append("status")
     s3mgr.configure(tablename,
                     list_fields = list_fields)
     table.job_role_id.label = T("Volunteer Role")
@@ -79,7 +82,7 @@ def human_resource():
     human_resource_search = s3mgr.model.get_config(tablename,
                                                    "search_method")
     # Facility
-    human_resource_search._S3Search__advanced.pop(5)
+    human_resource_search.advanced.pop(5)
     s3mgr.configure(tablename,
                     search_method = human_resource_search)
 
@@ -126,8 +129,6 @@ def human_resource():
                                    vars = {"hrm_id": "[id]"}),
                         "_class": "action-btn",
                         "label": str(T("Send Message"))})
-            if isinstance(output, dict):
-                output["dashboard"] = s3db.hrm_dashboard("volunteer")
         elif r.representation == "plain" and \
              r.method !="search":
             # Map Popups
@@ -166,11 +167,11 @@ def volunteer():
                    "person_id",
                    "job_role_id",
                    "organisation_id",
+                   (settings.get_ui_label_mobile_phone(), "phone"),
                    "location_id",
-                   (T("Email"), "email"),
-                   (deployment_settings.get_ui_label_mobile_phone(), "phone"),
                    (T("Trainings"), "course"),
-                   (T("Certificates"), "certificate")
+                   (T("Certificates"), "certificate"),
+                   (T("Email"), "email"),
                   ]
     report_options = s3mgr.model.get_config(tablename,
                                             "report_options")
@@ -178,13 +179,13 @@ def volunteer():
     human_resource_search = s3mgr.model.get_config(tablename,
                                                    "search_method")
     # Remove Facility
-    human_resource_search._S3Search__advanced.pop(5)
-    if deployment_settings.get_hrm_experience() == "programme":
+    human_resource_search.advanced.pop(5)
+    if settings.get_hrm_experience() == "programme":
         # Add Programme Virtual Fields
         table.virtualfields.append(s3db.hrm_programme_virtual_fields())
         # Add VF to List Fields
-        list_fields.append((T("Programme"), "programme"))
-        list_fields.append((T("Active?"), "active"))
+        list_fields.insert(4, (T("Active?"), "active"))
+        list_fields.insert(6, (T("Programme"), "programme"))
         # Add VF to Report Options
         report_fields = report_options.rows
         report_fields.append((T("Programme"), "programme"))
@@ -194,7 +195,7 @@ def volunteer():
         report_options.facts = report_fields
         # Add VF to the Search Filters
         # Remove deprecated Active/Obsolete
-        human_resource_search._S3Search__advanced.pop(1)
+        human_resource_search.advanced.pop(1)
         table.status.readable = False
         table.status.writable = False
         widget = s3base.S3SearchOptionsWidget(
@@ -208,7 +209,7 @@ def volunteer():
                                 }
                           ),
         search_widget = ("human_resource_search_active", widget[0])
-        human_resource_search._S3Search__advanced.insert(1, search_widget)
+        human_resource_search.advanced.insert(1, search_widget)
         def hrm_programme_opts():
             """
                 Provide the options for the HRM programme search filter
@@ -234,7 +235,7 @@ def volunteer():
                             options = hrm_programme_opts
                           ),
         search_widget = ("human_resource_search_programme", widget[0])
-        human_resource_search._S3Search__advanced.insert(3, search_widget)
+        human_resource_search.advanced.insert(3, search_widget)
     else:
         list_fields.append("status")
     s3.crud_strings[tablename] = s3.crud_strings["hrm_volunteer"]
@@ -288,8 +289,6 @@ def volunteer():
                             "_class": "action-btn",
                             "label": str(T("Send Message"))
                        })
-            if isinstance(output, dict):
-                output["dashboard"] = s3db.hrm_dashboard("volunteer")
         elif r.representation == "plain" and \
              r.method !="search":
             # Map Popups
@@ -590,8 +589,6 @@ def person():
                                       _href=URL(c="asset", f="asset"),
                                       _id="add-btn",
                                       _class="action-btn")
-            if isinstance(output, dict):
-                output["dashboard"] = s3db.hrm_dashboard("volunteer")
 
         return output
     s3.postp = postp
@@ -739,13 +736,6 @@ def job_role():
         return True
     s3.prep = prep
 
-    # Post-process
-    def postp(r, output):
-        if r.interactive:
-            output["dashboard"] = s3db.hrm_dashboard("volunteer")
-        return output
-    s3.postp = postp
-
     output = s3_rest_controller("hrm", resourcename)
     return output
 
@@ -760,13 +750,6 @@ def skill():
         session.error = T("Access denied")
         redirect(URL(f="index"))
 
-    # Post-process
-    def postp(r, output):
-        if r.interactive:
-            output["dashboard"] = s3db.hrm_dashboard("volunteer")
-        return output
-    s3.postp = postp
-
     output = s3_rest_controller("hrm", resourcename)
     return output
 
@@ -779,13 +762,6 @@ def skill_type():
         session.error = T("Access denied")
         redirect(URL(f="index"))
 
-    # Post-process
-    def postp(r, output):
-        if r.interactive:
-            output["dashboard"] = s3db.hrm_dashboard("volunteer")
-        return output
-    s3.postp = postp
-
     output = s3_rest_controller("hrm", resourcename)
     return output
 
@@ -797,13 +773,6 @@ def competency_rating():
     if mode is not None:
         session.error = T("Access denied")
         redirect(URL(f="index"))
-
-    # Post-process
-    def postp(r, output):
-        if r.interactive:
-            output["dashboard"] = s3db.hrm_dashboard("volunteer")
-        return output
-    s3.postp = postp
 
     output = s3_rest_controller("hrm", resourcename)
     return output
@@ -829,13 +798,6 @@ def course():
         session.error = T("Access denied")
         redirect(URL(f="index"))
 
-    # Post-process
-    def postp(r, output):
-        if r.interactive:
-            output["dashboard"] = s3db.hrm_dashboard("volunteer")
-        return output
-    s3.postp = postp
-
     output = s3_rest_controller("hrm", resourcename,
                                 rheader=s3db.hrm_rheader)
     return output
@@ -848,13 +810,6 @@ def course_certificate():
     if mode is not None:
         session.error = T("Access denied")
         redirect(URL(f="index"))
-
-    # Post-process
-    def postp(r, output):
-        if r.interactive:
-            output["dashboard"] = s3db.hrm_dashboard("volunteer")
-        return output
-    s3.postp = postp
 
     output = s3_rest_controller("hrm", resourcename)
     return output
@@ -870,13 +825,6 @@ def certificate():
         return True
     s3.prep = prep
 
-    # Post-process
-    def postp(r, output):
-        if r.interactive:
-            output["dashboard"] = s3db.hrm_dashboard("volunteer")
-        return output
-    s3.postp = postp
-
     output = s3_rest_controller("hrm", resourcename,
                                 rheader=s3db.hrm_rheader)
     return output
@@ -890,13 +838,6 @@ def certificate_skill():
         session.error = T("Access denied")
         redirect(URL(f="index"))
 
-    # Post-process
-    def postp(r, output):
-        if r.interactive:
-            output["dashboard"] = s3db.hrm_dashboard("volunteer")
-        return output
-    s3.postp = postp
-
     output = s3_rest_controller("hrm", resourcename)
     return output
 
@@ -904,13 +845,13 @@ def certificate_skill():
 def training():
     """ Training Controller """
 
-    return s3db.hrm_training_controller(dashboard=s3db.hrm_dashboard("volunteer"))
+    return s3db.hrm_training_controller()
 
 # -----------------------------------------------------------------------------
 def training_event():
     """ Training Events Controller """
 
-    return s3db.hrm_training_event_controller(dashboard=s3db.hrm_dashboard("volunteer"))
+    return s3db.hrm_training_event_controller()
 
 # =============================================================================
 def skill_competencies():
@@ -959,13 +900,6 @@ def programme():
         session.error = T("Access denied")
         redirect(URL(f="index"))
 
-    # Post-process
-    def postp(r, output):
-        if r.interactive:
-            output["dashboard"] = s3db.hrm_dashboard("volunteer")
-        return output
-    s3.postp = postp
-
     output = s3_rest_controller("hrm", resourcename,
                                 rheader=s3db.hrm_rheader)
     return output
@@ -981,13 +915,6 @@ def programme_hours():
     if mode is not None:
         session.error = T("Access denied")
         redirect(URL(f="index"))
-
-    # Post-process
-    def postp(r, output):
-        if r.interactive:
-            output["dashboard"] = s3db.hrm_dashboard("volunteer")
-        return output
-    s3.postp = postp
 
     output = s3_rest_controller("hrm", resourcename)
     return output

@@ -24,17 +24,11 @@ def index():
 def sector():
     """ RESTful CRUD controller """
 
-    #tablename = "%s_%s" % (module, resourcename)
-    #table = db[tablename]
-
     return s3_rest_controller()
 
 # -----------------------------------------------------------------------------
 def subsector():
     """ RESTful CRUD controller """
-
-    #tablename = "%s_%s" % (module, resourcename)
-    #table = db[tablename]
 
     return s3_rest_controller()
 
@@ -78,11 +72,17 @@ def facility_type():
     return s3_rest_controller()
 
 # =============================================================================
+def organisation_type():
+    """ RESTful CRUD controller """
+
+    return s3_rest_controller()
+
+# -----------------------------------------------------------------------------
 def organisation():
     """ RESTful CRUD controller """
 
     # Defined in the Model for use from Multiple Controllers for unified menus
-    return s3db.org_organisation_controller(dashboard=s3db.hrm_dashboard("staff"))
+    return s3db.org_organisation_controller()
 
 # -----------------------------------------------------------------------------
 def organisation_list_represent(l):
@@ -110,7 +110,7 @@ def office():
     """ RESTful CRUD controller """
 
     # Defined in the Model for use from Multiple Controllers for unified menus
-    return s3db.org_office_controller(dashboard=s3db.hrm_dashboard("staff"))
+    return s3db.org_office_controller()
 
 # =============================================================================
 def person():
