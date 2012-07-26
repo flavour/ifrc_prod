@@ -27,13 +27,13 @@ def index():
     response.title = module_name
     return dict(module_name=module_name)
 
-# =============================================================================
+# -----------------------------------------------------------------------------
 def office():
     """
         Required to ensure the tabs work from req_match
     """
     return warehouse()
-
+# -----------------------------------------------------------------------------
 def warehouse():
     """
         RESTful CRUD controller
@@ -104,15 +104,8 @@ def warehouse():
     def prep(r):
         if r.tablename == "org_office": # and r.interactive:
 
-            if r.method != "read":
-                # Don't want to see in Create forms
-                # inc list_create (list_fields over-rides)
-                r.table.obsolete.writable = False
-                r.table.obsolete.readable = False
-                #s3base.s3_address_hide(table)
-                # Process Base Location
-                #s3db.configure(table._tablename,
-                #                onaccept=address_onaccept)
+            if r.id:
+                table.obsolete.readable = table.obsolete.writable = True
 
             if r.component:
                 if r.component.name == "inv_item":
@@ -177,7 +170,7 @@ def warehouse():
     csv_stylesheet = "%s.xsl" % csv_template
 
     output = s3_rest_controller(module, resourcename,
-                                rheader=s3db.inv_warehouse_rheader,
+                                rheader=s3db.org_rheader,
                                 csv_template = csv_template,
                                 csv_stylesheet = csv_stylesheet,
                                 # Extra fields for CSV uploads:
@@ -188,58 +181,52 @@ def warehouse():
     if "add_btn" in output:
         del output["add_btn"]
     return output
-
-# =============================================================================
-def incoming():
-    """ Incoming Shipments """
-
-    # Defined in the Model for use from Multiple Controllers for unified menus
-    return inv_incoming()
-
-# =============================================================================
-def req_match():
-    """ Match Requests """
-
-    return s3db.req_match()
-
+# -----------------------------------------------------------------------------
+def supplier():
+    current.request.get_vars["organisation.organisation_type_id$name"] = "Supplier"
+    return s3db.org_organisation_controller()
 # =============================================================================
 def inv_item():
     """ REST Controller """
 
-    table = s3db.inv_inv_item
-    s3.crud_strings["inv_inv_item"].msg_list_empty = T("No Stock currently registered")
+    tablename = "inv_inv_item"
+    # Load model to be able to override CRUD string(s)
+    table = s3db[tablename]
+    s3.crud_strings[tablename].msg_list_empty = T("No Stock currently registered")
 
     if "report" in request.get_vars and \
        request.get_vars.report == "mon":
-            s3.crud_strings["inv_inv_item"].update(dict(
+            s3.crud_strings[tablename].update(dict(
                 title_list = T("Monetization Report"),
                 subtitle_list = T("Monetization Details"),
                 msg_list_empty = T("No Stock currently registered"),
                 title_search = T("Monetization Report"),
               ))
-            s3db.configure("inv_inv_item",
-                            list_fields = ["id",
-                                           (T("Donor"), "supply_org_id"),
-                                           (T("Items/Description"), "item_id"),
-                                           (T("Quantity"), "quantity"),
-                                           (T("Unit"), "item_pack_id"),
-                                           (T("Unit Value"), "pack_value"),
-                                           (T("Total Value"), "total_value"),
-                                           (T("Remarks"), "comments"),
-                                           "status",
-                                           ]
-                            )
+            s3db.configure(tablename,
+                           list_fields = ["id",
+                                          (T("Donor"), "supply_org_id"),
+                                          (T("Items/Description"), "item_id"),
+                                          (T("Quantity"), "quantity"),
+                                          (T("Unit"), "item_pack_id"),
+                                          (T("Unit Value"), "pack_value"),
+                                          (T("Total Value"), "total_value"),
+                                          (T("Remarks"), "comments"),
+                                          "status",
+                                          ]
+                           )
     else:
-        s3db.configure("inv_inv_item",
-                        list_fields = ["id",
-                                       "site_id",
-                                       "item_id",
-                                       (T("Item Code"), "item_code"),
-                                       (T("Category"), "item_category"),
-                                       "quantity",
-                                       "pack_value",
-                                       ]
-                        )
+        s3db.configure(tablename,
+                       insertable=False,
+                       list_fields = ["id",
+                                      "site_id",
+                                      "item_id",
+                                      (T("Item Code"), "item_code"),
+                                      (T("Category"), "item_category"),
+                                      "quantity",
+                                      "pack_value",
+                                      #(T("Total Value"), "total_value"),
+                                      ]
+                       )
 
     # Upload for configuration (add replace option)
     s3.importerPrep = lambda: dict(ReplaceOption=T("Remove existing data before import"))
@@ -308,10 +295,10 @@ def inv_item():
     if len(request.args) > 1 and request.args[1] == "track_item":
         # remove CRUD generated buttons in the tabs
         s3db.configure("inv_track_item",
-                        create=False,
-                        listadd=False,
-                        editable=False,
-                        deletable=False,
+                       create=False,
+                       listadd=False,
+                       editable=False,
+                       deletable=False,
                        )
 
     output = s3_rest_controller(rheader=s3db.inv_warehouse_rheader,
@@ -505,7 +492,7 @@ def send():
                                "return_quantity",
                                "owner_org_id",
                                "supply_org_id",
-                               "item_status",
+                               "inv_item_status",
                                "comments",
                               ]
             elif record.status == SHIP_STATUS_RETURNING:
@@ -520,7 +507,7 @@ def send():
                                "bin",
                                "owner_org_id",
                                "supply_org_id",
-                               "item_status",
+                               "inv_item_status",
                               ]
             else:
                 list_fields = ["id",
@@ -533,7 +520,7 @@ def send():
                                "bin",
                                "owner_org_id",
                                "supply_org_id",
-                               "item_status",
+                               "inv_item_status",
                               ]
             s3db.configure("inv_track_item",
                             list_fields=list_fields,
@@ -1546,9 +1533,11 @@ def adj():
                                              "adj_item",
                                              adj_item_id,
                                              "update"]))
-                    elif "site" in request.vars:
-                        table.site_id.writable = True
-                        table.site_id.default = request.vars.site
+                    else:
+                        table.comments.default = "Complete Stock Adjustment"
+                        if "site" in request.vars:
+                            table.site_id.writable = True
+                            table.site_id.default = request.vars.site
         return True
     s3.prep = prep
 
@@ -1673,7 +1662,7 @@ def recv_item_json():
     response.headers["Content-Type"] = "application/json"
     return json_str
 
-# =============================================================================
+# -----------------------------------------------------------------------------
 def send_item_json():
     """
     """
@@ -1703,12 +1692,25 @@ def send_item_json():
     response.headers["Content-Type"] = "application/json"
     return json_str
 
-#==============================================================================
+# -----------------------------------------------------------------------------
 def kit():
     return s3_rest_controller()
 
-#==============================================================================
+# -----------------------------------------------------------------------------
 def facility():
-    return s3_rest_controller("org")
+    return s3_rest_controller("org", rheader = s3db.org_facility_rheader)
+
+# -----------------------------------------------------------------------------
+def incoming():
+    """ Incoming Shipments """
+
+    # Defined in the Model for use from Multiple Controllers for unified menus
+    return inv_incoming()
+
+# -----------------------------------------------------------------------------
+def req_match():
+    """ Match Requests """
+
+    return s3db.req_match()
 
 # END =========================================================================
