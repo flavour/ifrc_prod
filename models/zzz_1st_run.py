@@ -28,9 +28,7 @@ if len(pop_list) > 0:
     acl = auth.permission
     sysroles = auth.S3_SYSTEM_ROLES
     create_role = auth.s3_create_role
-    update_acls = auth.s3_update_acls
-
-    default_oacl = acl.READ|acl.UPDATE
+    #update_acls = auth.s3_update_acls
 
     # Do not remove or change order of these 5 definitions (System Roles):
     create_role("Administrator",
@@ -38,36 +36,10 @@ if len(pop_list) > 0:
                 uid=sysroles.ADMIN,
                 system=True, protected=True)
 
-    authenticated = create_role("Authenticated",
-                                "Authenticated - all logged-in users",
-                                # Authenticated users can see the Map
-                                dict(c="gis", uacl=acl.ALL, oacl=acl.ALL),
-                                # Note the owning role for locations is set to Authenticated
-                                # by default, so this controls the access that logged in
-                                # users have. (In general, tables do not have a default
-                                # owning role.)
-                                dict(c="gis", f="location", uacl=acl.READ|acl.CREATE, oacl=acl.ALL),
-                                # Authenticated users can only see/edit their own PR records
-                                dict(c="pr", uacl=acl.NONE, oacl=acl.READ|acl.UPDATE),
-                                dict(t="pr_person", uacl=acl.NONE, oacl=acl.READ|acl.UPDATE),
-                                # But need to be able to add/edit addresses
-                                dict(c="pr", f="person", uacl=acl.CREATE, oacl=acl.READ|acl.UPDATE),
-                                # And access the Autocompletes
-                                dict(c="pr", f="person_search", uacl=acl.READ),
-                                dict(c="pr", f="pentity", uacl=acl.READ),
-                                dict(c="msg", f="search", uacl=acl.READ),
-                                # Authenticated  users can see the Supply Catalogue
-                                dict(c="supply", uacl=acl.READ, oacl=default_oacl),
-                                # HRM access is controlled to just HR Staff, except for:
-                                # Access to your own record
-                                # - requires security policy 4+
-                                dict(c="hrm", uacl=acl.NONE, oacl=acl.READ|acl.UPDATE),
-                                dict(c="hrm", f="staff", uacl=acl.NONE, oacl=acl.NONE),
-                                dict(c="hrm", f="volunteer", uacl=acl.NONE, oacl=acl.NONE),
-                                dict(c="hrm", f="person", uacl=acl.NONE, oacl=acl.READ|acl.UPDATE),
-                                uid=sysroles.AUTHENTICATED,
-                                protected=True)
-
+    create_role("Authenticated",
+                "Authenticated - all logged-in users",
+                uid=sysroles.AUTHENTICATED,
+                protected=True)
 
     create_role("Anonymous",
                 "Unauthenticated users",
@@ -110,7 +82,8 @@ if len(pop_list) > 0:
     # Configure Scheduled Tasks
     #
 
-    if settings.has_module("msg"):
+    has_module = settings.has_module
+    if has_module("msg"):
 
         # Send Messages from Outbox
         # SMS every minute
@@ -167,9 +140,9 @@ if len(pop_list) > 0:
 
     # GIS
     # L0 Countries
-    resource = s3mgr.define_resource("gis", "location")
+    resource = s3base.S3Resource("gis_location")
     stylesheet = os.path.join(request.folder, "static", "formats", "s3csv", "gis", "location.xsl")
-    import_file = os.path.join(request.folder, "private", "templates", "default", "countries.csv")
+    import_file = os.path.join(request.folder, "private", "templates", "locations", "countries.csv")
     File = open(import_file, "r")
     resource.import_xml(File, format="csv", stylesheet=stylesheet)
     db(db.gis_location.level == "L0").update(owned_by_group=map_admin)
@@ -181,7 +154,7 @@ if len(pop_list) > 0:
     db.executesql("CREATE INDEX %s__idx on %s(%s);" % (field, tablename, field))
 
     # Messaging Module
-    if settings.has_module("msg"):
+    if has_module("msg"):
         # To read inbound email, set username (email address), password, etc.
         # here. Insert multiple records for multiple email sources.
         db.msg_inbound_email_settings.insert(server = "imap.gmail.com",
@@ -191,7 +164,7 @@ if len(pop_list) > 0:
                                              username = "example-username",
                                              password = "password",
                                              delete_from_server = False
-                                            )
+                                             )
         # Need entries for the Settings/1/Update URLs to work
         db.msg_setting.insert( outgoing_sms_handler = "WEB_API" )
         db.msg_modem_settings.insert( modem_baud = 115200 )
@@ -201,15 +174,19 @@ if len(pop_list) > 0:
         db.msg_twitter_settings.insert( pin = "" )
 
     # Budget Module
-    if settings.has_module("budget"):
+    if has_module("budget"):
         db.budget_parameter.insert() # Defaults are fine
 
     # Climate Module
-    if settings.has_module("climate"):
+    if has_module("climate"):
         s3db.climate_first_run()
 
+    # CAP module
+    if has_module("cap"):
+        s3db.cap_first_run()
+
     # Incident Reporting System
-    if settings.has_module("irs"):
+    if has_module("irs"):
         # Categories visible to ends-users by default
         table = db.irs_icategory
         table.insert(code = "flood")
@@ -221,7 +198,7 @@ if len(pop_list) > 0:
         table.insert(code = "other.powerFailure")
 
     # Supply Module
-    if settings.has_module("supply"):
+    if has_module("supply"):
         db.supply_catalog.insert(name = settings.get_supply_catalog_default() )
 
     # Ensure DB population committed when running through shell
@@ -242,8 +219,7 @@ if len(pop_list) > 0:
 
     # Additional settings for user table imports:
     s3db.configure("auth_user",
-                    onaccept = lambda form: \
-                        auth.s3_link_to_person(user=form.vars))
+                   onaccept = lambda form: auth.s3_approve_user(form.vars))
     s3db.add_component("auth_membership", auth_user="user_id")
 
     # Allow population via shell scripts
@@ -368,22 +344,42 @@ if len(pop_list) > 0:
         try:
             # Python-2.7
             duration = '{:.2f}'.format(duration.total_seconds()/60)
-            print >> sys.stdout, "Pre-populate completed in %s mins" % duration
+            print >> sys.stdout, "Pre-populate task completed in %s mins" % duration
         except AttributeError:
             # older Python
-            print >> sys.stdout, "Pre-populate completed in %s" % duration
+            print >> sys.stdout, "Pre-populate task completed in %s" % duration
         bi.resultList = []
-
-    grandTotalEnd = datetime.datetime.now()
-    duration = grandTotalEnd - grandTotalStart
-    print >> sys.stdout, "Pre-populate completed in %s" % (duration)
     for errorLine in bi.errorList:
         print >> sys.stderr, errorLine
+
     # Restore table protection
     s3mgr.PROTECTED = protected
 
+    # Update stats_aggregate (disabled during prepop)
+    if has_module("stats"):
+        start = datetime.datetime.now()
+        s3db.stats_rebuild_aggregates()
+        end = datetime.datetime.now()
+        print >> sys.stdout, "Statistics data aggregation completed in %s" % (end - start)
+
     # Restore Auth
     auth.override = False
+
+    # Update Location Tree (disabled during prepop)
+    start = datetime.datetime.now()
+    gis.update_location_tree()
+    end = datetime.datetime.now()
+    print >> sys.stdout, "Location Tree update completed in %s" % (end - start)
+
+    grandTotalEnd = datetime.datetime.now()
+    duration = grandTotalEnd - grandTotalStart
+    try:
+        # Python-2.7
+        duration = '{:.2f}'.format(duration.total_seconds()/60)
+        print >> sys.stdout, "Pre-populate completed in %s mins" % duration
+    except AttributeError:
+        # older Python
+        print >> sys.stdout, "Pre-populate completed in %s" % duration
 
     # Restore view
     response.view = "default/index.html"

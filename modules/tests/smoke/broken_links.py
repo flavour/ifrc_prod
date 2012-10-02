@@ -38,7 +38,8 @@ class BrokenLinkTest(Web2UnitTest):
         self.include_ignore = ("_language=",
                                "logout",
                                "appadmin",
-                               "admin"
+                               "admin",
+                               "delete",
                               )
         # tuple of strings that should be removed from the URL before storing
         # Typically this will be some variables passed in via the URL 
@@ -161,8 +162,13 @@ class BrokenLinkTest(Web2UnitTest):
             try:
                 if open_novisit:
                     self.b._journey("open_novisit", visited_url)
+                    http_code = self.b.get_code()
+                    if http_code != 200: # an error situation
+                        self.b.go(visited_url)
+                        http_code = self.b.get_code()
                 else:
                     self.b.go(visited_url)
+                    http_code = self.b.get_code()
             except Exception as e:
                 import traceback
                 print traceback.format_exc()
@@ -172,6 +178,8 @@ class BrokenLinkTest(Web2UnitTest):
             if http_code != 200:
                 url = "<a href=%s target=\"_blank\">URL</a>" % (visited_url)
                 self.brokenLinks[index_url] = (http_code,url)
+            elif open_novisit:
+                continue
             links = []
             try:
                 if self.b._browser.viewing_html():

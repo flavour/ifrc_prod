@@ -31,6 +31,29 @@ def index():
     #return dict(module_name=module_name)
 
 # =============================================================================
+def inline():
+    """ Test controller for inline link tables """
+
+    from s3.s3forms import S3SQLCustomForm, S3SQLInlineComponent
+
+    crud_form = S3SQLCustomForm(
+                    "name",
+                    # Project Organisations
+                    S3SQLInlineComponent(
+                        "organisation",
+                        label=T("Participating Organisations"),
+                        fields=["organisation_id",
+                                "role",
+                                "amount"],
+                    ),
+                )
+
+    s3db.configure("project_project", crud_form=crud_form)
+
+    return s3_rest_controller("project", "project")
+
+
+# =============================================================================
 def create():
     """ Redirect to project/create """
     redirect(URL(f="project", args="create"))
@@ -53,9 +76,10 @@ def project():
         def postp(r, output):
             if r.interactive:
                 if not r.component:
-                    read_url = URL(f="task", args="search",
+                    # @ToDo: Fix the filtering in project_task_controller()
+                    read_url = URL(f="task", #args="search",
                                    vars={"project":"[id]"})
-                    update_url = URL(f="task", args="search",
+                    update_url = URL(f="task", #args="search",
                                      vars={"project":"[id]"})
                     s3mgr.crud.action_buttons(r, deletable=False,
                                               read_url=read_url,
@@ -77,9 +101,15 @@ def project():
 
     # Pre-process
     def prep(r):
+        # Location Filter
+        s3db.gis_location_filter(r)
+
         if r.interactive:
             if not r.component:
-                if not r.id and r.function == "index":
+                if r.id:
+                    r.table.human_resource_id.represent = lambda id: \
+                        s3db.hrm_human_resource_represent(id, show_link=True)
+                elif r.function == "index":
                     r.method = "search"
                     # If just a few Projects, then a List is sufficient
                     #r.method = "list"
@@ -130,24 +160,26 @@ def project():
                                   filter_opts=[r.id])
                                 )
                 elif r.component_name == "human_resource":
-                    from eden.hrm import hrm_human_resource_represent
-
                     # We can pass the human resource type filter in the URL
                     group = r.vars.get("group", None)
 
+                    table = db.project_human_resource
+                    s3db.hrm_human_resource.person_id.represent = lambda id: \
+                        s3db.pr_person_represent(id, show_link=True)
                     # These values are defined in hrm_type_opts
                     if group:
                         crud_strings = s3.crud_strings
                         if group == "staff":
                             group = 1
-                            db.project_human_resource.human_resource_id.label = T("Staff")
+                            table.human_resource_id.label = T("Staff")
                             crud_strings["project_human_resource"] = crud_strings["hrm_staff"]
                             crud_strings["project_human_resource"].update(
                                 subtitle_create = T("Add Staff Member to Project")
                                 )
+
                         elif group == "volunteer":
                             group = 2
-                            db.project_human_resource.human_resource_id.label = T("Volunteer")
+                            table.human_resource_id.label = T("Volunteer")
                             crud_strings["project_human_resource"] = crud_strings["hrm_volunteer"]
                             crud_strings["project_human_resource"].update(
                                 subtitle_create = T("Add Volunteer to Project")
@@ -158,10 +190,10 @@ def project():
                         r.resource.add_component_filter("human_resource", filter_by_type)
 
                         # Use the group to filter the form widget for adding a new record
-                        r.component.table.human_resource_id.requires = IS_ONE_OF(
+                        table.human_resource_id.requires = IS_ONE_OF(
                             db,
                             "hrm_human_resource.id",
-                            hrm_human_resource_represent,
+                            s3db.hrm_human_resource_represent,
                             filterby="type",
                             filter_opts=(group,),
                             orderby="hrm_human_resource.person_id",
@@ -198,6 +230,12 @@ def project():
                               csv_template="project")
 
 # =============================================================================
+def status():
+    """ RESTful CRUD controller """
+
+    return s3_rest_controller()
+
+# -----------------------------------------------------------------------------
 def theme():
     """ RESTful CRUD controller """
 
@@ -488,7 +526,9 @@ def time():
                        listadd=False)
         person_id = auth.s3_logged_in_person()
         if person_id:
-            s3.filter = (table.person_id == person_id)
+            now = request.utcnow
+            s3.filter = (table.person_id == person_id) & \
+                        (table.date > (now - datetime.timedelta(days=2)))
         try:
             list_fields = s3db.get_config(tablename,
                                           "list_fields")
@@ -630,8 +670,11 @@ $('#submit_record__row input').click(function(){
                  SCRIPT(script))
 
     return XML(output)
+
 # -----------------------------------------------------------------------------
-def organisation():
+def partners():
+    # ToDo: This could need to be a deployment setting
     current.request.get_vars["organisation.organisation_type_id$name"] = "Bilateral,Government,Intergovernmental,NGO,UN agency"
     return s3db.org_organisation_controller()
+
 # END =========================================================================

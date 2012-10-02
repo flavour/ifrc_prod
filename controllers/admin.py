@@ -10,18 +10,19 @@ resourcename = request.function
 # S3 framework functions
 # -----------------------------------------------------------------------------
 def index():
-
     """ Module's Home Page """
 
     module_name = deployment_settings.modules[module].name_nice
     response.title = module_name
     return dict(module_name=module_name)
 
-
 # =============================================================================
 @auth.s3_requires_membership(1)
 def setting():
-    """ Custom page to link to those Settings which can be edited through the web interface """
+    """
+        Custom page to link to those Settings which can be edited through the web interface
+    """
+
     return dict()
 
 # =============================================================================
@@ -31,12 +32,7 @@ def setting():
 def role():
     """
         Role Manager
-
-        @author: Dominic König <dominic@aidiq.com>
     """
-
-    module = "auth"
-    name = "group"
 
     # ACLs as component of roles
     s3db.add_component(auth.permission.table,
@@ -62,90 +58,25 @@ def role():
     s3.prep = prep
 
     s3.stylesheets.append( "S3/role.css" )
-    output = s3_rest_controller(module, name)
+    output = s3_rest_controller("auth", "group")
     return output
-
-# -----------------------------------------------------------------------------
-def user_onaccept(form):
-    """
-        Update HRM record, if-present
-    """
-
-    vars = form.vars
-    user_id = vars.id
-    organisation_id = vars.organisation_id
-
-    if organisation_id:
-        htable = s3db.table("hrm_human_resource")
-        if htable:
-            # Update HRM record
-            site_id = vars.site_id
-            ptable = s3db.pr_person
-            ltable = s3db.pr_person_user
-            query = (htable.deleted == False) & \
-                    (htable.status == 1) & \
-                    (htable.person_id == ptable.id) & \
-                    (ptable.pe_id == ltable.pe_id) & \
-                    (ltable.user_id == user_id)
-            rows = db(query).select(htable.id,
-                                    limitby=(0, 2))
-            if len(rows) == 1:
-                # We know which record we can update
-                hr_id = rows.first().id
-                db(htable.id == hr_id).update(organisation_id = organisation_id,
-                                              site_id = site_id)
-                # Update record ownership
-                auth.s3_set_record_owner(htable, hr_id, force_update=True)
-                # Update Site link
-                hstable = s3db.hrm_human_resource_site
-                query = (hstable.human_resource_id == hr_id)
-                this = db(query).select(hstable.id,
-                                        limitby=(0, 1)).first()
-                if this:
-                    db(query).update(site_id=site_id,
-                                     human_resource_id=id)
-                else:
-                    hstable.insert(site_id=site_id,
-                                   human_resource_id=hr_id)
-
-        # Update link to organisation
-        ltable = s3db.org_organisation_user
-        query = (ltable.user_id == user_id)
-        rows = db(query).select(ltable.organisation_id,
-                                limitby=(0, 2))
-        if len(rows) == 1:
-            if rows.first().organisation_id != organisation_id:
-                # We know which record we can update
-                db(query).update(organisation_id=organisation_id)
-            # No more action required
-            return
-        elif rows:
-            query = query & (ltable.organisation_id == organisation_id)
-            rows = db(query).select(ltable.id,
-                                    limitby=(0, 2)).first()
-            if len(rows) == 1:
-                # No action required
-                return
-        # Insert a new one
-        ltable.insert(user_id=user_id,
-                      organisation_id=organisation_id)
 
 # -----------------------------------------------------------------------------
 @auth.s3_requires_membership(1)
 def user():
     """ RESTful CRUD controller """
 
-    tablename = "auth_user"
-    table = db[tablename]
+    table = auth.settings.table_user
+    tablename = table._tablename
+
+    auth.configure_user_fields()
 
     s3db.configure(tablename,
                    main="first_name",
-                   # Add users to Person Registry & 'Authenticated' role:
-                   create_onaccept = auth.s3_register,
-                   update_onaccept = user_onaccept,
+                   onaccept = lambda form: auth.s3_approve_user(form.vars),
                    )
 
-    def disable_user(r):
+    def disable_user(r, **args):
         if not r.id:
             session.error = T("Can only disable 1 record at a time!")
             redirect(URL(args=[]))
@@ -154,29 +85,31 @@ def user():
             session.error = T("Cannot disable your own account!")
             redirect(URL(args=[]))
 
-        table = auth.settings.table_user
         query = (table.id == r.id)
         db(query).update(registration_key = "disabled")
         session.confirmation = T("User Account has been Disabled")
         redirect(URL(args=[]))
 
-    def approve_user(r):
+    def approve_user(r, **args):
         if not r.id:
             session.error = T("Can only approve 1 record at a time!")
             redirect(URL(args=[]))
 
-        # Send them an email to let them know that their account has been approved
-        form = Storage()
-        form.vars = Storage()
-        form.vars.id = r.id
-        form.vars.email = r.record.email
-        user_approve(form)
-        # Allow them to login
-        table = auth.settings.table_user
-        query = (table.id == r.id)
-        db(query).update(registration_key = "")
+        user = table[r.id]
+        auth.s3_approve_user(user)
 
         session.confirmation = T("User Account has been Approved")
+        redirect(URL(args=[]))
+
+    def link_user(r, **args):
+        if not r.id:
+            session.error = T("Can only update 1 record at a time!")
+            redirect(URL(args=[]))
+
+        user = table[r.id]
+        auth.s3_link_user(user)
+
+        session.confirmation = T("User has been (re)linked to Person and Human Resource record")
         redirect(URL(args=[]))
 
     # Custom Methods
@@ -190,6 +123,9 @@ def user():
 
     set_method("auth", "user", method="approve",
                action=approve_user)
+
+    set_method("auth", "user", method="link",
+               action=link_user)
 
     # CRUD Strings
     ADD_USER = T("Add User")
@@ -208,35 +144,51 @@ def user():
         msg_record_deleted = T("User deleted"),
         msg_list_empty = T("No Users currently registered"))
 
-    # Allow the ability for admin to change a User's Organisation
-    org = table.organisation_id
-    org.writable = True
-    org.requires = IS_NULL_OR(IS_ONE_OF(db, "org_organisation.id",
-                                        s3db.org_organisation_represent,
-                                        orderby="org_organisation.name",
-                                        sort=True))
-    org.represent = s3db.org_organisation_represent
-    org.widget = S3OrganisationAutocompleteWidget()
-    org.comment = DIV(_class="tooltip",
-                      _title="%s|%s|%s" % (T("Organization"),
-                                           T("The default Organization for whom this person is acting."),
-                                           T("Enter some characters to bring up a list of possible matches")))
-    # Allow the ability for admin to change a User's Facility
-    site = table.site_id
-    site.writable = True
-    site.requires = IS_NULL_OR(IS_ONE_OF(db, "org_site.id",
-                                         s3db.org_site_represent,
-                                         orderby="org_site.name",
-                                         sort=True))
-    site.represent = s3db.org_site_represent
-    site.widget = S3SiteAutocompleteWidget()
-    site.comment = DIV(_class="tooltip",
-                       _title="%s|%s|%s" % (T("Facility"),
-                                            T("The default Facility for which this person is acting."),
-                                            T("Enter some characters to bring up a list of possible matches")))
-    # Show comments
-    comments = table.comments
-    comments.readable = comments.writable = True
+    def rheader(r, tabs = []):
+        if r.representation != "html":
+            return None
+
+        id = r.id
+
+        rheader = DIV()
+
+        if r.record:
+            registration_key = r.record.registration_key
+            if not registration_key:
+                btn = A(T("Disable"),
+                        _class = "action-btn",
+                        _title = "Disable User",
+                        _href = URL(args=[id, "disable"])
+                        )
+                rheader.append(btn)
+                btn = A(T("Link"),
+                        _class = "action-btn",
+                        _title = "Link (or refresh link) between User, Person & HR Record",
+                        _href = URL(args=[id, "link"])
+                        )
+                rheader.append(btn)
+            #elif registration_key == "pending":
+            #    btn = A(T("Approve"),
+            #            _class = "action-btn",
+            #            _title = "Approve User",
+            #            _href = URL(args=[id, "approve"])
+            #            )
+            #    rheader.append(btn)
+            else:
+                # Verify & Approve
+                btn = A(T("Approve"),
+                        _class = "action-btn",
+                        _title = "Approve User",
+                        _href = URL(args=[id, "approve"])
+                        )
+                rheader.append(btn)
+
+            tabs = [(T("User Details"), None),
+                    (T("Roles"), "roles")
+                    ]
+            rheader_tabs = s3_rheader_tabs(r, tabs)
+            rheader.append(rheader_tabs)
+        return rheader
 
     # Pre-processor
     def prep(r):
@@ -250,19 +202,6 @@ def user():
                            # Password confirmation
                            create_onvalidation = user_create_onvalidation)
 
-            # Allow the ability for admin to Disable logins
-            reg = r.table.registration_key
-            reg.writable = True
-            reg.readable = True
-            reg.label = T("Status")
-            # In Controller to allow registration to work with UUIDs - only manual edits need this setting
-            reg.requires = IS_NULL_OR(IS_IN_SET(["disabled",
-                                                 "pending"]))
-
-        elif r.representation == "aadata":
-            # dataTables' columns need to match
-            r.table.registration_key.readable = True
-
         if r.method == "delete" and r.http == "GET":
             if r.id == session.auth.user.id: # we're trying to delete ourself
                 request.get_vars.update({"user.id":str(r.id)})
@@ -271,11 +210,6 @@ def user():
                                delete_next = URL(c="default", f="user/logout"))
                 s3.crud.confirm_delete = T("You are attempting to delete your own account - are you sure you want to proceed?")
 
-        elif r.method == "update":
-            # Send an email to user if their account is approved
-            # (=moved from 'pending' to 'blank'(i.e. enabled))
-            s3db.configure(r.tablename,
-                           onvalidation = lambda form: user_approve(form))
         if r.http == "GET" and not r.method:
             session.s3.cancel = r.url()
         return True
@@ -283,14 +217,20 @@ def user():
 
     def postp(r, output):
         # Only show the disable button if the user is not currently disabled
-        query = (r.table.registration_key != "disabled") & \
-                (r.table.registration_key != "pending")
-        rows = db(query).select(r.table.id)
+        table = r.table
+        query = (table.registration_key != "disabled") & \
+                (table.registration_key != "pending")
+        rows = db(query).select(table.id)
         restrict = [str(row.id) for row in rows]
         s3.actions = [
                         dict(label=str(UPDATE), _class="action-btn",
                              url=URL(c="admin", f="user",
                                      args=["[id]", "update"])),
+                        dict(label=str(T("Link")),
+                             _class="action-btn",
+                             _title = str(T("Link (or refresh link) between User, Person & HR Record")),
+                             url=URL(c="admin", f="user",
+                                     args=["[id]", "link"])),
                         dict(label=str(T("Roles")), _class="action-btn",
                              url=URL(c="admin", f="user",
                                      args=["[id]", "roles"])),
@@ -300,8 +240,8 @@ def user():
                              restrict = restrict)
                       ]
         # Only show the approve button if the user is currently pending
-        query = (r.table.registration_key == "pending")
-        rows = db(query).select(r.table.id)
+        query = (table.registration_key == "pending")
+        rows = db(query).select(table.id)
         restrict = [str(row.id) for row in rows]
         s3.actions.append(
                 dict(label=str(T("Approve")), _class="action-btn",
@@ -310,10 +250,9 @@ def user():
                      restrict = restrict)
             )
         # Add some highlighting to the rows
-        rtable = r.table
-        query = (rtable.registration_key.belongs(["disabled", "pending"]))
-        rows = db(query).select(rtable.id,
-                                rtable.registration_key)
+        query = (table.registration_key.belongs(["disabled", "pending"]))
+        rows = db(query).select(table.id,
+                                table.registration_key)
         s3.dataTableStyleDisabled = s3.dataTableStyleWarning = [str(row.id) for row in rows if row.registration_key == "disabled"]
         s3.dataTableStyleAlert = [str(row.id) for row in rows if row.registration_key == "pending"]
 
@@ -322,7 +261,7 @@ def user():
                   dict(col=6, key="None", display=str(T("Active"))),
                   dict(col=6, key="pending", display=str(T("Pending"))),
                   dict(col=6, key="disabled", display=str(T("Disabled")))
-                 ]
+                  ]
         s3.dataTableDisplay = values
 
         # Add client-side validation
@@ -331,7 +270,8 @@ def user():
         return output
     s3.postp = postp
 
-    output = s3_rest_controller("auth", resourcename)
+    output = s3_rest_controller("auth", "user",
+                                rheader=rheader)
     return output
 
 # =============================================================================
@@ -409,37 +349,6 @@ def user_create_onvalidation (form):
         form.errors.password = T("Password fields don't match")
     return True
 
-# -----------------------------------------------------------------------------
-def user_approve(form):
-    """
-        Send an email to user if their account is approved (moved from 'pending' to 'blank'(i.e. enabled))
-    """
-
-    if form.vars.registration_key:
-        # Now non-blank
-        return
-    else:
-        # Now blank - lookup old value
-        table = db[auth.settings.table_user]
-        if "id" in form.vars:
-            # Approve action button
-            query = (table.id == form.vars.id)
-        else:
-            # Details screen
-            query = (table.id == request.vars.id)
-        status = db(query).select(table.registration_key,
-                                  limitby=(0, 1)).first().registration_key
-        if status == "pending":
-            # Send email to user confirming that they are now able to login
-            if not auth.settings.mailer or \
-                   not auth.settings.mailer.send(to=form.vars.email,
-                        subject=s3.messages.confirmation_email_subject,
-                        message=s3.messages.confirmation_email):
-                    session.warning = auth.messages.unable_send_email
-                    return
-        else:
-            return
-
 # =============================================================================
 @auth.s3_requires_membership(1)
 def acl():
@@ -456,7 +365,7 @@ def acl():
     table.group_id.requires = IS_ONE_OF(db, "auth_group.id", "%(role)s")
     table.group_id.represent = lambda opt: opt and db.auth_group[opt].role or opt
 
-    table.controller.requires = IS_EMPTY_OR(IS_IN_SET(auth.permission.modules.keys(),
+    table.controller.requires = IS_EMPTY_OR(IS_IN_SET(current.deployment_settings.modules.keys(),
                                                       zero="ANY"))
     table.controller.represent = lambda opt: opt and \
         "%s (%s)" % (opt,
@@ -718,5 +627,349 @@ def create_portable_app(web2py_source, copy_database=False, copy_uploads=False):
                             "attachment; filename=portable-sahana.zip"
 
     return response.stream(portable_app)
+
+# =============================================================================
+# Translation Functionality
+# =============================================================================
+def translate():
+    """
+        Translation controller to enable four major workflows :-
+
+        1) Select modules which require translation. The list of strings
+           belonging to selected modules can be exported in .xls or .po format
+
+        2) Upload csv file containing strings with their translations which
+           are then merged with existing language file
+
+        3) Display the percentage of translation for each module for a given
+           language file
+
+        4) Upload a text file containing a list of new-line separated strings
+           which are to be considered for translation in the future. These 
+           strings are termed as "user-supplied" strings and are picked up by
+           the first workflow when preparing the spreadsheet for translation
+
+        Note : The above functionalities require a considerable amount of
+               main memory to execute successfully.
+    """
+
+    if not request.vars.opt:
+        return dict()
+
+    from s3.s3translate import TranslateAPI, StringsToExcel, TranslateReportStatus, TranslateReadFiles
+    from math import ceil
+
+    def postp(r, output):
+        # Create a custom form
+        form = FORM()
+
+        # Prevent redirection
+        r.next = None
+
+        # Remove the false error from the form
+        # error : "Invalid form (re-opened in another window?)"
+        if response.error and not output["form"]["error"]:
+            response.error = None
+
+        opt = request.vars.opt
+        if opt == "1":
+            # Select modules for Translation
+            if form.accepts(request.vars, session):
+
+                modlist = []
+                # If only one module is selected
+                if type(form.request_vars.module_list)==str:
+                    modlist.append(form.request_vars.module_list)
+                # If multiple modules are selected
+                else:
+                    modlist = form.request_vars.module_list
+
+                # If no module is selected
+                if modlist is None:
+                    modlist = []
+
+                # If "Select All" option is chosen
+                if "all" in modlist:
+                    A = TranslateAPI()
+                    modlist = A.get_modules()
+                    if "core" in form.request_vars.module_list:
+                        modlist.append("core")
+
+                # Obtaining the language file from the language code
+                code = form.request_vars.new_code
+                if code == "":
+                    code = form.request_vars.code
+
+                code += ".py"
+
+                # Obtaining the type of file to export to
+                filetype = form.request_vars.filetype
+                if filetype is None:
+                    filetype = "xls"
+                elif filetype == "on":
+                    filetype = "po"
+
+                # Generating the xls file for download
+                X = StringsToExcel()
+                output = X.convert_to_xls(code, modlist, [], filetype)
+                return output
+
+            # Creating a form with checkboxes for list of modules
+            A = TranslateAPI()
+            modlist = A.get_modules()
+            modlist.sort()
+            modcount = len(modlist)
+
+            langlist = A.get_langcodes()
+            langlist.sort()
+
+            table = TABLE(_class="translation_module_table")
+            table.append(BR())
+
+            # Setting number of columns in the form
+            NO_OF_COLUMNS = 3
+
+            # Displaying "NO_OF_COLUMNS" modules per row so as to utilize the page completely
+            num = 0
+            max_rows = int(ceil(modcount / float(NO_OF_COLUMNS)))
+
+            while num < max_rows:
+                row = TR(TD(num + 1),
+                         TD(INPUT(_type="checkbox", _name="module_list",
+                                  _value=modlist[num])),
+                         TD(modlist[num]))
+                for c in range(1, NO_OF_COLUMNS):
+                    cmax_rows = num + c*max_rows
+                    if cmax_rows < modcount:
+                        row.append(TD(cmax_rows + 1))
+                        row.append(TD(INPUT(_type="checkbox",
+                                            _name="module_list",
+                                            _value=modlist[cmax_rows])))
+                        row.append(TD(modlist[cmax_rows]))
+                num += 1
+                table.append(row)
+
+            div = DIV()
+            div.append(table)
+            div.append(BR())
+            row = TR(TD(INPUT(_type="checkbox", _name="module_list",
+                              _value="core", _checked="yes")),
+                     TD(T("Include core files")))
+            div.append(row)
+            div.append(BR())
+            row = TR(TD(INPUT(_type="checkbox", _name="module_list",
+                              _value="all")),
+                     TD(T("Select all modules")))
+            div.append(row)
+            div.append(BR())
+
+            # Providing option to export strings in pootle format
+            row = TR(TD(INPUT(_type="checkbox", _name="filetype")),
+                     TD(T("Export as Pootle (.po) file (Excel (.xls) is default)")))
+            row.append(BR())
+            row.append(BR())
+            div.append(row)
+
+            # Drop-down for available language codes
+            lang_col = TD()
+            lang_dropdown = SELECT(_name = "code")
+            for lang in langlist:
+                lang_dropdown.append(lang)
+            lang_col.append(lang_dropdown)
+
+            row = TR(TD(T("Select language code: ")), TD(lang_col))
+            row.append(TD(T(" Or add a new language code:")))
+            row.append(TD(INPUT(_type="text", _name="new_code")))
+            div.append(row)
+            div.append(BR())
+
+
+            div.append(BR())
+            div.append(INPUT(_type='submit',_value='Submit'))
+            form.append(div)
+            # Adding the custom form to the output
+            output["title"] = T("Select the required modules")
+            output["form"] = form
+
+        elif opt == "2":
+            # Upload translated files
+            div = DIV()
+            div.append(BR())
+            div.append(T("Note: Make sure that all the text cells are quoted in the csv file before uploading"))
+            form = output["form"]
+            form.append(div)
+            output["form"] = form
+
+        elif opt == "3":
+            # View Translation Percentage
+            if form.accepts(request.vars, session):
+                # Retrieve the translation percentage for each module
+                code = form.request_vars.code
+                S = TranslateReportStatus()
+
+                if form.request_vars.update_master == "on":
+                    S.create_master_file()
+
+                percent_dict = S.get_translation_percentages(code)
+
+                modlist = []
+                for mod in sorted(percent_dict.keys()):
+                    if mod != "complete_file":
+                        modlist.append(mod)
+                modcount = len(modlist)
+
+                table = TABLE(_class="translation_module_table")
+                table.append(BR())
+
+                # Set number of columns in the table
+                NO_OF_COLUMNS = 3
+
+                # Display "NO_OF_COLUMNS" modules per row so as to utilize the page completely
+                num = 0
+                max_rows = int(ceil(modcount/float(NO_OF_COLUMNS)))
+
+                while num < max_rows:
+                    row = TR(TD(modlist[num]), TD(percent_dict[modlist[num]]))
+                    for c in range(1, NO_OF_COLUMNS):
+                        cmax_rows = num + c*max_rows
+                        if cmax_rows < modcount:
+                            row.append(TD(modlist[cmax_rows]))
+                            row.append(TD(percent_dict[modlist[cmax_rows]]))
+                    num += 1
+                    table.append(row)
+
+                # Add the table to output to display it
+                div = DIV()
+                div.append(table)
+                div.append(BR())
+                div.append(TR(TD("Overall translation percentage of the file: "),
+                              TD(percent_dict["complete_file"])))
+                form.append(div)
+                output["title"] = T("Module-wise Percentage of Translated Strings")
+                output["form"] = form
+                s3.has_required = False
+
+            else:
+                # Display the form to view translated percentage
+                A = TranslateAPI()
+                langlist = A.get_langcodes()
+                langlist.sort()
+                # Drop-down for selecting language codes
+                lang_col = TD()
+                lang_dropdown = SELECT(_name="code")
+                for lang in langlist:
+                    lang_dropdown.append(lang)
+                lang_col.append(lang_dropdown)
+
+                div = DIV()
+                row = TR(TD(T("Language code: ")), TD(lang_col))
+                div.append(row)
+                div.append(BR())
+                row = TR(TD(INPUT(_type="checkbox", _name="update_master")),
+                         TD(T("Update Master file")))
+                div.append(row)
+                div.append(BR())
+                div.append(BR())
+                div.append(INPUT(_type="submit", _value=T("Submit")))
+                form.append(div)
+                # Add the custom form to the output
+                output["title"] = T("Select the language file")
+                output["form"] = form
+
+        elif opt == "4":
+            # Add strings manually
+            if form.accepts(request.vars, session):
+                # Retrieve strings from the uploaded file
+                f = request.vars.upload.file
+                strings = []
+                R = TranslateReadFiles()
+                for line in f:
+                    strings.append(line)
+                # Update the file containing user strings
+                R.merge_user_strings_file(strings)
+                response.confirmation = T("File Uploaded")
+
+            div = DIV()
+            div.append(T("Upload a text file containing new-line separated strings:"))
+            div.append(INPUT(_type="file", _name="upload"))
+            div.append(BR())
+            div.append(INPUT(_type="submit", _value=T("Submit")))
+            form.append(div)
+            output["form"] = form
+
+        return output
+    s3.postp = postp
+
+    output = s3_rest_controller("translate", "language")
+    return output
+
+# -----------------------------------------------------------------------------
+def result():
+    """
+        Selenium Test Result Reports list
+    """
+
+    file_list = UL()
+    static_path = os.path.join(request.folder, "static", "test")
+    for filename in os.listdir(static_path):
+        link = A(filename,
+                 _href = URL(c = "static",
+                             f = "test",
+                             args = [filename]
+                             )
+                 )
+        file_list.append(link)
+    return dict(file_list=file_list)
+
+def result_automated():
+    """
+        Selenium Test Result Reports list
+    """
+
+    file_list_automated = UL()
+    static_path = os.path.join(request.folder, "static", "test_automated")
+    for filename in os.listdir(static_path):
+        link = A(filename,
+                 _href = URL(c = "static",
+                             f = "test_automated",
+                             args = [filename]
+                             )
+                 )
+        file_list_automated.append(link)
+    return dict(file_list_automated=file_list_automated)
+
+def result_smoke():
+    """
+        Selenium Test Result Reports list
+    """
+
+    file_list_smoke = UL()
+    static_path = os.path.join(request.folder, "static", "test_smoke")
+    for filename in os.listdir(static_path):
+        link = A(filename,
+                 _href = URL(c = "static",
+                             f = "test_smoke",
+                             args = [filename]
+                             )
+                 )
+        file_list_smoke.append(link)
+    return dict(file_list_smoke=file_list_smoke)
+
+def result_roles():
+    """
+        Selenium Test Result Reports list
+    """
+
+    file_list_roles = UL()
+    static_path = os.path.join(request.folder, "static", "test_roles")
+    for filename in os.listdir(static_path):
+        link = A(filename,
+                 _href = URL(c = "static",
+                             f = "test_roles",
+                             args = [filename]
+                             )
+                 )
+        file_list_roles.append(link)
+    return dict(file_list_roles=file_list_roles)
 
 # END =========================================================================

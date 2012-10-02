@@ -24,6 +24,13 @@ def index():
 def sector():
     """ RESTful CRUD controller """
 
+    # Pre-processor
+    def prep(r):
+        # Location Filter
+        s3db.gis_location_filter(r)
+        return True
+    s3.prep = prep
+
     return s3_rest_controller()
 
 # -----------------------------------------------------------------------------
@@ -34,7 +41,18 @@ def subsector():
 
 # -----------------------------------------------------------------------------
 def site():
-    """ RESTful CRUD controller """
+    """
+        RESTful CRUD controller
+        - used by S3SiteAutocompleteWidget(), which doesn't yet support filtering
+                                              to just updateable sites
+    """
+
+    # Pre-processor
+    def prep(r):
+        # Location Filter
+        s3db.gis_location_filter(r)
+        return True
+    s3.prep = prep
 
     return s3_rest_controller()
 
@@ -58,6 +76,9 @@ def facility():
     
     # Pre-processor
     def prep(r):
+        # Location Filter
+        s3db.gis_location_filter(r)
+
         if r.interactive:
             if r.component:
                 # remove CRUD generated buttons in the tabs
@@ -77,6 +98,12 @@ def facility():
 
 # -----------------------------------------------------------------------------
 def facility_type():
+    """ RESTful CRUD controller """
+
+    return s3_rest_controller()
+
+# -----------------------------------------------------------------------------
+def office_type():
     """ RESTful CRUD controller """
 
     return s3_rest_controller()

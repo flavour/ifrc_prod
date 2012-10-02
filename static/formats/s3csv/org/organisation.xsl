@@ -20,6 +20,7 @@
          Twitter.................org_organisation
          Donation Phone..........org_organisation
          Comments................org_organisation
+         Approved................org_organisation.approved_by
 
     *********************************************************************** -->
     <xsl:output method="xml"/>
@@ -104,6 +105,10 @@
                 </xsl:when>
             </xsl:choose>
 
+            <xsl:if test="col[@field='Approved']!=''">
+                <data field="approved_by">0</data>
+            </xsl:if>
+            
             <xsl:if test="col[@field='Acronym']!=''">
                 <data field="acronym"><xsl:value-of select="col[@field='Acronym']"/></data>
             </xsl:if>
@@ -157,8 +162,8 @@
                 <!-- Nest all the Branches -->
                 <xsl:for-each select="//row[col[@field='Organisation']=$OrgName]">
                     <xsl:if test="col[@field='Branch']!=''">
-                        <resource name="org_organisation_branch">
-                            <reference field="branch_id">
+                        <resource name="org_organisation_branch" alias="branch">
+                            <reference field="branch_id"  resource="org_organisation">
                                 <xsl:attribute name="tuid">
                                     <xsl:value-of select="concat($OrgName,col[@field='Branch'])"/>
                                 </xsl:attribute>
@@ -173,7 +178,6 @@
     </xsl:template>
 
     <!-- ****************************************************************** -->
-
     <xsl:template name="OrganisationType">
         <xsl:if test="col[@field='Type']!=''">
             <resource name="org_organisation_type">

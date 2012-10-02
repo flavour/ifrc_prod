@@ -60,10 +60,10 @@ from gluon.serializers import json as jsons
 from gluon.storage import Storage, Messages
 from gluon.tools import callback
 
-from s3utils import SQLTABLES3
 from s3crud import S3CRUD
 from s3xml import S3XML
 from s3utils import s3_mark_required, s3_has_foreign_key, s3_get_foreign_key
+from s3resource import S3Resource
 
 DEBUG = False
 if DEBUG:
@@ -186,9 +186,9 @@ class S3Importer(S3CRUD):
         messages.commit_total_errors = "%s records in error"
 
         try:
-            self.uploadTitle = current.response.s3.crud_strings[self.tablename].title_upload
+            self.uploadTitle = current.response.s3.crud_strings[self.tablename].title_upload or T("Import")
         except:
-            self.uploadTitle = T("Upload a %s import file" % r.function)
+            self.uploadTitle = T("Import")
 
         # @todo: correct to switch this off for the whole session?
         current.session.s3.ocr_enabled = False
@@ -210,19 +210,23 @@ class S3Importer(S3CRUD):
         self.function = r.function
 
         # Target table for the data import
+        self.controller_resource = self.resource
         self.controller_table = self.table
         self.controller_tablename = self.tablename
 
         # Table for uploads
         self.__define_table()
+        self.upload_resource = None
+        self.item_resource = None
 
         # XSLT Path
         self.xslt_path = os.path.join(r.folder, r.XSLT_PATH)
         self.xslt_extension = r.XSLT_EXTENSION
 
         # Check authorization
-        authorised = self.permit("create", self.upload_tablename) and \
-                     self.permit("create", self.controller_tablename)
+        permitted = current.auth.s3_has_permission
+        authorised = permitted("create", self.upload_tablename) and \
+                     permitted("create", self.controller_tablename)
         if not authorised:
             if r.method is not None:
                 r.unauthorised()
@@ -231,6 +235,7 @@ class S3Importer(S3CRUD):
 
         # @todo: clean this up
         source = None
+        open_file = None
         transform = None
         upload_id = None
         items = None
@@ -256,6 +261,13 @@ class S3Importer(S3CRUD):
             self.job_id = self.upload_job.job_id
         else:
             self.job_id = None
+
+
+        # Experimental uploading via ajax - added for vulnerability
+        # Part of the problem with this is that it works directly with the
+        # opened file. This might pose a security risk, is should be alright
+        # if only trusted users are involved but care should be taken with this
+        self.ajax = current.request.ajax and r.post_vars.approach == "ajax"
 
         # Now branch off to the appropriate controller function
         if r.http == "GET":
@@ -323,37 +335,49 @@ class S3Importer(S3CRUD):
 
         db = current.db
         table = self.upload_table
-
-        title=self.uploadTitle
-        form = self._upload_form(r, **attr)
-
-        r = self.request
-        r.read_body()
-        sfilename = form.vars.file
-        try:
-            ofilename = r.post_vars["file"].filename
-        except:
-            form.errors.file = self.messages.no_file
-
-        if form.errors:
-            response.flash = ""
-            output = self._create_upload_dataTable()
-            output.update(form=form, title=title)
-
-        elif not sfilename or \
-             ofilename not in r.files or r.files[ofilename] is None:
-            response.flash = ""
-            response.error = self.messages.file_not_found
-            output = self._create_upload_dataTable()
-            output.update(form=form, title=title)
-
+        output = None
+        if self.ajax:
+            sfilename = ofilename = r.post_vars["file"].filename
+            upload_id = table.insert(controller=self.controller,
+                                     function=self.function,
+                                     filename=ofilename,
+                                     file = sfilename,
+                                     user_id=current.session.auth.user.id
+                                     )
         else:
+            title=self.uploadTitle
+            form = self._upload_form(r, **attr)
+
+            r = self.request
+            r.read_body()
+            sfilename = form.vars.file
+            try:
+                ofilename = r.post_vars["file"].filename
+            except:
+                form.errors.file = self.messages.no_file
+
+            if form.errors:
+                response.flash = ""
+                output = self._create_upload_dataTable()
+                output.update(form=form, title=title)
+
+            elif not sfilename or \
+                 ofilename not in r.files or r.files[ofilename] is None:
+                response.flash = ""
+                response.error = self.messages.file_not_found
+                output = self._create_upload_dataTable()
+                output.update(form=form, title=title)
+            else:
+                query = (table.file == sfilename)
+                db(query).update(controller=self.controller,
+                                 function=self.function,
+                                 filename=ofilename,
+                                 user_id=current.session.auth.user.id)
+                row = db(query).select(table.id, limitby=(0, 1)).first()
+                upload_id = row.id
+
+        if not output:
             output = dict()
-            query = (table.file == sfilename)
-            db(query).update(controller=self.controller,
-                             function=self.function,
-                             filename=ofilename,
-                             user_id=current.session.auth.user.id)
             # must commit here to separate this transaction from
             # the trial import phase which will be rolled back.
             db.commit()
@@ -364,7 +388,10 @@ class S3Importer(S3CRUD):
                 response.error = self.messages.invalid_file_format
                 return self.upload(r, **attr)
 
-            upload_file = r.files[ofilename]
+            if self.ajax:
+                upload_file = r.post_vars.file.file
+            else:
+                upload_file = r.files[ofilename]
             if extension == "xls":
                 if "xls_parser" in s3:
                     upload_file.seek(0)
@@ -378,8 +405,6 @@ class S3Importer(S3CRUD):
             else:
                 upload_file.seek(0)
 
-            row = db(query).select(table.id, limitby=(0, 1)).first()
-            upload_id = row.id
             if "single_pass" in r.vars:
                 single_pass = r.vars["single_pass"]
             else:
@@ -509,7 +534,7 @@ class S3Importer(S3CRUD):
         # @todo: find file format from request.extension
         fileFormat = "csv"
 
-        # insert data in the table and get the ID
+        # Insert data in the table and get the ID
         try:
             user = session.auth.user.id
         except:
@@ -522,12 +547,12 @@ class S3Importer(S3CRUD):
                                              status = 1)
         db.commit()
 
-        # create the import job
+        # Create the import job
         result = self._generate_import_job(upload_id,
                                            openFile,
                                            fileFormat,
                                            stylesheet=transform
-                                          )
+                                           )
         if result == None:
             if self.error != None:
                 if session.error == None:
@@ -541,11 +566,11 @@ class S3Importer(S3CRUD):
                     session.warning += self.warning
         else:
             items = self._get_all_items(upload_id, True)
-            # commit the import job
+            # Commit the import job
             self._commit_import_job(upload_id, items)
             result = self._update_upload_job(upload_id)
 
-            # get the results and display
+            # Get the results and display
             msg = "%s : %s %s %s" % (source,
                                      self.messages.commit_total_records_imported,
                                      self.messages.commit_total_errors,
@@ -573,6 +598,8 @@ class S3Importer(S3CRUD):
         # record the summary details
         # delete the upload file
         result = self._update_upload_job(upload_id)
+        if self.ajax:
+            return result
         # redirect to the start page (removes all vars)
         self._display_completed_job(result)
         redirect(URL(r=self.request, f=self.function, args=["import"]))
@@ -638,7 +665,6 @@ class S3Importer(S3CRUD):
         TEMPLATE = "csv_template"
         REPLACE_OPTION = "replace_option"
 
-        session = current.session
         response = current.response
         s3 = response.s3
         request = self.request
@@ -653,6 +679,10 @@ class S3Importer(S3CRUD):
                 table.replace_option.readable = True
                 table.replace_option.writable = True
                 table.replace_option.label = replace_option
+                table.replace_option.comment = DIV(_class="tooltip",
+                                                   _title="%s|%s" % \
+                    (replace_option,
+                     current.T("Delete all data of this type which the user has permission to before upload. This is designed for workflows where the data is maintained in an offline spreadsheet and uploaded just for Reads.")))
 
         fields = [f for f in table if f.readable or f.writable and not f.compute]
         if EXTRA_FIELDS in attr:
@@ -694,7 +724,7 @@ class S3Importer(S3CRUD):
             except:
                 pass
 
-        if form.accepts(r.post_vars, session,
+        if form.accepts(r.post_vars, current.session,
                         formname="upload_form"):
             upload_id = table.insert(**table._filter_fields(form.vars))
             if self.csv_extra_fields:
@@ -821,8 +851,9 @@ class S3Importer(S3CRUD):
         """
 
         s3 = current.response.s3
+        T = current.T
 
-        represent = {"element" : self._item_element_represent}
+        represent = {"s3_import_item.element" : self._item_element_represent}
         self._use_import_item_table(job_id)
 
         # Add a filter to the dataTable query
@@ -840,11 +871,31 @@ class S3Importer(S3CRUD):
                 error_list.append(str(row.id))
             else:
                 select_list.append("%s" % row.id)
-        select_id = ",".join(select_list)
 
+        # Experimental uploading via ajax - added for vulnerability
+        if self.ajax:
+            resource = self.resource
+            resource.add_filter(s3.filter)
+            rows = resource.select(["id", "element", "error"],
+                                   start=0,
+                                   limit=resource.count(),
+                                   )
+            data = resource.extract(rows,
+                                    ["id", "element", "error"],
+                                    )
+            return (upload_id, select_list, data)
+
+        s3.actions = [
+                        dict(label= str(self.messages.item_show_details),
+                             _class="action-btn",
+                             _jqclick="$('.importItem.'+id).toggle();",
+                             ),
+                      ]
         output = self._dataTable(["id", "element", "error"],
                                  sort_by = [[1, "asc"]],
-                                 represent=represent)
+                                 represent=represent,
+                                 ajax_item_id=upload_id,
+                                 dt_bulk_select = select_list)
 
         self._use_controller_table()
 
@@ -854,25 +905,10 @@ class S3Importer(S3CRUD):
         # Highlight rows in error in red
         s3.dataTableStyleWarning = error_list
 
-        s3.dataTableSelectable = True
-        s3.dataTablePostMethod = True
-        table = output["items"]
+        form = output["items"]
         job = INPUT(_type="hidden", _id="importUploadID", _name="job",
                     _value="%s" % upload_id)
-        mode = INPUT(_type="hidden", _id="importMode", _name="mode",
-                     _value="Inclusive")
-        # only select the rows with no errors
-        selected = INPUT(_type="hidden", _id="importSelected",
-                         _name="selected", _value="[%s]" % select_id)
-        form = FORM(table, job, mode, selected)
-        output["items"] = form
-        s3.dataTableSelectSubmitURL = "import?job=%s&" % upload_id
-        s3.actions = [
-                        dict(label= str(self.messages.item_show_details),
-                             _class="action-btn",
-                             _jqclick="$('.importItem.'+id).toggle();",
-                             ),
-                      ]
+        form.append(job)
         return output
 
     # -------------------------------------------------------------------------
@@ -892,15 +928,11 @@ class S3Importer(S3CRUD):
         """
 
         _debug("S3Importer._generate_import_job(%s, %s, %s, %s)" % (upload_id,
-                                                                openFile,
-                                                                fileFormat,
-                                                                stylesheet
-                                                               )
+                                                                    openFile,
+                                                                    fileFormat,
+                                                                    stylesheet
+                                                                    )
               )
-
-        db = current.db
-        request = self.request
-        resource = request.resource
 
         # ---------------------------------------------------------------------
         # CSV
@@ -938,7 +970,10 @@ class S3Importer(S3CRUD):
         if stylesheet == None:
             return None
 
-        # before calling import tree ensure the db.table is the controller_table
+        request = self.request
+        resource = request.resource
+
+        # Before calling import tree ensure the db.table is the controller_table
         self.table = self.controller_table
         self.tablename = self.controller_tablename
 
@@ -969,6 +1004,7 @@ class S3Importer(S3CRUD):
                 return None
         else:
             # Job created
+            db = current.db
             job_id = job.job_id
             errors = current.xml.collect_errors(job)
             if errors:
@@ -1057,10 +1093,10 @@ class S3Importer(S3CRUD):
             # This doesn't delete related items
             # but import_tree will tidy it up later
             #****************************************************************
-            # get all the items selected for import
+            # Get all the items selected for import
             rows = self._get_all_items(upload_id, as_string=True)
 
-            # loop through each row and delete the items not required
+            # Loop through each row and delete the items not required
             self._store_import_details(job_id, "preDelete")
             for id in rows:
                 if str(id) not in items:
@@ -1073,7 +1109,7 @@ class S3Importer(S3CRUD):
             # EXPERIMENTAL
             #****************************************************************
 
-            # set up the table we will import data into
+            # Set up the table we will import data into
             self.table = self.controller_table
             self.tablename = self.controller_tablename
 
@@ -1174,9 +1210,11 @@ class S3Importer(S3CRUD):
 
     # -------------------------------------------------------------------------
     def _dataTable(self,
-                   list_fields = [],
+                   list_fields,
                    sort_by = [[1, "asc"]],
                    represent={},
+                   ajax_item_id=None,
+                   dt_bulk_select=[],
                   ):
         """
             Method to get the data for the dataTable
@@ -1188,6 +1226,7 @@ class S3Importer(S3CRUD):
             @param sort_by: list of sort by columns
             @param represent: a dict of field callback functions used
                               to change how the data will be displayed
+                              keyed on the field identifier
 
             @return: a dict()
                In html representations this will be a table of the data
@@ -1202,180 +1241,77 @@ class S3Importer(S3CRUD):
                NOTE: limit - totalDisplayRecords = total cached
         """
 
-        # ********************************************************************
-        # Common tasks
-        # ********************************************************************
-        db = current.db
-        session = current.session
+        from s3.s3utils import S3DataTable
         request = self.request
-        response = current.response
         resource = self.resource
-        s3 = response.s3
-        representation = request.representation
-        table = self.table
-        tablename = self.tablename
-        vars = request.get_vars
-        output = dict()
-
-        # Check permission to read this table
-        authorised = self.permit("read", tablename)
-        if not authorised:
-            request.unauthorised()
-
-        # List of fields to select from
-        # fields is a list of Field objects
-        # list_field is a string list of field names
-        if list_fields == []:
-            fields = resource.readable_fields()
-        else:
-            fields = [table[f] for f in list_fields if f in table.fields]
-        if not fields:
-            fields = []
-
-        # attach any represent callbacks
-        for f in fields:
-            if f.name in represent:
-                f.represent = represent[f.name]
-
-        # Make sure that we have the table id as the first column
-        if fields[0].name != table.fields[0]:
-            fields.insert(0, table[table.fields[0]])
-
-        list_fields = [f.name for f in fields]
-
+        s3 = current.response.s3
         # Filter
         if s3.filter is not None:
             self.resource.add_filter(s3.filter)
 
-        # ********************************************************************
-        # ajax call
-        # ********************************************************************
+        representation = self.request.representation
         if representation == "aadata":
+            vars = request.get_vars
             start = vars.get("iDisplayStart", None)
             limit = vars.get("iDisplayLength", None)
-            if limit is not None:
-                try:
-                    start = int(start)
-                    limit = int(limit)
-                except ValueError:
-                    start = None
-                    limit = None # use default
-            else:
-                start = None # use default
-            # Using the sort variables sent from dataTables
-            if vars.iSortingCols:
-                orderby = self.ssp_orderby(resource, list_fields)
-
-            # Echo
             sEcho = int(vars.sEcho or 0)
-
-            # Get the list
-            items = resource.sqltable(fields=list_fields,
-                                      start=start,
-                                      limit=limit,
-                                      orderby=orderby,
-                                      download_url=self.download_url,
-                                      as_page=True) or []
-            # Ugly hack to change any occurrence of [id] with the true id
-            # Needed because the represent doesn't know the id
-            for i in range(len(items)):
-                id = items[i][0]
-                for j in range(len(items[i])):
-                    new = items[i][j].replace("[id]",id)
-                    items[i][j] = new
-            totalrows = self.resource.count()
-            result = dict(sEcho = sEcho,
-                          iTotalRecords = totalrows,
-                          iTotalDisplayRecords = totalrows,
-                          aaData = items)
-
-            output = jsons(result)
-
-        # ********************************************************************
-        # html 'initial' call
-        # ********************************************************************
         else: # catch all
             start = 0
-            limit = 1
-            # Sort by
-            vars["iSortingCols"] = len(sort_by)
+            limit = current.manager.ROWSPERPAGE
+        if limit is not None:
+            try:
+                start = int(start)
+                limit = int(limit)
+            except ValueError:
+                start = None
+                limit = None # use default
+        else:
+            start = None # use default
+        rows = resource.select(list_fields,
+                               start=start,
+                               limit=limit,
+                               )
+        data = resource.extract(rows,
+                                list_fields,
+                                )
 
-            # generate the dataTables.js variables for sorting
-            index = 0
-            for col in sort_by:
-                colName = "iSortCol_%s" % str(index)
-                colValue = col[0]
-                dirnName = "sSortDir_%s" % str(index)
-                if len(col) > 1:
-                    dirnValue = col[1]
-                else:
-                    dirnValue = "asc"
-                vars[colName] = colValue
-                vars[dirnName] = dirnValue
-            # Now using these sort variables generate the order by statement
-            orderby = self.ssp_orderby(resource, list_fields)
-
-            del vars["iSortingCols"]
-            for col in sort_by:
-                del vars["iSortCol_%s" % str(index)]
-                del vars["sSortDir_%s" % str(index)]
-
-            # Get the first row for a quick up load
-            items = resource.sqltable(fields=list_fields,
-                                      start=start,
-                                      limit=1,
-                                      orderby=orderby,
-                                      download_url=self.download_url)
-            totalrows = resource.count()
-            if items:
-                if totalrows:
-                    if s3.dataTable_iDisplayLength:
-                        limit = 2 * s3.dataTable_iDisplayLength
-                    else:
-                        limit = 50
-                # Add a test on the first call here:
-                # Now get the limit rows for ajax style update of table
-                sqltable = resource.sqltable(fields=list_fields,
-                                             start=start,
-                                             limit=limit,
-                                             orderby=orderby,
-                                             download_url=self.download_url,
-                                             as_page=True)
-                aadata = dict(aaData = sqltable or [])
-                # Ugly hack to change any occurrence of [id] with the true id
-                # Needed because the represent doesn't know the id
-                for i in range(len(aadata["aaData"])):
-                    id = aadata["aaData"][i][0]
-                    for j in range(len(aadata["aaData"][i])):
-                        new = aadata["aaData"][i][j].replace("[id]",id)
-                        aadata["aaData"][i][j] = new
-
-                aadata.update(iTotalRecords=totalrows,
-                              iTotalDisplayRecords=totalrows)
-                response.aadata = jsons(aadata)
-                s3.start = 0
-                s3.limit = limit
-            else: # No items in database
-                # s3import tables don't have a delete field but kept for the record
-                if "deleted" in table:
-                    available_records = db(table.deleted == False)
-                else:
-                    available_records = db(table.id > 0)
-                # check for any records on an unfiltered table
-                if available_records.select(table.id,
-                                            limitby=(0, 1)).first():
-                    items = self.crud_string(tablename, "msg_no_match")
-                else:
-                    items = self.crud_string(tablename, "msg_list_empty")
-
-            output.update(items=items, sortby=sort_by)
-            # Value to be added to the dataTable ajax call
-            s3.dataTable_Method = "import"
-
-        return output
+        # put each value through the represent function
+        for row in data:
+            for (key, value) in row.items():
+                if key in represent:
+                    row[key] = represent[key](row["s3_import_item.id"], value);
+        rfields = resource.resolve_selectors(list_fields)[0]
+        dt = S3DataTable(rfields, data)
+        id = "s3import_1"
+        if representation == "aadata":
+            totalrows = self.resource.count()
+            return dt.json(totalrows,
+                           totalrows,
+                           id,
+                           sEcho,
+                           dt_bulk_actions = [current.T("Import")],
+                           )
+        else:
+            output = dict()
+            url = "/%s/%s/%s/import.aadata?job=%s" % (request.application,
+                                                      request.controller,
+                                                      request.function,
+                                                      ajax_item_id
+                                                      )
+            totalrows = self.resource.count()
+            items =  dt.html(totalrows,
+                             totalrows,
+                             id,
+                             dt_ajax_url=url,
+                             dt_bulk_actions = [current.T("Import")],
+                             dt_bulk_selected = dt_bulk_select,
+                             )
+            current.response.s3.dataTableID = ["s3import_1"]
+            output.update(items=items)
+            return output
 
     # -------------------------------------------------------------------------
-    def _item_element_represent(self, value):
+    def _item_element_represent(self, id, value):
         """
             Represent the element in an import item for dataTable display
 
@@ -1396,7 +1332,7 @@ class S3Importer(S3CRUD):
         table = current.db[tablename]
 
         output = DIV()
-        details = TABLE(_class="importItem [id]")
+        details = TABLE(_class="importItem %s" % id)
         header, rows = self._add_item_details(element.findall("data"), table)
         if header is not None:
             output.append(header)
@@ -1418,7 +1354,7 @@ class S3Importer(S3CRUD):
             # At this stage we don't have anything to display to see if we can
             # find something to show. This could be the case when a table being
             # imported is a resolver for a many to many relationship
-            refdetail = TABLE(_class="importItem [id]")
+            refdetail = TABLE(_class="importItem %s" % id)
             references = element.findall("reference")
             for reference in references:
                 tuid = reference.get("tuid")
@@ -1547,7 +1483,7 @@ class S3Importer(S3CRUD):
         if "mode" in vars:
             mode = vars["mode"]
             if "selected" in vars:
-                selected = vars["selected"].split(",")
+                selected = vars["selected"]
             else:
                 selected = []
             if mode == "Inclusive":
@@ -1559,7 +1495,8 @@ class S3Importer(S3CRUD):
 
     # -------------------------------------------------------------------------
     def _get_all_items(self, upload_id, as_string=False):
-        """ Get a list of the record IDs of all import items for
+        """
+            Get a list of the record IDs of all import items for
             the the given upload ID
 
             @param upload_id: the upload ID
@@ -1584,38 +1521,35 @@ class S3Importer(S3CRUD):
     # -------------------------------------------------------------------------
     def _use_upload_table(self):
         """
-            @todo: docstring?
+            Set the resource and the table to being s3_import_upload
         """
 
-        self.resource.table = self.upload_table
-        self.resource.tablename = self.upload_tablename
-        self.resource.clear_query()
-        self.table = self.upload_table
         self.tablename = self.upload_tablename
+        if self.upload_resource == None:
+            self.upload_resource = current.s3db.resource(self.tablename)
+        self.resource = self.upload_resource
+        self.table = self.upload_table
 
     # -------------------------------------------------------------------------
     def _use_controller_table(self):
         """
-            @todo: docstring?
+            Set the resource and the table to be the imported resource
         """
 
-        self.resource.table = self.controller_table
-        self.resource.tablename = self.controller_tablename
-        self.resource.clear_query()
+        self.resource = self.controller_resource
         self.table = self.controller_table
         self.tablename = self.controller_tablename
 
     # -------------------------------------------------------------------------
     def _use_import_item_table(self, job_id):
         """
-            @todo: docstring?
+            Set the resource and the table to being s3_import_item
         """
-
-        self.tablename = S3ImportJob.ITEM_TABLE_NAME
         self.table = S3ImportJob.define_item_table()
-        self.resource.table = self.table
-        self.resource.tablename = self.tablename
-        self.resource.clear_query()
+        self.tablename = S3ImportJob.ITEM_TABLE_NAME
+        if self.item_resource == None:
+            self.item_resource = current.s3db.resource(self.tablename)
+        self.resource = self.item_resource
 
     # -------------------------------------------------------------------------
     def __define_table(self):
@@ -1636,9 +1570,8 @@ class S3Importer(S3CRUD):
         }
 
         def user_name_represent(id):
-            # @todo: use s3_present_user?
+            # @todo: use s3_represent_user?
 
-            rep_str = "-"
             table = db.auth_user
             query = (table.id == id)
             row = db(query).select(table.first_name,
@@ -1646,6 +1579,9 @@ class S3Importer(S3CRUD):
                                    limitby=(0, 1)).first()
             if row:
                 rep_str = "%s %s" % (row.first_name, row.last_name)
+            else:
+                rep_str = current.messages.NONE
+
             return rep_str
 
         def status_represent(index):
@@ -1685,9 +1621,6 @@ class S3Importer(S3CRUD):
         """ Defines the upload table """
 
         db = current.db
-        uploadfolder = os.path.join(current.request.folder,
-                                    "uploads",
-                                    )
         if cls.UPLOAD_TABLE_NAME not in db:
             upload_table = db.define_table(cls.UPLOAD_TABLE_NAME,
                     Field("controller",
@@ -1697,7 +1630,8 @@ class S3Importer(S3CRUD):
                           readable=False,
                           writable=False),
                     Field("file", "upload",
-                          uploadfolder=os.path.join(current.request.folder, "uploads", "imports"),
+                          uploadfolder=os.path.join(current.request.folder,
+                                                    "uploads", "imports"),
                           autodelete=True),
                     Field("filename",
                           readable=False,
@@ -1867,7 +1801,7 @@ class S3ImportItem(object):
         self.tablename = table._tablename
 
         if original is None:
-            original = manager.original(table, element)
+            original = S3Resource.original(table, element)
         data = xml.record(table, element,
                           files=files,
                           original=original,
@@ -1913,7 +1847,7 @@ class S3ImportItem(object):
         if self.original is not None:
             original = self.original
         else:
-            original = current.manager.original(table, self.data)
+            original = S3Resource.original(table, self.data)
 
         if original is not None:
             self.original = original
@@ -1936,20 +1870,19 @@ class S3ImportItem(object):
             Authorize the import of this item, sets self.permitted
         """
 
-        db = current.db
-        manager = current.manager
-        authorize = manager.permit
-
-        self.permitted = False
-
         if not self.table:
             return False
+
+        manager = current.manager
 
         prefix = self.tablename.split("_", 1)[0]
         if prefix in manager.PROTECTED:
             return False
 
-        if not authorize:
+        authorize = manager.permit
+        if authorize:
+            self.permitted = False
+        else:
             self.permitted = True
 
         self.method = self.METHOD.CREATE
@@ -1962,7 +1895,7 @@ class S3ImportItem(object):
             else:
                 if not self.original:
                     query = (self.table.id == self.id)
-                    self.original = db(query).select(limitby=(0, 1)).first()
+                    self.original = current.db(query).select(limitby=(0, 1)).first()
                 if self.original:
                     self.method = self.METHOD.UPDATE
 
@@ -2031,12 +1964,6 @@ class S3ImportItem(object):
                                   (still reports errors)
         """
 
-        db = current.db
-        s3db = current.s3db
-        xml = current.xml
-        manager = current.manager
-        table = self.table
-
         # Check if already committed
         if self.committed:
             # already committed
@@ -2048,8 +1975,17 @@ class S3ImportItem(object):
 
         _debug("Committing item %s" % self)
 
+        db = current.db
+        s3db = current.s3db
+        xml = current.xml
+        manager = current.manager
+        table = self.table
+
         # Resolve references
         self._resolve_references()
+
+        # Set a flag so that we know this is an import job
+        current.response.s3.bulk = True
 
         # Validate
         if not self.validate():
@@ -2266,8 +2202,7 @@ class S3ImportItem(object):
 
             if not self.skip and not self.conflict:
 
-                prefix, name = self.tablename.split("_", 1)
-                resource = manager.define_resource(prefix, name, id=self.id)
+                resource = s3db.resource(self.tablename, id=self.id)
 
                 ondelete = s3db.get_config(self.tablename, "ondelete")
                 success = resource.delete(ondelete=ondelete,
@@ -2556,7 +2491,7 @@ class S3ImportItem(object):
         else:
             self.table = table
             self.tablename = tablename
-        original = current.manager.original(table, self.data)
+        original = S3Resource.original(table, self.data)
         if original is not None:
             self.original = original
             self.id = original[table._id.name]
@@ -2641,6 +2576,7 @@ class S3ImportJob():
             self.conflict_policy = S3ImportItem.POLICY.OTHER
 
         # Synchronization settings
+        self.mtime = None
         self.last_sync = last_sync
         self.onconflict = onconflict
 
@@ -2858,25 +2794,24 @@ class S3ImportJob():
         references = element.findall("reference")
         for reference in references:
             field = reference.get(ATTRIBUTE.field, None)
+
             # Ignore references without valid field-attribute
             if not field or field not in fields:
                 continue
+
             # Find the key table
-            multiple = False
-            fieldtype = str(table[field].type)
-            if fieldtype.startswith("reference"):
-                ktablename = fieldtype[10:]
-            elif fieldtype.startswith("list:reference"):
-                ktablename = fieldtype[15:]
-                multiple = True
-            else:
-                # ignore if the field is not a reference type
-                continue
+            ktablename, key, multiple = s3_get_foreign_key(table[field])
+            if not ktablename:
+                if table._tablename == "auth_user" and \
+                   field == "organisation_id":
+                    ktablename = "org_organisation"
+                else:
+                    continue
             try:
-                ktable = s3db[ktablename]
+                ktable = current.s3db[ktablename]
             except:
-                # Invalid tablename - skip
                 continue
+
             tablename = reference.get(ATTRIBUTE.resource, None)
             # Ignore references to tables without UID field:
             if UID not in ktable.fields:
@@ -3042,6 +2977,7 @@ class S3ImportJob():
         # Commit the items
         items = self.items
         count = 0
+        mtime = None
         created = []
         cappend = created.append
         updated = []
@@ -3063,6 +2999,8 @@ class S3ImportJob():
                     return False
             elif item.tablename == tablename:
                 count += 1
+                if mtime is None or item.mtime > mtime:
+                    mtime = item.mtime
                 if item.id:
                     if item.method == item.METHOD.CREATE:
                         cappend(item.id)
@@ -3071,6 +3009,7 @@ class S3ImportJob():
                     elif item.method == item.METHOD.DELETE:
                         deleted.append(item.id)
         self.count = count
+        self.mtime = mtime
         self.created = created
         self.updated = updated
         self.deleted = deleted

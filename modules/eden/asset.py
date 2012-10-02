@@ -97,25 +97,14 @@ class S3AssetModel(S3Model):
         T = current.T
         db = current.db
         auth = current.auth
-        request = current.request
-        settings = current.deployment_settings
 
         person_id = self.pr_person_id
         location_id = self.gis_location_id
         organisation_id = self.org_organisation_id
-        organisation_represent = self.org_organisation_represent
-        room_id = self.org_room_id
-        item_id = self.supply_item_entity_id
-        supply_item_id = self.supply_item_id
-        supply_item_represent = self.supply_item_represent
-        #supplier_id = self.proc_supplier_id
 
         UNKNOWN_OPT = current.messages.UNKNOWN_OPT
 
-        vehicle = settings.has_module("vehicle")
-
-        s3_date_format = settings.get_L10n_date_format()
-        s3_date_represent = lambda dt: S3DateTime.date_represent(dt, utc=True)
+        vehicle = current.deployment_settings.has_module("vehicle")
 
         # Shortcuts
         add_component = self.add_component
@@ -134,8 +123,8 @@ class S3AssetModel(S3Model):
                             ASSET_TYPE_OTHER      : T("Other")
                            }
 
-        asset_item_represent = lambda id: supply_item_represent(id,
-                                                                show_um = False)
+        asset_item_represent = lambda id: self.supply_item_represent(id,
+                                                                     show_um = False)
 
         ctable = self.supply_item_category
         itable = self.supply_item
@@ -146,16 +135,7 @@ class S3AssetModel(S3Model):
                              super_link("doc_id", "doc_entity"),
                              Field("number",
                                    label = T("Asset Number")),
-                             item_id,
-                             supply_item_id(represent = asset_item_represent,
-                                            requires = IS_ONE_OF(db((ctable.can_be_asset == True) & \
-                                                                    (itable.item_category_id == ctable.id)),
-                                                                 "supply_item.id",
-                                                                 asset_item_represent,
-                                                                 sort=True,
-                                                          ),
-                                            script = None, # No Item Pack Filter
-                                            ),
+                             self.supply_item_entity_id,
                              # @ToDo: Can we set this automatically based on Item Category?
                              Field("type", "integer",
                                    readable = vehicle,
@@ -165,17 +145,42 @@ class S3AssetModel(S3Model):
                                    represent = lambda opt: \
                                        asset_type_opts.get(opt, UNKNOWN_OPT),
                                    label = T("Type")),
+                             self.supply_item_id(represent = asset_item_represent,
+                                                 requires = IS_ONE_OF(db((ctable.can_be_asset == True) & \
+                                                                         (itable.item_category_id == ctable.id)),
+                                                                      "supply_item.id",
+                                                                      asset_item_represent,
+                                                                      sort=True,
+                                                                      ),
+                                                 widget = None,
+                                                 script = None, # No Item Pack Filter
+                                                 ),
+                             # This is a component, so needs to be a super_link
+                             # - can't override field name, ondelete or requires
+                             super_link("site_id", "org_site",
+                                        label = T("Office/Warehouse/Facility"),
+                                        default = auth.user.site_id if auth.is_logged_in() else None,
+                                        readable = True,
+                                        writable = True,
+                                        empty = False,
+                                        ondelete = "RESTRICT",
+                                        # Comment these to use a Dropdown & not an Autocomplete
+                                        #widget = S3SiteAutocompleteWidget(),
+                                        #comment = DIV(_class="tooltip",
+                                        #              _title="%s|%s" % (T("Warehouse"),
+                                        #                                T("Enter some characters to bring up a list of possible matches"))),
+                                        represent = self.org_site_represent
+                                        ),
+                             organisation_id(),
                              Field("sn",
                                    label = T("Serial Number")),
                              # @ToDo: Switch to using org_organisation filtered to suppliers
                              #supplier_id(),
                              Field("supplier",
                                    label = T("Supplier")),
-                             Field("purchase_date", "date",
-                                   label = T("Purchase Date"),
-                                   requires = IS_NULL_OR(IS_DATE(format=s3_date_format)),
-                                   represent = s3_date_represent,
-                                   widget = S3DateWidget()),
+                             s3_date("purchase_date",
+                                     label = T("Purchase Date")
+                                     ),
                              Field("purchase_price", "double",
                                    #default=0.00,
                                    represent=lambda v, row=None: IS_FLOAT_AMOUNT.represent(v, precision=2)),
@@ -212,10 +217,11 @@ class S3AssetModel(S3Model):
         # Reusable Field
         asset_id = S3ReusableField("asset_id", table,
                                    sortby="number",
-                                   requires = IS_NULL_OR(IS_ONE_OF(db,
-                                                                   "asset_asset.id",
-                                                                   self.asset_represent,
-                                                                   sort=True)),
+                                   requires = IS_NULL_OR(
+                                                IS_ONE_OF(db,
+                                                          "asset_asset.id",
+                                                          self.asset_represent,
+                                                          sort=True)),
                                    represent = self.asset_represent,
                                    label = T("Asset"),
                                    comment = S3AddResourceLink(c="asset", f="asset",
@@ -274,9 +280,10 @@ class S3AssetModel(S3Model):
 
         # Resource Configuration
         configure(tablename,
+                  super_entity = ("supply_item_entity", "sit_trackable"),
                   create_next = URL(c="asset", f="asset",
                                     args=["[id]"]),
-                  super_entity = ("supply_item_entity", "sit_trackable"),
+                  onaccept=self.asset_onaccept,
                   search_method=asset_search,
                   report_options=Storage(
                         search=[
@@ -316,8 +323,9 @@ class S3AssetModel(S3Model):
                                "item_id",
                                "type",
                                "purchase_date",
-                               #"organisation_id",
-                               "location_id",
+                               "organisation_id",
+                               "site_id",
+                               #"location_id",
                                "L0",
                                "L1",
                                #"L2",
@@ -364,31 +372,23 @@ class S3AssetModel(S3Model):
         tablename = "asset_log"
         table = define_table(tablename,
                              asset_id(),
-                             Field("status",
-                                   "integer",
+                             Field("status", "integer",
                                    label = T("Status"),
                                    requires = IS_IN_SET(asset_log_status_opts),
                                    represent = lambda opt: \
                                        asset_log_status_opts.get(opt, UNKNOWN_OPT)
                                    ),
-                             Field("datetime",
-                                   "datetime",
-                                   label = T("Date"),
-                                   default=request.utcnow,
-                                   requires = IS_UTC_DATETIME(),
-                                   widget = S3DateTimeWidget(),
-                                   represent = s3_date_represent,
-                                   ),
-                             Field("datetime_until",
-                                   "datetime",
-                                   label = T("Date Until"),
-                                   requires = IS_EMPTY_OR(IS_UTC_DATETIME()),
-                                   widget = S3DateTimeWidget(),
-                                   represent = s3_date_represent,
-                                   ),
+                             s3_datetime("datetime",
+                                         default="now",
+                                         empty=False,
+                                         represent="date",
+                                         ),
+                             s3_datetime("datetime_until",
+                                         label = T("Date Until"),
+                                         represent="date",
+                                         ),
                              person_id(label = T("Assigned To")),
-                             Field("check_in_to_person",
-                                   "boolean",
+                             Field("check_in_to_person", "boolean",
                                    #label = T("Mobile"),      # Relabel?
                                    label = T("Track with this Person?"),
                                    comment = DIV(_class="tooltip",
@@ -397,9 +397,12 @@ class S3AssetModel(S3Model):
                                                                    T("If selected, then this Asset's Location will be updated whenever the Person's Location is updated."))),
                                    readable = False,
                                    writable = False),
-                             organisation_id(readable = False,
-                                             writable = False,
-                                             widget = None),      # This is the Organisation to whom the loan is made
+                             # The Organisation to whom the loan is made
+                             organisation_id(
+                                    readable = False,
+                                    writable = False,
+                                    widget = None
+                                    ),
                              #Field("site_or_location",
                              #      "integer",
                              #      requires = IS_NULL_OR(IS_IN_SET(site_or_location_opts)),
@@ -409,19 +412,21 @@ class S3AssetModel(S3Model):
                              #      label = T("Facility or Location")),
                              # This is a component, so needs to be a super_link
                              # - can't override field name, ondelete or requires
-                             self.super_link("site_id", "org_site",
-                                              label = T("Warehouse/Facility/Office"),
-                                              filterby = "site_id",
-                                              filter_opts = auth.permitted_facilities(redirect_on_error=False),
-                                              not_filterby = "obsolete",
-                                              not_filter_opts = [True],
-                                              #default = user.site_id if is_logged_in() else None,
-                                              readable = True,
-                                              writable = True,
-                                              empty = False,
-                                              represent = self.org_site_represent,
-                                              #widget = S3SiteAutocompleteWidget(),
-                                              comment = SCRIPT(
+                             super_link("site_id", "org_site",
+                                        label = T("Warehouse/Facility/Office"),
+                                        #filterby = "site_id",
+                                        #filter_opts = auth.permitted_facilities(redirect_on_error=False),
+                                        instance_types = auth.org_site_types,
+                                        updateable = True,
+                                        not_filterby = "obsolete",
+                                        not_filter_opts = [True],
+                                        #default = user.site_id if is_logged_in() else None,
+                                        readable = True,
+                                        writable = True,
+                                        empty = False,
+                                        represent = self.org_site_represent,
+                                        #widget = S3SiteAutocompleteWidget(),
+                                        comment = SCRIPT(
 '''$(document).ready(function(){
  S3FilterFieldChange({
   'FilterField':'organisation_id',
@@ -436,19 +441,18 @@ class S3AssetModel(S3Model):
  })
 })''' % dict(instance_type_nice = auth.org_site_types)),
                                               ),
-                             room_id(),
+                             self.org_room_id(),
                              #location_id(),
-                             Field("cancel", #
-                                   "boolean",
+                             Field("cancel", "boolean",
                                    default = False,
                                    label = T("Cancel Log Entry"),
                                    comment = DIV(_class="tooltip",
                                                  _title="%s|%s" % (T("Cancel Log Entry"),
                                                                    T("'Cancel' will indicate an asset log entry did not occur")))
-                                               ),
+                                   ),
                              Field("cond", "integer",  # condition is a MySQL reserved word
                                    requires = IS_IN_SET(asset_condition_opts,
-                                                         zero = "%s..." % T("Please select")),
+                                                        zero = "%s..." % T("Please select")),
                                    represent = lambda opt: \
                                        asset_condition_opts.get(opt, UNKNOWN_OPT),
                                    label = T("Condition")),
@@ -456,7 +460,7 @@ class S3AssetModel(S3Model):
                                        label = T("Assigned By"),               # This can either be the Asset controller if signed-out from the store
                                        default = auth.s3_logged_in_person(),   # or the previous owner if passed on directly (e.g. to successor in their post)
                                        comment = self.pr_person_comment(child="by_person_id"),
-                                      ),
+                                       ),
                              s3_comments(),
                              *s3_meta_fields())
 
@@ -487,7 +491,6 @@ class S3AssetModel(S3Model):
                                  "datetime",
                                  "datetime_until",
                                  "organisation_id",
-                                 #"site_or_location",
                                  "site_id",
                                  "room_id",
                                  #"location_id",
@@ -547,6 +550,40 @@ class S3AssetModel(S3Model):
         except:
             represent = current.messages.UNKNOWN_OPT
         return represent
+
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def asset_onaccept(form):
+        """
+        """
+
+        db = current.db
+        auth = current.auth
+
+        vars = form.vars
+        atable = db.asset_asset
+
+        # Update asset realm_entity and components' realm_entity  
+        auth.set_realm_entity(atable, vars, force_update=True)
+        auth.set_component_realm_entity(atable, vars, 
+                                        update_components = ["log", "presence"]
+                                        )
+
+        site_id = vars.get("site_id", None)
+        if site_id:
+            asset_id = vars.id
+            # Set the Base Location
+            tracker = S3Tracker()
+            asset_tracker = tracker(atable, asset_id)
+            asset_tracker.set_base_location(tracker(db.org_site, site_id))
+            # Add a log entry for this
+            ltable = db.asset_log
+            ltable.insert(asset_id = asset_id,
+                          status = ASSET_LOG_SET_BASE,
+                          site_id = site_id,
+                          )
+
+        return
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -634,7 +671,6 @@ class S3AssetModel(S3Model):
                 asset_tracker.set_location(asset_tracker,
                                            timestmp = thistime)
         return
-
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -832,7 +868,6 @@ def asset_rheader(r):
 
             # @ToDo: Check permissions before displaying buttons
 
-
             asset_action_btns = [ A( T("Set Base Facility/Site"),
                                      _href = URL(f=func,
                                                  args = [record.id, "log", "create"],
@@ -954,6 +989,9 @@ def asset_controller():
 
     # Pre-process
     def prep(r):
+        # Location Filter
+        s3db.gis_location_filter(r)
+
         if r.interactive:
             s3_address_hide(r.table)
         if r.component_name == "log":

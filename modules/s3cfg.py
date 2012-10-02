@@ -52,7 +52,6 @@ class S3Config(Storage):
         self.frontpage.rss = []
         self.fin = Storage()
         self.L10n = Storage()
-        self.aaa = Storage()
         self.mail = Storage()
         self.msg = Storage()
         self.options = Storage()
@@ -69,6 +68,7 @@ class S3Config(Storage):
         self.project = Storage()
         self.req = Storage()
         self.supply = Storage()
+        self.hms = Storage()
 
     # -------------------------------------------------------------------------
     # Template
@@ -167,9 +167,9 @@ class S3Config(Storage):
     def get_auth_registration_requests_organisation(self):
         " Have the registration form request the Organisation "
         return self.auth.get("registration_requests_organisation", False)
-    def get_auth_registration_organisation_mandatory(self):
-        " Make the selection of Organisation Mandatory during registration "
-        return self.auth.get("registration_organisation_mandatory", False)
+    def get_auth_registration_organisation_required(self):
+        " Make the selection of Organisation required during registration "
+        return self.auth.get("registration_organisation_required", False)
     def get_auth_registration_organisation_hidden(self):
         " Hide the Organisation field in the registration form unless an email is entered which isn't whitelisted "
         return self.auth.get("registration_organisation_hidden", False)
@@ -189,6 +189,12 @@ class S3Config(Storage):
         else:
             organisation_id = None
         return organisation_id
+    def get_auth_registration_requests_site(self):
+        " Have the registration form request the Site "
+        return self.auth.get("registration_requests_site", False)
+    def get_auth_registration_site_required(self):
+        " Make the selection of site required during registration "
+        return self.auth.get("registration_site_required", False)
     def get_auth_registration_pending(self):
         """ Message someone gets when they register & they need approving """
         return self.auth.get("registration_pending",
@@ -203,7 +209,10 @@ class S3Config(Storage):
         """ Have the registration form request an Image """
         return self.auth.get("registration_requests_image", False)
     def get_auth_registration_roles(self):
-        """ The list of role UUIDs to assign to newly-registered users """
+        """
+            A dictionary of realms, with lists of role UUIDs, to assign to newly-registered users
+            Use key = 0 to have the roles not restricted to a realm
+        """
         return self.auth.get("registration_roles", [])
     def get_auth_registration_volunteer(self):
         """ Redirect the newly-registered user to their volunteer details page """
@@ -213,17 +222,31 @@ class S3Config(Storage):
     def get_auth_record_approval(self):
         """ Use record approval (False by default) """
         return self.auth.get("record_approval", False)
-    def get_auth_record_approver_role(self):
-        """ UID of the record approver role """
-        return self.auth.get("record_approver_role", "APPROVER")
-
-    def get_aaa_role_modules(self):
+    def get_auth_record_approval_required_for(self):
+        """ Which tables record approval is required for """
+        return self.auth.get("record_approval_required_for", None)
+    def get_auth_realm_entity(self):
+        """ Hook to determine the owner entity of a record """
+        return self.auth.get("realm_entity", None)
+    def get_auth_person_realm_human_resource_org(self):
+        """
+            Sets pr_person.realm_entity to
+            organisation.pe_id of hrm_human_resource
+        """
+        return self.auth.get("person_realm_human_resource_org", False)
+    def get_auth_person_realm_member_org(self):
+        """
+            Sets pr_person.realm_entity to
+            organisation.pe_id of member_member
+        """
+        return self.auth.get("person_realm_member_org", False)
+    def get_auth_role_modules(self):
         """
             Which modules are includes in the Role Manager
             - to assign discrete permissions to via UI
         """
         T = current.T
-        return self.aaa.get("role_modules", OrderedDict([
+        return self.auth.get("role_modules", OrderedDict([
             ("staff", "Staff"),
             ("vol", "Volunteers"),
             ("member", "Members"),
@@ -233,12 +256,12 @@ class S3Config(Storage):
             ("survey", "Assessments"),
             ("irs", "Incidents")
         ]))
-    def get_aaa_access_levels(self):
+    def get_auth_access_levels(self):
         """
             Access levels for the Role Manager UI
         """
         T = current.T
-        return self.aaa.get("access_levels", OrderedDict([
+        return self.auth.get("access_levels", OrderedDict([
             ("reader", "Reader"),
             ("data_entry", "Data Entry"),
             ("editor", "Editor"),
@@ -395,6 +418,13 @@ class S3Config(Storage):
         return self.gis.get("marker_max_width", 30)
     def get_gis_mouse_position(self):
         return self.gis.get("mouse_position", "normal")
+    def get_gis_poi_resources(self):
+        """
+            List of resources (tablenames) to import/export as PoIs from Admin Locations
+            - KML & OpenStreetMap formats
+        """
+        return self.gis.get("poi_resources",
+                            ["cr_shelter", "hms_hospital", "org_office"])
     def get_gis_print_service(self):
         return self.gis.get("print_service", "")
     def get_gis_geoserver_url(self):
@@ -586,9 +616,9 @@ class S3Config(Storage):
         """
         return self.mail.get("tls", False)
     def get_mail_sender(self):
-        return self.mail.get("sender", "sahana@your.org")
+        return self.mail.get("sender", "'Sahana' <sahana@example.org>")
     def get_mail_approver(self):
-        return self.mail.get("approver", "useradmin@your.org")
+        return self.mail.get("approver", "useradmin@example.org")
     def get_mail_limit(self):
         """ A daily limit to the number of messages which can be sent """
         return self.mail.get("limit", None)
@@ -604,9 +634,9 @@ class S3Config(Storage):
     # -------------------------------------------------------------------------
     # Twitter
     def get_msg_twitter_oauth_consumer_key(self):
-        return self.twitter.get("oauth_consumer_key", "")
+        return self.msg.get("twitter_oauth_consumer_key", "")
     def get_msg_twitter_oauth_consumer_secret(self):
-        return self.twitter.get("oauth_consumer_secret", "")
+        return self.msg.get("twitter_oauth_consumer_secret", "")
 
     # -------------------------------------------------------------------------
     # Save Search and Subscription
@@ -622,10 +652,71 @@ class S3Config(Storage):
     # -------------------------------------------------------------------------
     # Alert
     def get_cap_identifier_prefix(self):
+        """
+            prefix to be prepended to identifiers of cap alerts.
+        """
         return self.cap.get("identifier_prefix", "")
 
     def get_cap_identifier_suffix(self):
+        """
+            suffix to be appended to identifiers of cap alerts.
+        """
         return self.cap.get("identifier_suffix", "")
+
+    def get_cap_codes(self):
+        """
+            default codes for cap alert.
+
+            should return a list of dicts:
+            [ {"key": "<ValueName>, "value": "<Value>",
+               "comment": "<Help string>", "mutable": True|False},
+              ...]
+
+        """
+        return self.cap.get("codes", [])
+
+    def get_cap_event_codes(self):
+        """
+            default alert codes for cap info.
+
+            should return a list of dicts:
+            [ {"key": "<ValueName>, "value": "<Value>",
+               "comment": "<Help string>", "mutable": True|False},
+              ...]
+
+        """
+        return self.cap.get("event_codes", [])
+
+    def get_cap_parameters(self):
+        """
+            default parameters for cap info.
+
+            should return a list of dicts:
+            [ {"key": "<ValueName>, "value": "<Value>",
+               "comment": "<Help string>", "mutable": True|False},
+              ...]
+
+        """
+        return self.cap.get("parameters", [])
+
+    def get_cap_geocodes(self):
+        """
+            default geocodes.
+
+            should return a list of dicts:
+            [ {"key": "<ValueName>, "value": "<Value>",
+               "comment": "<Help string>", "mutable": True|False},
+              ...]
+
+        """
+        return self.cap.get("geocodes", [])
+
+    def get_cap_base64(self):
+        """
+            Should cap resources be base64 encoded and embedded in the alert message?
+
+        """
+        return self.cap.get("base64", False)
 
     def get_cap_languages(self):
         """
@@ -646,6 +737,22 @@ class S3Config(Storage):
                                 ("es", "Español")
                             ]))
 
+    def get_cap_priorities(self):
+        """
+            settings for priorities.
+
+            Should be an ordered dict of the format
+            OrderedDict([
+                            ("<value>, "<Translated title>", <urgency>, <severity>, <certainty>, <color>),
+                             ...
+                        ]) """
+        T = current.T
+        return self.cap.get("priorities", [
+                                            ("Urgent", T("Urgent"), "Immediate", "Extreme", "Observed", "red"),
+                                            ("High", T("High"), "Expected", "Severe", "Observed", "orange"),
+                                            ("Low", T("Low"), "Expected", "Moderate", "Observed", "green")
+                                          ])
+
     # -------------------------------------------------------------------------
     # Human Resource Management
     def get_hrm_email_required(self):
@@ -659,6 +766,12 @@ class S3Config(Storage):
             If set to True then HRM records are deletable rather than just being able to be marked as obsolete
         """
         return self.hrm.get("deletable", False)
+
+    def get_hrm_job_roles(self):
+        """
+            If set to True then HRs can have multiple Job Roles in addition to their Job Title
+        """
+        return self.hrm.get("job_roles", False)
 
     def get_hrm_show_staff(self):
         """
@@ -702,17 +815,53 @@ class S3Config(Storage):
         """
         return self.hrm.get("use_teams", True)
 
+    def get_hrm_use_certificates(self):
+        """
+            Whether Human Resources should use Certificates
+        """
+        return self.hrm.get("use_certificates", True)
+
     def get_hrm_use_credentials(self):
         """
             Whether Human Resources should use Credentials
         """
         return self.hrm.get("use_credentials", True)
 
+    def get_hrm_use_description(self):
+        """
+            Whether Human Resources should use Description
+        """
+        return self.hrm.get("use_description", True)
+
     def get_hrm_use_education(self):
         """
             Whether Human Resources should show Education
         """
         return self.hrm.get("use_education", False)
+
+    def get_hrm_use_id(self):
+        """
+            Whether Human Resources should use ID
+        """
+        return self.hrm.get("use_id", True)
+
+    def get_hrm_use_skills(self):
+        """
+            Whether Human Resources should use Skills
+        """
+        return self.hrm.get("use_skills", True)
+
+    def get_hrm_use_trainings(self):
+        """
+            Whether Human Resources should use Trainings
+        """
+        return self.hrm.get("use_trainings", True)
+
+    def get_hrm_organisation_label(self):
+        """
+            Label for Organisations in Human Resources
+        """
+        return self.hrm.get("organisation_label", current.T("Organization"))
 
     # -------------------------------------------------------------------------
     # Inventory Management Settings
@@ -793,7 +942,17 @@ class S3Config(Storage):
     # -------------------------------------------------------------------------
     # Organisation
     def get_org_site_code_len(self):
+        """
+            Length of auto-generated Codes for Facilities (org_site)
+        """
         return self.org.get("site_code_len", 10)
+
+    def get_org_summary(self):
+        """
+            Whether to use Summary fields for Organisation/Office:
+                # National/International staff
+        """
+        return self.org.get("summary", False)
 
     # -------------------------------------------------------------------------
     # Proc
@@ -924,7 +1083,15 @@ class S3Config(Storage):
     # -------------------------------------------------------------------------
     # Supply
     def get_supply_catalog_default(self):
-        return self.inv.get("catalog_default", "Other Items")
+        return self.inv.get("catalog_default", "Default")
+
+    # -------------------------------------------------------------------------
+    # Hospital Registry
+    def get_hms_track_ctc(self):
+        return self.hms.get("track_ctc", False)
+
+    def get_hms_activity_reports(self):
+        return self.hms.get("activity_reports", False)
 
     # -------------------------------------------------------------------------
     # Active modules list

@@ -38,6 +38,7 @@
     <xsl:template match="/">
         <osm>
             <xsl:attribute name="version">0.6</xsl:attribute>
+            <xsl:attribute name="upload">true</xsl:attribute>
             <xsl:attribute name="generator">Sahana Eden</xsl:attribute>
             <xsl:apply-templates select="s3xml"/>
         </osm>
@@ -46,12 +47,14 @@
     <!-- ****************************************************************** -->
     <xsl:template match="/s3xml">
         <xsl:variable name="domain" select="@domain" />
+        <!--
         <bounds>
             <xsl:attribute name="minlat"><xsl:value-of select="@latmin"/></xsl:attribute>
             <xsl:attribute name="minlon"><xsl:value-of select="@lonmin"/></xsl:attribute>
             <xsl:attribute name="maxlat"><xsl:value-of select="@latmax"/></xsl:attribute>
             <xsl:attribute name="maxlon"><xsl:value-of select="@lonmax"/></xsl:attribute>
         </bounds>
+        -->
         <xsl:apply-templates select=".//resource"/>
     </xsl:template>
 
@@ -72,6 +75,12 @@
                             <xsl:attribute name="k">id:uuid</xsl:attribute>
                             <xsl:attribute name="v">
                                 <xsl:value-of select="@uuid"/>
+                            </xsl:attribute>
+                        </tag>
+                        <tag>
+                            <xsl:attribute name="k">sahana</xsl:attribute>
+                            <xsl:attribute name="v">
+                                <xsl:value-of select="@url"/>
                             </xsl:attribute>
                         </tag>
                         <tag>
@@ -131,12 +140,16 @@
                                     <xsl:attribute name="k">amenity</xsl:attribute>
                                     <xsl:attribute name="v">hospital</xsl:attribute>
                                 </xsl:when>
+                                <xsl:when test="@name='transport_airport'">
+                                    <xsl:attribute name="k">aeroway</xsl:attribute>
+                                    <xsl:attribute name="v">aerodrome</xsl:attribute>
+                                </xsl:when>
+                                <xsl:when test="@name='transport_seaport'">
+                                    <xsl:attribute name="k">harbour</xsl:attribute>
+                                    <xsl:attribute name="v">yes</xsl:attribute>
+                                </xsl:when>
                                 <xsl:when test="@name='org_facility'">
                                     <xsl:choose>
-                                        <xsl:when test="reference[@field='facility_type_id']='Airport'">
-                                            <xsl:attribute name="k">aeroway</xsl:attribute>
-                                            <xsl:attribute name="v">aerodrome</xsl:attribute>
-                                        </xsl:when>
                                         <xsl:when test="reference[@field='facility_type_id']='Church'">
                                             <xsl:attribute name="k">amenity</xsl:attribute>
                                             <xsl:attribute name="v">place_of_worship</xsl:attribute>

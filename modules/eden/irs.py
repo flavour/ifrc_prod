@@ -61,8 +61,6 @@ class S3IRSModel(S3Model):
         db = current.db
         settings = current.deployment_settings
 
-        datetime_represent = S3DateTime.datetime_represent
-
         # Shortcuts
         add_component = self.add_component
         configure = self.configure
@@ -274,21 +272,18 @@ class S3IRSModel(S3Model):
                                    readable = False,
                                    writable = False,
                                    label = T("Contact Details")),
-                             Field("datetime", "datetime",
-                                   default = current.request.utcnow,
-                                   label = T("Date/Time of Alert"),
-                                   widget = S3DateTimeWidget(future=0),
-                                   represent = lambda val: datetime_represent(val, utc=True),
-                                   requires = [IS_NOT_EMPTY(),
-                                               IS_UTC_DATETIME(allow_future=False)]),
-                             Field("expiry", "datetime",
-                                   #readable = False,
-                                   #writable = False,
-                                   label = T("Expiry Date/Time"),
-                                   widget = S3DateTimeWidget(past=0),
-                                   represent = lambda val: datetime_represent(val, utc=True),
-                                   requires = IS_NULL_OR(IS_UTC_DATETIME())
-                                  ),
+                             s3_datetime("datetime",
+                                         label = T("Date/Time of Alert"),
+                                         empty=False,
+                                         default="now",
+                                         future=0,
+                                         ),
+                             s3_datetime("expiry",
+                                         label = T("Expiry Date/Time"),
+                                         empty=False,
+                                         default="now",
+                                         past=0,
+                                         ),
                              self.gis_location_id(),
                              # Very basic Impact Assessment
                              Field("affected", "integer",
@@ -319,14 +314,14 @@ class S3IRSModel(S3Model):
                                           T("Yes"))[verified == True]),
                              # @ToDo: Move this to Events?
                              # Then display here as a Virtual Field
-                             Field("dispatch", "datetime",
-                                   # We don't want these visible in Create forms
-                                   # (we override in Update forms in controller)
-                                   readable = False,
-                                   writable = False,
-                                   label = T("Date/Time of Dispatch"),
-                                   widget = S3DateTimeWidget(future=0),
-                                   requires = IS_EMPTY_OR(IS_UTC_DATETIME(allow_future=False))),
+                             s3_datetime("dispatch",
+                                         label = T("Date/Time of Dispatch"),
+                                         future=0,
+                                         # We don't want these visible in Create forms
+                                         # (we override in Update forms in controller)
+                                         readable = False,
+                                         writable = False,
+                                         ),
                              Field("closed", "boolean",
                                    # We don't want these visible in Create forms
                                    # (we override in Update forms in controller)
@@ -712,10 +707,11 @@ class S3IRSModel(S3Model):
             message = ""
             if record.message:
                 message = "\n%s" % record.message
-            text = "%s\n%s%s%s" % (id,
+            text = "SI#%s\n%s%s%s" % (id,
                                    record.name,
                                    contact,
                                    message)
+            text += "\nSend help to see how to respond!"
 
             # Encode the message as an OpenGeoSMS
             message = msg.prepare_opengeosms(record.location_id,
@@ -773,7 +769,7 @@ class S3IRSModel(S3Model):
                     # Provide an Autocomplete the select the person to send the notice to
                     opts["recipient_type"] = "pr_person"
             output = msg.compose(**opts)
-            
+
             # Maintain RHeader for consistency
             if "rheader" in attr:
                 rheader = attr["rheader"](r)
@@ -915,8 +911,6 @@ S3.timeline.now="''', now.isoformat()
             @ToDo: Deployment setting for Ushahidi instance URL
         """
 
-        import os
-
         T = current.T
         auth = current.auth
         request = current.request
@@ -934,54 +928,57 @@ S3.timeline.now="''', now.isoformat()
 
             url = r.get_vars.get("url", "http://")
 
-            title = T("Incident Reports")
-            subtitle = T("Import from Ushahidi Instance")
+            title = T("Import Incident Reports from Ushahidi")
 
-            form = FORM(TABLE(TR(
-                        TH("URL: "),
-                        INPUT(_type="text", _name="url", _size="100", _value=url,
-                              requires=[IS_URL(), IS_NOT_EMPTY()]),
-                        TH(DIV(SPAN("*", _class="req", _style="padding-right: 5px;")))),
-                        TR(TD("Ignore Errors?: "),
-                        TD(INPUT(_type="checkbox", _name="ignore_errors", _id="ignore_errors"))),
-                        TR("", INPUT(_type="submit", _value=T("Import")))))
+            form = FORM(
+                    TABLE(
+                        TR(
+                            TH(B("%s: " % T("URL"))),
+                            INPUT(_type="text", _name="url", _size="100",
+                                  _value=url,
+                                  requires=[IS_URL(), IS_NOT_EMPTY()]),
+                            TH(DIV(SPAN("*", _class="req",
+                                        _style="padding-right: 5px;")))
+                            ),
+                        TR(
+                            TD(B("%s: " % T("Ignore Errors?"))),
+                            TD(INPUT(_type="checkbox", _name="ignore_errors",
+                                     _id="ignore_errors"))
+                            ),
+                        TR("", INPUT(_type="submit", _value=T("Import")))
+                        ))
 
-            label_list_btn = S3CRUD.crud_string(r.tablename, "label_list_button")
-            list_btn = A(label_list_btn,
-                         _href=r.url(method="", vars=None),
-                         _class="action-btn")
-
-            rheader = DIV(P("%s: http://wiki.ushahidi.com/doku.php?id=ushahidi_api" % T("API is documented here")),
-                          P("%s URL: http://ushahidi.my.domain/api?task=incidents&by=all&resp=xml&limit=1000" % T("Example")))
+            rheader = DIV(P("%s: http://wiki.ushahidi.com/doku.php?id=ushahidi_api" % \
+                                T("API is documented here")),
+                          P("%s URL: http://ushahidi.my.domain/api?task=incidents&by=all&resp=xml&limit=1000" % \
+                                T("Example")))
 
             output = dict(title=title,
                           form=form,
-                          subtitle=subtitle,
-                          list_btn=list_btn,
                           rheader=rheader)
 
             if form.accepts(request.vars, session):
 
                 # "Exploit" the de-duplicator hook to count import items
                 import_count = [0]
-                def count_items(job, import_count = import_count):
+                def count_items(job, import_count=import_count):
                     if job.tablename == "irs_ireport":
                         import_count[0] += 1
-                self.configure("irs_report", deduplicate=count_items)
+                current.s3db.configure("irs_report", deduplicate=count_items)
 
-                ireports = r.resource
-                ushahidi = form.vars.url
+                vars = form.vars
+                ushahidi_url = vars.url
 
-                ignore_errors = form.vars.get("ignore_errors", None)
-
+                import os
                 stylesheet = os.path.join(request.folder, "static", "formats",
                                           "ushahidi", "import.xsl")
 
-                if os.path.exists(stylesheet) and ushahidi:
+                if os.path.exists(stylesheet) and ushahidi_url:
+                    ignore_errors = vars.get("ignore_errors", None)
                     try:
-                        success = ireports.import_xml(ushahidi,
-                                                      stylesheet=stylesheet,
-                                                      ignore_errors=ignore_errors)
+                        success = r.resource.import_xml(ushahidi_url,
+                                                        stylesheet=stylesheet,
+                                                        ignore_errors=ignore_errors)
                     except:
                         import sys
                         e = sys.exc_info()[1]
@@ -990,10 +987,11 @@ S3.timeline.now="''', now.isoformat()
                         if success:
                             count = import_count[0]
                             if count:
-                                response.flash = "%s %s" % (import_count[0],
-                                                            T("reports successfully imported."))
+                                response.confirmation = "%s %s" % \
+                                    (import_count[0],
+                                     T("reports successfully imported."))
                             else:
-                                response.flash = T("No reports available.")
+                                response.information = T("No reports available.")
                         else:
                             response.error = self.error
 
@@ -1111,11 +1109,11 @@ class S3IRSResponseModel(S3Model):
                                         tooltip=T("If you don't see the vehicle in the list, you can add a new one by clicking link 'Add Vehicle'.")),
 
                                     ),
-                             Field("datetime", "datetime",
-                                   label=T("Dispatch Time"),
-                                   widget = S3DateTimeWidget(future=0),
-                                   requires = IS_EMPTY_OR(IS_UTC_DATETIME(allow_future=False)),
-                                   default = current.request.utcnow),
+                             s3_datetime("datetime",
+                                         label=T("Dispatch Time"),
+                                         default="now",
+                                         future=0,
+                                         ),
                              self.super_link("site_id", "org_site",
                                              label = T("Fire Station"),
                                              readable = True,

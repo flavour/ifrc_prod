@@ -1437,7 +1437,13 @@ class S3SearchTabs:
                 _href = "#"
             elif method == "compose":
                 _id = "gis_datatables_compose_tab"
-                _href = r.url(method="compose", vars=current.session.s3.filter)
+                # @todo: do not use the session filter - use the search
+                # query serialize_url instead (pass to search_tabs from S3Search)
+                session = current.session
+                url_vars = Storage(r.get_vars)
+                if session.s3.filter:
+                    url_vars.update(session.s3.filter)
+                _href = r.url(method="compose", vars=url_vars)
             else:
                 # List View, defaults to active
                 here = True
@@ -1522,16 +1528,25 @@ class S3ResourceHeader:
         self.tabs = tabs
 
     # -------------------------------------------------------------------------
-    def __call__(self, r, tabs=None):
+    def __call__(self, r, tabs=None, table=None, record=None, as_div = True):
         """
             Return the HTML representation of this rheader
 
             @param r: the S3Request instance to render the header for
             @param tabs: the tabs (overrides the original tabs definition)
+            @param table: override r.table
+            @param record: override r.record
+            @param as_div: True: will return the rheader_fields and the
+                           rheader_tabs together as a DIV
+                           False will return the rheader_fields and the
+                           rheader_tabs as a tuple
+                           (rheader_fields, rheader_tabs)
         """
 
-        table = r.table
-        record = r.record
+        if table is None:
+            table = r.table
+        if record is None:
+            record = r.record
 
         if tabs is None:
             tabs = self.tabs
@@ -1587,11 +1602,14 @@ class S3ResourceHeader:
                     if not isinstance(v, basestring) and not isinstance(value, A):
                         try:
                             v = unicode(v)
-                        except UnicodeEncodeError, UnicodeDecodeError:
+                        except:
                             pass
                     tr.append(TD(v))
                 trs.append(tr)
-            rheader = DIV(TABLE(trs), rheader_tabs)
+            if as_div:
+                rheader = DIV(TABLE(trs), rheader_tabs)
+            else:
+                rheader = (TABLE(trs), rheader_tabs)
             return rheader
 
         return None

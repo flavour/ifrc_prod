@@ -36,22 +36,24 @@
          WKT................WKT
          Lat................Lat
          Lon................Lon
-         lat_min............Bounding Box
+         lat_min............Bounding Box (optional)
          lat_max............
          lon_min............
          lon_max............
-         Elevation..........Elevation  (optional)
-         Population.........Population (optional)
+         Elevation..........Elevation    (optional)
+         Population.........Population   (optional)
 
          Specify as many level of hierarchy as you need to ensure correct
          location within the hierarchy
 
          Note: If you want WKT field populated for all admin levels
          then you will need to run the import once per admin level, e.g.:
-         TL_L1.csv (L2, L3, L4, Name blank)
-         TL_L2.csv (L3, L4, Name blank)
-         TL_L3.csv (L4, Name blank)
-         TL_L4.csv (Name blank)
+         TL_L1.csv (L2, L3, L4, Name all blank)
+         TL_L2.csv (L3, L4, Name all blank)
+         TL_L3.csv (L4, Name all blank)
+         TL_L4.csv (Name all blank)
+         
+         Note that if there are duplicate names at a certain level, then you need to specify the Lx above that to discriminate
          
     *********************************************************************** -->
     <xsl:output method="xml"/>
@@ -138,19 +140,23 @@
 
     <!-- ****************************************************************** -->
     <xsl:template name="L0">
-        <xsl:if test="col[@field='L0']!='' and col[@field='ISO2']!=''">
+
+        <xsl:variable name="l0" select="col[@field='L0']/text()"/>
+        <xsl:variable name="code" select="col[@field='ISO2']/text()"/>
+
+        <xsl:if test="$l0!='' and $code!=''">
 
             <!-- Create the gis location -->
             <resource name="gis_location">
                 <xsl:attribute name="uuid">
-                    <xsl:value-of select="concat('urn:iso:std:iso:3166:-1:code:', col[@field='ISO2'])"/>
+                    <xsl:value-of select="concat('urn:iso:std:iso:3166:-1:code:', $code)"/>
                 </xsl:attribute>
                 <!-- If this is the import level then add the details -->
                 <xsl:choose>
                     <xsl:when test="col[@field='L1'] or col[@field='L2'] or col[@field='L3'] or col[@field='L4'] or col[@field='Name']">
                     </xsl:when>
                     <xsl:otherwise>
-                        <data field="name"><xsl:value-of select="col[@field='L0']"/></data>
+                        <data field="name"><xsl:value-of select="$l0"/></data>
                         <data field="level"><xsl:text>L0</xsl:text></data>
                         <xsl:choose>
                             <xsl:when test="col[@field='WKT']!=''">
@@ -170,7 +176,7 @@
                         <!-- Named Tags -->
                         <resource name="gis_location_tag">
                             <data field="tag">ISO2</data>
-                            <data field="value"><xsl:value-of select="col[@field='ISO2']"/></data>
+                            <data field="value"><xsl:value-of select="$code"/></data>
                         </resource>
                         <xsl:if test="col[@field='Population']!=''">
                             <resource name="gis_location_tag">
@@ -234,12 +240,12 @@
             <!-- Create the gis location -->
             <resource name="gis_location">
                 <xsl:attribute name="tuid">
-                    <xsl:value-of select="concat($countrycode, $l1)"/>
+                    <xsl:value-of select="concat('L1/', $countrycode, '/', $l1)"/>
                 </xsl:attribute>
                 <data field="name"><xsl:value-of select="$l1"/></data>
                 <data field="level"><xsl:text>L1</xsl:text></data>
                 <!-- Parent to Country -->
-                <xsl:if test="$country!=''">
+                <xsl:if test="$countrycode!=''">
                     <reference field="parent" resource="gis_location">
                         <xsl:attribute name="uuid">
                             <xsl:value-of select="$country"/>
@@ -264,14 +270,14 @@
                             <xsl:when test="col[@field='Lat']!='' and col[@field='Lon']!=''">
                                 <data field="lat"><xsl:value-of select="col[@field='Lat']"/></data>
                                 <data field="lon"><xsl:value-of select="col[@field='Lon']"/></data>
+                                <xsl:if test="col[@field='lat_min']!='' and col[@field='lat_max']!='' and col[@field='lon_min']!='' and col[@field='lon_max']!='' ">
+                                    <data field="lat_min"><xsl:value-of select="col[@field='lat_min']"/></data>
+                                    <data field="lon_min"><xsl:value-of select="col[@field='lon_min']"/></data>
+                                    <data field="lat_max"><xsl:value-of select="col[@field='lat_max']"/></data>
+                                    <data field="lon_max"><xsl:value-of select="col[@field='lon_max']"/></data>
+                                </xsl:if>
                             </xsl:when>
                         </xsl:choose>
-                        <xsl:if test="col[@field='lat_min']!='' and col[@field='lat_max']!='' and col[@field='lon_min']!='' and col[@field='lon_max']!='' ">
-                            <data field="lat_min"><xsl:value-of select="col[@field='lat_min']"/></data>
-                            <data field="lon_min"><xsl:value-of select="col[@field='lon_min']"/></data>
-                            <data field="lat_max"><xsl:value-of select="col[@field='lat_max']"/></data>
-                            <data field="lon_max"><xsl:value-of select="col[@field='lon_max']"/></data>
-                        </xsl:if>
                         <xsl:if test="col[@field='Population']!=''">
                             <resource name="gis_location_tag">
                                 <data field="tag">population</data>
@@ -318,7 +324,7 @@
             <!-- Create the gis location -->
             <resource name="gis_location">
                 <xsl:attribute name="tuid">
-                    <xsl:value-of select="concat($countrycode, $l1, $l2)"/>
+                    <xsl:value-of select="concat('L2/', $countrycode, '/', $l1, '/', $l2)"/>
                 </xsl:attribute>
                 <data field="name"><xsl:value-of select="$l2"/></data>
                 <data field="level"><xsl:text>L2</xsl:text></data>
@@ -327,11 +333,11 @@
                         <!-- Parent to L1 -->
                         <reference field="parent" resource="gis_location">
                             <xsl:attribute name="tuid">
-                                <xsl:value-of select="concat($countrycode, $l1)"/>
+                                <xsl:value-of select="concat('L1/', $countrycode, '/', $l1)"/>
                             </xsl:attribute>
                         </reference>
                     </xsl:when>
-                    <xsl:when test="$country!=''">
+                    <xsl:when test="$countrycode!=''">
                         <!-- Parent to Country -->
                         <reference field="parent" resource="gis_location">
                             <xsl:attribute name="uuid">
@@ -359,14 +365,14 @@
                             <xsl:when test="col[@field='Lat']!='' and col[@field='Lon']!=''">
                                 <data field="lat"><xsl:value-of select="col[@field='Lat']"/></data>
                                 <data field="lon"><xsl:value-of select="col[@field='Lon']"/></data>
+                                <xsl:if test="col[@field='lat_min']!='' and col[@field='lat_max']!='' and col[@field='lon_min']!='' and col[@field='lon_max']!='' ">
+                                    <data field="lat_min"><xsl:value-of select="col[@field='lat_min']"/></data>
+                                    <data field="lon_min"><xsl:value-of select="col[@field='lon_min']"/></data>
+                                    <data field="lat_max"><xsl:value-of select="col[@field='lat_max']"/></data>
+                                    <data field="lon_max"><xsl:value-of select="col[@field='lon_max']"/></data>
+                                </xsl:if>
                             </xsl:when>
                         </xsl:choose>
-                        <xsl:if test="col[@field='lat_min']!='' and col[@field='lat_max']!='' and col[@field='lon_min']!='' and col[@field='lon_max']!='' ">
-                            <data field="lat_min"><xsl:value-of select="col[@field='lat_min']"/></data>
-                            <data field="lon_min"><xsl:value-of select="col[@field='lon_min']"/></data>
-                            <data field="lat_max"><xsl:value-of select="col[@field='lat_max']"/></data>
-                            <data field="lon_max"><xsl:value-of select="col[@field='lon_max']"/></data>
-                        </xsl:if>
                         <xsl:if test="col[@field='Population']!=''">
                             <resource name="gis_location_tag">
                                 <data field="tag">population</data>
@@ -414,7 +420,7 @@
             <!-- Create the gis location -->
             <resource name="gis_location">
                 <xsl:attribute name="tuid">
-                    <xsl:value-of select="concat($countrycode, $l1, $l2, $l3)"/>
+                    <xsl:value-of select="concat('L3/', $countrycode, '/', $l1, '/', $l2, '/', $l3)"/>
                 </xsl:attribute>
                 <data field="name"><xsl:value-of select="$l3"/></data>
                 <data field="level"><xsl:text>L3</xsl:text></data>
@@ -423,7 +429,7 @@
                         <!-- Parent to L2 -->
                         <reference field="parent" resource="gis_location">
                             <xsl:attribute name="tuid">
-                                <xsl:value-of select="concat($countrycode, $l1, $l2)"/>
+                                <xsl:value-of select="concat('L2/', $countrycode, '/', $l1, '/', $l2)"/>
                             </xsl:attribute>
                         </reference>
                     </xsl:when>
@@ -431,11 +437,11 @@
                         <!-- Parent to L1 -->
                         <reference field="parent" resource="gis_location">
                             <xsl:attribute name="tuid">
-                                <xsl:value-of select="concat($countrycode, $l1)"/>
+                                <xsl:value-of select="concat('L1/', $countrycode, '/', $l1)"/>
                             </xsl:attribute>
                         </reference>
                     </xsl:when>
-                    <xsl:when test="$country!=''">
+                    <xsl:when test="$countrycode!=''">
                         <!-- Parent to Country -->
                         <reference field="parent" resource="gis_location">
                             <xsl:attribute name="uuid">
@@ -463,14 +469,14 @@
                             <xsl:when test="col[@field='Lat']!='' and col[@field='Lon']!=''">
                                 <data field="lat"><xsl:value-of select="col[@field='Lat']"/></data>
                                 <data field="lon"><xsl:value-of select="col[@field='Lon']"/></data>
+                                <xsl:if test="col[@field='lat_min']!='' and col[@field='lat_max']!='' and col[@field='lon_min']!='' and col[@field='lon_max']!='' ">
+                                    <data field="lat_min"><xsl:value-of select="col[@field='lat_min']"/></data>
+                                    <data field="lon_min"><xsl:value-of select="col[@field='lon_min']"/></data>
+                                    <data field="lat_max"><xsl:value-of select="col[@field='lat_max']"/></data>
+                                    <data field="lon_max"><xsl:value-of select="col[@field='lon_max']"/></data>
+                                </xsl:if>
                             </xsl:when>
                         </xsl:choose>
-                        <xsl:if test="col[@field='lat_min']!='' and col[@field='lat_max']!='' and col[@field='lon_min']!='' and col[@field='lon_max']!='' ">
-                            <data field="lat_min"><xsl:value-of select="col[@field='lat_min']"/></data>
-                            <data field="lon_min"><xsl:value-of select="col[@field='lon_min']"/></data>
-                            <data field="lat_max"><xsl:value-of select="col[@field='lat_max']"/></data>
-                            <data field="lon_max"><xsl:value-of select="col[@field='lon_max']"/></data>
-                        </xsl:if>
                         <xsl:if test="col[@field='Population']!=''">
                             <resource name="gis_location_tag">
                                 <data field="tag">population</data>
@@ -519,7 +525,7 @@
             <!-- Create the gis location -->
             <resource name="gis_location">
                 <xsl:attribute name="tuid">
-                    <xsl:value-of select="concat($countrycode, $l1, $l2, $l3, $l4)"/>
+                    <xsl:value-of select="concat('L4/', $countrycode, '/', $l1, '/', $l2, '/', $l3, '/', $l4)"/>
                 </xsl:attribute>
                 <data field="name"><xsl:value-of select="$l4"/></data>
                 <data field="level"><xsl:text>L4</xsl:text></data>
@@ -528,7 +534,7 @@
                         <!-- Parent to L3 -->
                         <reference field="parent" resource="gis_location">
                             <xsl:attribute name="tuid">
-                                <xsl:value-of select="concat($countrycode, $l1, $l2, $l3)"/>
+                                <xsl:value-of select="concat('L3/', $countrycode, '/', $l1, '/', $l2, '/', $l3)"/>
                             </xsl:attribute>
                         </reference>
                     </xsl:when>
@@ -536,7 +542,7 @@
                         <!-- Parent to L2 -->
                         <reference field="parent" resource="gis_location">
                             <xsl:attribute name="tuid">
-                                <xsl:value-of select="concat($countrycode, $l1, $l2)"/>
+                                <xsl:value-of select="concat('L2/', $countrycode, '/', $l1, '/', $l2)"/>
                             </xsl:attribute>
                         </reference>
                     </xsl:when>
@@ -544,11 +550,11 @@
                         <!-- Parent to L1 -->
                         <reference field="parent" resource="gis_location">
                             <xsl:attribute name="tuid">
-                                <xsl:value-of select="concat($countrycode, $l1)"/>
+                                <xsl:value-of select="concat('L1/', $countrycode, '/', $l1)"/>
                             </xsl:attribute>
                         </reference>
                     </xsl:when>
-                    <xsl:when test="$country!=''">
+                    <xsl:when test="$countrycode!=''">
                         <!-- Parent to Country -->
                         <reference field="parent" resource="gis_location">
                             <xsl:attribute name="uuid">
@@ -576,14 +582,14 @@
                             <xsl:when test="col[@field='Lat']!='' and col[@field='Lon']!=''">
                                 <data field="lat"><xsl:value-of select="col[@field='Lat']"/></data>
                                 <data field="lon"><xsl:value-of select="col[@field='Lon']"/></data>
+                                <xsl:if test="col[@field='lat_min']!='' and col[@field='lat_max']!='' and col[@field='lon_min']!='' and col[@field='lon_max']!='' ">
+                                    <data field="lat_min"><xsl:value-of select="col[@field='lat_min']"/></data>
+                                    <data field="lon_min"><xsl:value-of select="col[@field='lon_min']"/></data>
+                                    <data field="lat_max"><xsl:value-of select="col[@field='lat_max']"/></data>
+                                    <data field="lon_max"><xsl:value-of select="col[@field='lon_max']"/></data>
+                                </xsl:if>
                             </xsl:when>
                         </xsl:choose>
-                        <xsl:if test="col[@field='lat_min']!='' and col[@field='lat_max']!='' and col[@field='lon_min']!='' and col[@field='lon_max']!='' ">
-                            <data field="lat_min"><xsl:value-of select="col[@field='lat_min']"/></data>
-                            <data field="lon_min"><xsl:value-of select="col[@field='lon_min']"/></data>
-                            <data field="lat_max"><xsl:value-of select="col[@field='lat_max']"/></data>
-                            <data field="lon_max"><xsl:value-of select="col[@field='lon_max']"/></data>
-                        </xsl:if>
                         <xsl:if test="col[@field='Population']!=''">
                             <resource name="gis_location_tag">
                                 <data field="tag">population</data>
@@ -643,14 +649,14 @@
                     <xsl:when test="col[@field='Lat']!='' and col[@field='Lon']!=''">
                         <data field="lat"><xsl:value-of select="col[@field='Lat']"/></data>
                         <data field="lon"><xsl:value-of select="col[@field='Lon']"/></data>
+                        <xsl:if test="col[@field='lat_min']!='' and col[@field='lat_max']!='' and col[@field='lon_min']!='' and col[@field='lon_max']!='' ">
+                            <data field="lat_min"><xsl:value-of select="col[@field='lat_min']"/></data>
+                            <data field="lon_min"><xsl:value-of select="col[@field='lon_min']"/></data>
+                            <data field="lat_max"><xsl:value-of select="col[@field='lat_max']"/></data>
+                            <data field="lon_max"><xsl:value-of select="col[@field='lon_max']"/></data>
+                        </xsl:if>
                     </xsl:when>
                 </xsl:choose>
-                <xsl:if test="col[@field='lat_min']!='' and col[@field='lat_max']!='' and col[@field='lon_min']!='' and col[@field='lon_max']!='' ">
-                    <data field="lat_min"><xsl:value-of select="col[@field='lat_min']"/></data>
-                    <data field="lon_min"><xsl:value-of select="col[@field='lon_min']"/></data>
-                    <data field="lat_max"><xsl:value-of select="col[@field='lat_max']"/></data>
-                    <data field="lon_max"><xsl:value-of select="col[@field='lon_max']"/></data>
-                </xsl:if>
                 <xsl:if test="col[@field='Elevation']!=''">
                     <data field="elevation"><xsl:value-of select="col[@field='Elevation']"/></data>
                 </xsl:if>
@@ -669,7 +675,7 @@
                         <!-- Parent to L4 -->
                         <reference field="parent" resource="gis_location">
                             <xsl:attribute name="tuid">
-                                <xsl:value-of select="concat($countrycode, $l1, $l2, $l3, $l4)"/>
+                                <xsl:value-of select="concat('L4/', $countrycode, '/', $l1, '/', $l2, '/', $l3, '/', $l4)"/>
                             </xsl:attribute>
                         </reference>
                     </xsl:when>
@@ -677,7 +683,7 @@
                         <!-- Parent to L3 -->
                         <reference field="parent" resource="gis_location">
                             <xsl:attribute name="tuid">
-                                <xsl:value-of select="concat($countrycode, $l1, $l2, $l3)"/>
+                                <xsl:value-of select="concat('L3/', $countrycode, '/', $l1, '/', $l2, '/', $l3)"/>
                             </xsl:attribute>
                         </reference>
                     </xsl:when>
@@ -685,7 +691,7 @@
                         <!-- Parent to L2 -->
                         <reference field="parent" resource="gis_location">
                             <xsl:attribute name="tuid">
-                                <xsl:value-of select="concat($countrycode, $l1, $l2)"/>
+                                <xsl:value-of select="concat('L2/', $countrycode, '/', $l1, '/', $l2)"/>
                             </xsl:attribute>
                         </reference>
                     </xsl:when>
@@ -693,11 +699,11 @@
                         <!-- Parent to L1 -->
                         <reference field="parent" resource="gis_location">
                             <xsl:attribute name="tuid">
-                                <xsl:value-of select="concat($countrycode, $l1)"/>
+                                <xsl:value-of select="concat('L1/', $countrycode, '/', $l1)"/>
                             </xsl:attribute>
                         </reference>
                     </xsl:when>
-                    <xsl:when test="$country!=''">
+                    <xsl:when test="$countrycode!=''">
                         <!-- Parent to Country -->
                         <reference field="parent" resource="gis_location">
                             <xsl:attribute name="uuid">
@@ -709,7 +715,5 @@
             </resource>
         </xsl:if>
     </xsl:template>
-
-    <!-- ****************************************************************** -->
 
 </xsl:stylesheet>

@@ -13,17 +13,31 @@ T = current.T
 # Pre-Populate
 settings.base.prepopulate = ["EUROSHA"]
 
-settings.base.system_name = T("European Open Source Humanitarian Aid")
+settings.base.system_name = T("EUROSHA Humanitarian Data Registry")
 settings.base.system_name_short = T("EUROSHA")
 
 # Theme (folder to use for views/layout.html)
-#settings.base.theme = "EUROSHA"
+settings.base.theme = "EUROSHA"
 
 # Auth settings
 # Do new users need to verify their email address?
 settings.auth.registration_requires_verification = True
 # Do new users need to be approved by an administrator prior to being able to login?
 settings.auth.registration_requires_approval = True
+# Uncomment this to request the Organisation when a user registers
+settings.auth.registration_requests_organisation = True
+
+settings.auth.role_modules = OrderedDict([
+        ("transport", "Airports and Seaports"),
+        ("hms", "Hospitals"),
+        ("org", "Organizations, Offices, and Facilities"),
+        ("inv", "Warehouses"),
+        ("staff", "Staff"),
+        ("vol", "Volunteers"),
+        ("project", "Projects"),
+        #("asset", "Assets"),
+        #("vehicle", "Vehicles"),
+    ])
 
 # L10n settings
 settings.L10n.languages = OrderedDict([
@@ -42,20 +56,69 @@ settings.L10n.thousands_separator = ","
 settings.fin.currencies = {
     "EUR" : T("Euros"),
     "GBP" : T("Great British Pounds"),
-    #"CHF" : T("Swiss Francs"),
     "USD" : T("United States Dollars"),
 }
 
 # Security Policy
-settings.security.policy = 6 # Realm
+settings.security.policy = 7 # Realm w Hierarchy
 settings.security.map = True
+
+# Realm Entity
+def eurosha_realm_entity(table, row):
+    user = current.auth.user
+    if user is not None:
+        return current.s3db.pr_get_pe_id("org_organisation",
+                                         user.organisation_id)
+    else:
+        return None
+settings.auth.realm_entity = eurosha_realm_entity
+
+# Set this if there will be multiple areas in which work is being done,
+# and a menu to select among them is wanted.
+settings.gis.menu = "Country"
+# PoIs to export in KML/OSM feeds from Admin locations
+settings.gis.poi_resources = ["cr_shelter", "hms_hospital", "org_office",
+                              "transport_airport", "transport_seaport"
+                              ]
 
 # Enable this for a UN-style deployment
 settings.ui.cluster = True
 
+settings.frontpage.rss = [
+    {"title": "Blog",
+     "url": "http://eurosha-volunteers-blog.org/feed/"
+    }
+]
+
+# Organisation Management
+# Uncomment to add summary fields for Organisations/Offices for # National/International staff
+settings.org.summary = True
+
+# HRM
+# Uncomment to allow HRs to have multiple Job Roles in addition to their Job Title
+settings.hrm.job_roles = True
+# Uncomment to disable Staff experience
+settings.hrm.staff_experience = False
+# Uncomment to disable Volunteer experience
+settings.hrm.vol_experience = False
+# Uncomment to disable the use of HR Certificates
+settings.hrm.use_certificates = False
+# Uncomment to disable the use of HR Credentials
+settings.hrm.use_credentials = False
+# Uncomment to disable the use of HR Description
+settings.hrm.use_description = False
+# Uncomment to disable the use of HR ID
+settings.hrm.use_id = False
+# Uncomment to disable the use of HR Skills
+settings.hrm.use_skills = False
+# Uncomment to disable the use of HR Trainings
+settings.hrm.use_trainings = False
+
 # Projects
 # Uncomment this to use settings suitable for a global/regional organisation (e.g. DRR)
 settings.project.mode_3w = True
+# Uncomment this to use Codes for projects
+settings.project.codes = True
 # Uncomment this to call project locations 'Communities'
 #settings.project.community = True
 # Uncomment this to use multiple Budgets per project
@@ -106,11 +169,16 @@ settings.modules = OrderedDict([
             access = "|1|",     # Only Administrators can see this module in the default menu & access the controller
             module_type = None  # This item is handled separately for the menu
         )),
+    ("translate", Storage(
+            name_nice = T("Translation Functionality"),
+            #description = "Selective translation of strings based on module.",
+            module_type = None,
+        )),
     ("gis", Storage(
             name_nice = T("Map"),
             #description = "Situation Awareness & Geospatial Analysis",
             restricted = True,
-            module_type = 4,     # 4th item in the menu
+            module_type = 1,
         )),
     ("pr", Storage(
             name_nice = T("Person Registry"),
@@ -130,13 +198,7 @@ settings.modules = OrderedDict([
             name_nice = T("Staff"),
             #description = "Human Resources Management",
             restricted = True,
-            module_type = 10,
-        )),
-    ("vol", Storage(
-            name_nice = T("Volunteers"),
-            #description = "Human Resources Management",
-            restricted = True,
-            module_type = 10,
+            module_type = None,
         )),
     ("cms", Storage(
           name_nice = T("Content Management"),
@@ -167,31 +229,43 @@ settings.modules = OrderedDict([
             name_nice = T("Warehouses"),
             #description = "Receiving and Sending Items",
             restricted = True,
-            module_type = 10
+            module_type = 4
         )),
-    ("asset", Storage(
-            name_nice = T("Assets"),
-            #description = "Recording and Assigning Assets",
-            restricted = True,
-            module_type = 4,
-        )),
+    #("asset", Storage(
+    #        name_nice = T("Assets"),
+    #        #description = "Recording and Assigning Assets",
+    #        restricted = True,
+    #        module_type = 5,
+    #    )),
     # Vehicle depends on Assets
-    ("vehicle", Storage(
-            name_nice = T("Vehicles"),
-            #description = "Manage Vehicles",
-            restricted = True,
-            module_type = 10,
-        )),
+    #("vehicle", Storage(
+    #        name_nice = T("Vehicles"),
+    #        #description = "Manage Vehicles",
+    #        restricted = True,
+    #        module_type = 6,
+    #    )),
     ("project", Storage(
             name_nice = T("Projects"),
             #description = "Tracking of Projects, Activities and Tasks",
             restricted = True,
-            module_type = 2
+            module_type = 7
+        )),
+    ("cr", Storage(
+            name_nice = T("Shelters"),
+            #description = "Tracks the location, capacity and breakdown of victims in Shelters",
+            restricted = True,
+            module_type = 10
         )),
     ("hms", Storage(
             name_nice = T("Hospitals"),
             #description = "Helps to monitor status of hospitals",
             restricted = True,
-            module_type = 10
+            module_type = 3
         )),
+    ("transport", Storage(
+           name_nice = T("Transport"),
+           restricted = True,
+           module_type = 10,
+       )),
+
 ])

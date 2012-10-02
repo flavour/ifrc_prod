@@ -21,8 +21,8 @@
            You can add a third argument &ignore_errors
 
          CSV fields:
-         Warehouse..............org_office
-         Warehouse Organisation.org_office.organisation_id
+         Warehouse..............inv_warehouse
+         Warehouse Organisation.inv_warehouse.organisation_id
          Category...............supply_item_category
          Category Code..........supply_item_category.code
          Catalog................supply_catalog.name
@@ -148,7 +148,7 @@
                 </xsl:attribute>
             </reference>
             <!-- Link to Warehouse -->
-            <reference field="site_id" resource="org_office">
+            <reference field="site_id" resource="inv_warehouse">
                 <xsl:attribute name="tuid">
                     <xsl:value-of select="$warehouse"/>
                 </xsl:attribute>
@@ -179,19 +179,6 @@
     </xsl:template>
 
     <!-- ****************************************************************** -->
-    <xsl:template name="Catalog">
-        <xsl:variable name="catalog" select="col[@field='Catalog']/text()"/>
-
-        <resource name="supply_catalog">
-            <xsl:attribute name="tuid">
-                <xsl:value-of select="$catalog"/>
-            </xsl:attribute>
-            <data field="name"><xsl:value-of select="$catalog"/></data>
-        </resource>
-
-    </xsl:template>
-
-    <!-- ****************************************************************** -->
     <xsl:template name="Organisation">
         <xsl:param name="OrgName"/>
 
@@ -205,18 +192,36 @@
         </xsl:if>
     </xsl:template>
 
+    <!-- ****************************************************************** -->
+    <xsl:template name="Catalog">
+        <xsl:variable name="catalog" select="col[@field='Catalog']/text()"/>
+        <xsl:variable name="organisation" select="col[@field='Warehouse Organisation']/text()"/>
+
+        <resource name="supply_catalog">
+            <xsl:attribute name="tuid">
+                <xsl:value-of select="$catalog"/>
+            </xsl:attribute>
+            <data field="name"><xsl:value-of select="$catalog"/></data>
+        </resource>
+           <reference field="organisation_id" resource="org_organisation">
+               <xsl:attribute name="tuid">
+                   <xsl:value-of select="$organisation"/>
+               </xsl:attribute>
+           </reference>
+
+    </xsl:template>
+
 
     <!-- ****************************************************************** -->
     <xsl:template name="Warehouse">
         <xsl:variable name="warehouse" select="col[@field='Warehouse']/text()"/>
         <xsl:variable name="organisation" select="col[@field='Warehouse Organisation']/text()"/>
 
-        <resource name="org_office">
+        <resource name="inv_warehouse">
             <xsl:attribute name="tuid">
                 <xsl:value-of select="$warehouse"/>
             </xsl:attribute>
             <data field="name"><xsl:value-of select="$warehouse"/></data>
-            <data field="type">5</data>
             <!-- Link to Warehouse Organisation org -->
             <reference field="organisation_id" resource="org_organisation">
                 <xsl:attribute name="tuid">
@@ -289,6 +294,12 @@
             <reference field="brand_id" resource="supply_brand">
                 <xsl:attribute name="tuid">
                     <xsl:value-of select="col[@field='Brand']"/>
+                </xsl:attribute>
+            </reference>
+            <!-- Link to Supply Catalog -->
+            <reference field="catalog_id" resource="supply_catalog">
+                <xsl:attribute name="tuid">
+                    <xsl:value-of select="$catalog"/>
                 </xsl:attribute>
             </reference>
             <!-- Link to Supply Item Category -->

@@ -31,7 +31,6 @@ import re
 import sys
 import datetime
 import time
-import HTMLParser
 try:
     from cStringIO import StringIO    # Faster, where available
 except:
@@ -63,9 +62,8 @@ from gluon.languages import lazyT
 from gluon.storage import Storage
 from gluon.tools import callback
 
-from s3utils import SQLTABLES3, s3_has_foreign_key, s3_get_foreign_key
+from s3utils import s3_has_foreign_key, s3_get_foreign_key, s3_unicode, S3DataTable
 from s3validators import IS_ONE_OF
-from s3import import S3ImportJob
 
 DEBUG = False
 if DEBUG:
@@ -77,10 +75,26 @@ else:
 
 # =============================================================================
 class S3Resource(object):
-    """ API for resources """
+    """
+        API for resources.
 
-    # -------------------------------------------------------------------------
-    def __init__(self, prefix, name,
+        A "resource" is a set of records in a database table including their
+        references in certain related resources (components). A resource can
+        be defined like:
+
+            resource = S3Resource(table)
+
+        A resource defined like this would include all records in the table.
+        Further parameters for the resource constructor as well as methods
+        of the resource instance can be used to filter for particular subsets.
+
+        This API provides extended standard methods to access and manipulate
+        data in resources while respecting current authorization and other
+        S3 framework rules.
+    """
+
+    def __init__(self, table,
+                 name=None,
                  id=None,
                  uid=None,
                  filter=None,
@@ -90,71 +104,143 @@ class S3Resource(object):
                  linktable=None,
                  alias=None,
                  components=None,
-                 include_deleted=False):
+                 include_deleted=False,
+                 approved=True,
+                 unapproved=False):
         """
             Constructor
 
-            @param prefix: prefix of the resource name (=module name)
-            @param name: name of the resource (without prefix)
+            @param table: The table, tablename, a resource
+                          or the prefix of the table name (=module name)
+            @param name: name of the resource (without prefix),
+                         required if "table" is a table name prefix
+
             @param id: record ID (or list of record IDs)
             @param uid: record UID (or list of record UIDs)
-            @param filter: filter query (DAL resources only)
+
+            @param filter: filter query
             @param vars: dictionary of URL query variables
-            @param parent: the parent resource
-            @param linked: the linked resource
-            @param linktable: the link table
-            @param components: component name (or list of component names)
+
+            @param components: list of component aliases
+                               to load for this resource
+
+            @param alias: the alias for this resource (internal use only)
+            @param parent: the parent resource (internal use only)
+            @param linked: the linked resource (internal use only)
+            @param linktable: the link table (internal use only)
+
+            @param include_deleted: include deleted records (used for
+                                    synchronization)
+
+            @param approved: include approved records
+            @param unapproved: include unapproved records
+
+            @note: instead of prefix/name it is also possible to specify
+                   the tablename, i.e. S3Resource("prefix_name") instead
+                   of S3Resource("prefix", "name").
+
+            @note: instead of prefix/name it is also possible to specify
+                   a table or a resource as first parameter.
         """
 
         s3db = current.s3db
+        auth = current.auth
         manager = current.manager
+
+        # Names ---------------------------------------------------------------
+
+        self.table = None
+        if id is None and \
+           (isinstance(name, (int, long, list, tuple)) or \
+            isinstance(name, str) and name.isdigit()):
+            id, name = name, id
+        if name is None:
+            if isinstance(table, Table):
+                self.table = table
+                tablename = table._tablename
+            elif isinstance(table, S3Resource):
+                self.table = table.table
+                tablename = table.tablename
+            else:
+                tablename = table
+            if "_" in tablename:
+                prefix, name = tablename.split("_", 1)
+            else:
+                prefix, name = None, tablename
+        else:
+            prefix = table
+            tablename = "%s_%s" % (prefix, name)
+
+        self.prefix = prefix
+        """ Module prefix of the tablename """
+        self.name = name
+        """ Tablename without module prefix """
+        self.tablename = tablename
+        """ Tablename """
+        self.alias = alias or name
+        """
+            Alias of the resource, defaults to tablename
+            without module prefix
+        """
+
+        # Table ---------------------------------------------------------------
+
+        if self.table is None:
+            try:
+                self.table = s3db[tablename]
+            except:
+                manager.error = "Undefined table: %s" % tablename
+                raise # KeyError(manager.error)
+        table = self.table
+
+        # Set default approver
+        auth.permission.set_default_approver(table)
+
+        self._alias = tablename
+        """ Table alias (the tablename used in joins/queries) """
+
+        if parent is not None:
+            if parent.tablename == self.tablename:
+                alias = "%s_%s_%s" % (prefix, self.alias, name)
+                pkey = table._id.name
+                table = table = table.with_alias(alias)
+                table._id = table[pkey]
+                self._alias = alias
+        self.table = table
+
+        self.fields = table.fields
+        self._id = table._id
+
+        # Hooks ---------------------------------------------------------------
 
         self.ERROR = manager.ERROR
 
-        # Export/Import hooks
-        self.exporter = manager.exporter
-
         # Authorization hooks
-        self.permit = manager.permit
-        self.accessible_query = current.auth.s3_accessible_query
+        self.permit = auth.s3_has_permission
+        self.accessible_query = auth.s3_accessible_query
+
+        #self.has_permission = lambda m, r=None, c=None, f=None: \
+                              #auth.s3_has_permission(m, table, record_id=r, c=c, f=f)
+        #self.accessible_query = lambda m, c=None, f=None: \
+                                #auth.s3_accessible_query(m, table, c=c, f=f)
 
         # Audit hook
-        self.audit = manager.audit
+        self.audit = current.s3_audit
 
-        # Basic properties
-        self.prefix = prefix
-        self.name = name
-        self.alias = alias or name
+        # Filter --------------------------------------------------------------
 
-        # Table properties
-        tablename = "%s_%s" % (prefix, name)
-        try:
-            table = s3db[tablename]
-        except:
-            manager.error = "Undefined table: %s" % tablename
-            raise # KeyError(manager.error)
-        self.tablename = tablename
-        self.table = table
-        # Table alias (needed for self-joins)
-        self._alias = tablename
-        if parent is not None:
-            if parent.tablename == self.tablename:
-                alias = "%s_%s_%s" % (self.prefix, self.alias, self.name)
-                pkey = table._id.name
-                self.table = table.with_alias(alias)
-                self.table._id = self.table[pkey]
-                self._alias = alias
-        self.fields = self.table.fields
-        self._id = self.table._id
+        # Default query options
+        self.include_deleted = include_deleted
+        self._approved = approved
+        self._unapproved = unapproved
 
         # Resource Filter
         self.rfilter = None
         self.fquery = None
         self.fvfltr = None
 
-        self.include_deleted = include_deleted
+        # Rows ----------------------------------------------------------------
 
-        # The Rows
         self._rows = None
         self._rowindex = None
         self.rfields = None
@@ -163,12 +249,15 @@ class S3Resource(object):
         self._uids = []
         self._length = None
 
-        # Request attributes
+        # Request attributes --------------------------------------------------
+
         self.vars = None # set during build_query
         self.lastid = None
         self.files = Storage()
 
-        # Component properties
+        # Components ----------------------------------------------------------
+
+        # Initialize component properties (will be set during _attach)
         self.link = None
         self.linktable = None
         self.actuate = None
@@ -177,44 +266,54 @@ class S3Resource(object):
         self.pkey = None
         self.fkey = None
         self.multiple = True
+
         self.parent = parent # the parent resource
         self.linked = linked # the linked resource
 
-        # Primary resource - attach components
         self.components = Storage()
         self.links = Storage()
-        if self.parent is None:
-            # Attach components
-            hooks = s3db.get_components(self.table, names=components)
-            for alias in hooks:
-                self._attach(alias, hooks[alias])
+
+        if parent is None:
+            # This is the master resource - attach components
+            attach = self._attach
+            hooks = s3db.get_components(table, names=components)
+            [attach(alias, hooks[alias]) for alias in hooks]
 
             # Build query
             self.build_query(id=id, uid=uid, filter=filter, vars=vars)
 
         # Component - attach link table
-        if linktable is not None:
-            # Create as resource
-            tn = linktable._tablename
-            prefix, name = tn.split("_", 1)
-            self.link = S3Resource(prefix, name,
+        elif linktable is not None:
+            # This is link-table component - attach the link table
+            self.link = S3Resource(linktable,
                                    parent=self.parent,
                                    linked=self,
-                                   include_deleted=self.include_deleted)
+                                   include_deleted=self.include_deleted,
+                                   approved=self._approved,
+                                   unapproved=self._unapproved)
 
-        # CRUD
-        self.crud = manager.crud()
-        self.crud.resource = self
+        # Export and Import ---------------------------------------------------
 
         # Pending Imports
         self.skip_import = False
         self.job = None
+        self.mtime = None
         self.error = None
         self.error_tree = None
         self.import_count = 0
         self.import_created = []
         self.import_updated = []
         self.import_deleted = []
+
+        # Export meta data
+        self.muntil = None      # latest mtime of the exported records
+        self.results = None     # number of exported records
+
+        # Standard methods ----------------------------------------------------
+
+        # CRUD
+        self.crud = manager.crud()
+        self.crud.resource = self
 
         # Search
         self.search = s3db.get_config(self.tablename, "search_method", None)
@@ -239,11 +338,13 @@ class S3Resource(object):
         """
 
         # Create as resource
-        component = S3Resource(hook.prefix, hook.name,
+        component = S3Resource(hook.table,
                                parent=self,
                                alias=alias,
                                linktable=hook.linktable,
-                               include_deleted=self.include_deleted)
+                               include_deleted=self.include_deleted,
+                               approved=self._approved,
+                               unapproved=self._unapproved)
 
         # Update component properties
         component.pkey = hook.pkey
@@ -269,6 +370,7 @@ class S3Resource(object):
             self.links[link.name] = link
 
         self.components[alias] = component
+        return
 
     # -------------------------------------------------------------------------
     # Query handling
@@ -354,135 +456,188 @@ class S3Resource(object):
                 components[c].clear_query()
 
     # -------------------------------------------------------------------------
-    # Data access
+    # Data access (new API)
     # -------------------------------------------------------------------------
-    def select(self, *fields, **attributes):
+    def count(self, left=None, distinct=False):
         """
-            Select records with the current query
+            Get the total number of available records in this resource
 
-            @param fields: fields to select
-            @param attributes: select attributes
+            @param left: left outer joins, if required
+            @param distinct: only count distinct rows
         """
 
-        attr = Storage(attributes)
+        if self.rfilter is None:
+            self.build_query()
+        if self._length is None:
+            self._length = self.rfilter.count(left=left,
+                                              distinct=distinct)
+        return self._length
+
+    # -------------------------------------------------------------------------
+    def select(self,
+               fields=None,
+               start=0,
+               limit=None,
+               left=None,
+               orderby=None,
+               distinct=False):
+        """
+            Select records from this resource, applying the current filters.
+
+            @param fields: list of field selectors
+            @param start: index of the first record
+            @param limit: maximum number of records
+            @param left: left joins
+            @param orderby: SQL orderby
+            @param distinct: SQL distinct
+
+            @todo: authorization
+        """
+
+        db = current.db
+        table = self.table
+
+        # Get the query and filters
+        query = self.get_query()
+        vfltr = self.get_filter()
         rfilter = self.rfilter
 
-        if rfilter is None:
-            rfilter = self.build_query()
-        query = rfilter.get_query()
-        vfltr = rfilter.get_filter()
+        # Handle distinct-attribute (must respect rfilter.distinct)
+        distinct = self.rfilter.distinct | distinct
 
-        distinct = attr.pop("distinct", False) and True or False
-        distinct = rfilter.distinct or distinct
-        attr["distinct"] = distinct
+        # Fields to select
+        if fields is None:
+            fields = [f.name for f in self.readable_fields()]
+        else:
+            fields = list(fields)
+        # Add fields needed for filters
+        for f in rfilter.get_fields():
+            if f not in fields:
+                fields.append(f)
+        # Resolve all field selectors
+        lfields, joins, ljoins, d = self.resolve_selectors(fields,
+                                                           skip_components=False)
+
+        distinct = distinct | d
+        attributes = {"distinct":distinct}
+
+        # Left joins
+        left_joins = left
+        if left_joins is None:
+            left_joins = []
+        elif not isinstance(left, list):
+            left_joins = [left_joins]
+        joined_tables = [str(join.first) for join in left_joins]
+
+        # Add the left joins from the field query
+        ljoins = [j for tablename in ljoins for j in ljoins[tablename]]
+        for join in ljoins:
+            tn = str(join.first)
+            if tn not in joined_tables:
+                joined_tables.append(str(join.first))
+                left_joins.append(join)
 
         # Add the left joins from the filter
-        left_joins = []
-        joined_tables = []
         fjoins = rfilter.get_left_joins()
         for join in fjoins:
             tn = str(join.first)
             if tn not in joined_tables:
                 joined_tables.append(str(join.first))
                 left_joins.append(join)
+
+        # Sort left joins and add to attributes
         if left_joins:
             try:
                 left_joins.sort(self.sortleft)
             except:
                 pass
-            left = left_joins
-            attr["left"] = left
+            attributes["left"] = left_joins
 
-        if vfltr is not None:
-            if "limitby" in attr:
-                limitby = attr["limitby"]
-                start = limitby[0]
-                limit = limitby[1]
-                if limit is not None:
-                    limit = limit - start
-                del attr["limitby"]
-            else:
-                start = limit = None
-            # @todo: override fields => needed for vfilter
+        # Joins
+        for join in joins.values():
+            if str(join) not in str(query):
+                query &= join
 
-        # Get the rows
-        rows = current.db(query).select(*fields, **attr)
-        if vfltr is not None:
-            rows = rfilter(rows, start=start, limit=limit)
+        # Orderby
+        if orderby is not None:
+            attributes["orderby"] = orderby
 
-        # Audit
-        current.manager.audit("list", self.prefix, self.name)
-
-        # Keep the rows for later access
-        self._rows = rows
-        return rows
-
-    # -------------------------------------------------------------------------
-    def load(self, start=None, limit=None):
-        """
-            Load records from this resource
-
-            @param start: the index of the first record to load
-            @param limit: the maximum number of records to load
-        """
-
-        table = self.table
-
-        if DEBUG:
-            _start = datetime.datetime.now()
-
-        if self.tablename == "gis_location":
-            # Filter out bulky Polygons
-            fields = [f for f in table if f.name not in ("wkt", "the_geom")]
-        else:
-            fields = [f for f in table]
-        fnames = [f.name for f in fields]
-
-        if self._rows is not None:
-            self.clear()
-
-        query = self.get_query()
-        vfltr = self.get_filter()
-        rfilter = self.rfilter
-
-        limitby = None
-        multiple = rfilter.multiple
-        if not multiple:
-            if self.parent and self.parent.count() == 1:
-                start = 0
-                limit = 1
-                limitby = (0, 1)
-        else:
+        # Limitby
+        if vfltr is None:
             limitby = self.limitby(start=start, limit=limit)
-
-        if vfltr:
-            if not limitby:
-                start = None
-                limit = None
-            rows = self.sqltable(fnames,
-                                 start=start,
-                                 limit=limit,
-                                 as_rows=True)
-            if rows is None:
-                rows = []
-            if not limitby:
-                self._length = len(rows)
+            if limitby is not None:
+                attributes["limitby"] = limitby
         else:
-            rows = self.select(limitby=limitby, *fields)
-            self._length = len(rows)
-        id = table._id.name
-        self._ids = [row[id] for row in rows]
-        uid = current.xml.UID
-        if uid in table.fields:
-            self._uids = [row[uid] for row in rows]
-        self._rows = rows
+            # Retrieve all records when filtering for virtual fields
+            # => apply start/limit in vfltr instead
+            limitby = None
 
-        if DEBUG:
-            end = datetime.datetime.now()
-            duration = end - _start
-            duration = '{:.2f}'.format(duration.total_seconds())
-            _debug("load of resource %s completed in %s seconds" % \
-                    (self.tablename, duration))
+        # Column names and headers
+        colnames = [f.colname for f in lfields]
+        headers = dict(map(lambda f: (f.colname, f.label), lfields))
+
+        # Fields in the query
+        load = current.s3db.table
+        qfields = []
+        qtables = []
+        for f in lfields:
+            field = f.field
+            tname = f.tname
+            if field is None:
+                continue
+            qtable = load(tname)
+            if qtable is None:
+                continue
+            if tname not in qtables:
+                # Make sure the primary key of the table this field
+                # belongs to is included in the SELECT
+                qtables.append(tname)
+                pkey = qtable._id
+                qfields.append(pkey)
+                if str(field) == str(pkey):
+                    continue
+            qfields.append(field)
+
+        # Add orderby fields which are not in qfields
+        # @todo: this could need some cleanup/optimization
+        if distinct:
+            if orderby is not None:
+                qf = [str(f) for f in qfields]
+                if isinstance(orderby, str):
+                    of = orderby.split(",")
+                elif not isinstance(orderby, (list, tuple)):
+                    of = [orderby]
+                else:
+                    of = orderby
+                for e in of:
+                    if isinstance(e, Field) and str(e) not in qf:
+                        qfields.append(e)
+                        qf.append(str(e))
+                    elif isinstance(e, str):
+                        fn = e.strip().split()[0].split(".", 1)
+                        tn, fn = ([table._tablename] + fn)[-2:]
+                        try:
+                            t = db[tn]
+                            f = t[fn]
+                        except:
+                            continue
+                        if str(f) not in qf:
+                            qfields.append(f)
+                            qf.append(str(e))
+            else:
+                # default ORDERBY needed with postgresql and DISTINCT,
+                # otherwise DAL will add an ORDERBY for any primary keys
+                # in the join, which could render DISTINCT meaningless here.
+                if str(self._id) not in [str(f) for f in qfields]:
+                    qfields.insert(0, self._id)
+                attributes["orderby"] = self._id
+
+        # Retrieve the rows
+        rows = db(query).select(*qfields, **attributes)
+
+        # Apply virtual fields filter
+        if rows and vfltr is not None:
+            rows = rfilter(rows, start=start, limit=limit)
 
         return rows
 
@@ -511,6 +666,11 @@ class S3Resource(object):
         return record_id
 
     # -------------------------------------------------------------------------
+    def update(self):
+
+        raise NotImplementedError
+
+    # -------------------------------------------------------------------------
     def delete(self,
                ondelete=None,
                format=None,
@@ -531,12 +691,12 @@ class S3Resource(object):
 
         db = current.db
         manager = current.manager
-        define_resource = manager.define_resource
         get_session = manager.get_session
         clear_session = manager.clear_session
         DELETED = manager.DELETED
 
         s3db = current.s3db
+        define_resource = s3db.resource
         get_config = s3db.get_config
         delete_super = s3db.delete_super
 
@@ -557,9 +717,9 @@ class S3Resource(object):
 
         # Get all rows
         if "uuid" in table.fields:
-            rows = self.select(table._id, table.uuid)
+            rows = self._load(table._id, table.uuid)
         else:
-            rows = self.select(table._id)
+            rows = self._load(table._id)
 
         if not rows:
             # No rows? => that was it already :)
@@ -572,13 +732,18 @@ class S3Resource(object):
 
             # Find all deletable rows
             references = table._referenced_by
-            rfields = [(tn, fn) for tn, fn in references
-                                if db[tn][fn].ondelete == "RESTRICT"]
+            try:
+                rfields = [f for f in references if f.ondelete == "RESTRICT"]
+            except AttributeError:
+                # older web2py
+                references = [db[tn][fn] for tn, fn in references]
+                rfields = [f for f in references if f.ondelete == "RESTRICT"]
+
             restricted = []
             ids = [row[pkey] for row in rows]
-            for tn, fn in rfields:
+            for rfield in rfields:
+                fn, tn = rfield.name, rfield.tablename
                 rtable = db[tn]
-                rfield = rtable[fn]
                 query = (rfield.belongs(ids))
                 if DELETED in rtable:
                     query &= (rtable[DELETED] != True)
@@ -623,15 +788,16 @@ class S3Resource(object):
                     continue
 
                 # Run automatic ondelete-cascade
-                for tn, fn in references:
+                for rfield in references:
+                    fn, tn = rfield.name, rfield.tablename
                     rtable = db[tn]
-                    rfield = rtable[fn]
                     query = (rfield == row[pkey])
                     if rfield.ondelete == "CASCADE":
-                        rprefix, rname = tn.split("_", 1)
-                        rresource = define_resource(rprefix, rname, filter=query)
-                        ondelete = get_config(tn, "ondelete")
-                        rresource.delete(ondelete=ondelete, cascade=True)
+                        rresource = define_resource(tn,
+                                                    filter=query,
+                                                    unapproved=True)
+                        rondelete = get_config(tn, "ondelete")
+                        rresource.delete(ondelete=rondelete, cascade=True)
                         if manager.error:
                             break
                     elif rfield.ondelete == "SET NULL":
@@ -671,9 +837,9 @@ class S3Resource(object):
                                                          limitby=(0, 1)).first()
                             if not remaining:
                                 query = linked.table[fkey] == this[rkey]
-                                linked = define_resource(linked.prefix,
-                                                         linked.name,
-                                                         filter=query)
+                                linked = define_resource(linked.table,
+                                                         filter=query,
+                                                         unapproved=True)
                                 ondelete = get_config(linked.tablename, "ondelete")
                                 linked.delete(ondelete=ondelete, cascade=True)
 
@@ -776,18 +942,25 @@ class S3Resource(object):
         else:
             return False
 
-        self.load()
-        for record in self._rows:
+        tablename = self.tablename
+        table = self.table
 
-            table = self.table
+        for record in self.select():
+
             record_id = record[table._id]
 
+            # Forget any cached permission for this record
+            auth.permission.forget(table, record_id)
+
             if "approved_by" in table.fields:
-                query = (table._id == record_id)
-                success = current.db(query).update(approved_by=user_id)
+                success = record.update_record(approved_by=user_id)
                 if not success:
-                    db.rollback()
+                    current.db.rollback()
                     return False
+                else:
+                    onapprove = self.get_config("onapprove", None)
+                    if onapprove is not None:
+                        callback(onapprove, record, tablename=tablename)
             if components is None:
                 continue
             for alias in self.components:
@@ -796,8 +969,165 @@ class S3Resource(object):
                 component = self.components[alias]
                 success = component.approve(components=None, approve=approve)
                 if not success:
-                    db.rollback()
+                    current.db.rollback()
                     return False
+
+        return True
+
+    # -------------------------------------------------------------------------
+    def reject(self, cascade=False):
+        """ Reject (delete) all records in this resource """
+
+        db = current.db
+        s3db = current.s3db
+
+        manager = current.manager
+
+        define_resource = s3db.resource
+        get_session = manager.get_session
+        clear_session = manager.clear_session
+        DELETED = manager.DELETED
+
+        INTEGRITY_ERROR = self.ERROR.INTEGRITY_ERROR
+        permit = self.permit
+        audit = self.audit
+        prefix = self.prefix
+        name = self.name
+        tablename = self.tablename
+        table = self.table
+        pkey = table._id.name
+
+        # Get hooks configuration
+        get_config = s3db.get_config
+        ondelete = get_config(tablename, "ondelete")
+        onreject = get_config(tablename, "onreject")
+        ondelete_cascade = get_config(tablename, "ondelete_cascade")
+
+        # Get all rows
+        if "uuid" in table.fields:
+            rows = self._load(table._id, table.uuid)
+        else:
+            rows = self._load(table._id)
+        if not rows:
+            return True
+
+        delete_super = s3db.delete_super
+
+        if DELETED in table:
+
+            references = table._referenced_by
+
+            for row in rows:
+
+                error = manager.error
+                manager.error = None
+
+                # On-delete-cascade
+                if ondelete_cascade:
+                    callback(ondelete_cascade, row, tablename=tablename)
+
+                # Automatic cascade
+                for ref in references:
+                    try:
+                        tn, fn = ref.tablename, ref.name
+                    except:
+                        # old web2py < 2.0
+                        tn, fn = ref
+                    rtable = db[tn]
+                    rfield = rtable[fn]
+                    query = (rfield == row[pkey])
+                    # Ignore RESTRICTs => reject anyway
+                    if rfield.ondelete in ("CASCADE", "RESTRICT"):
+                        rresource = define_resource(tn, filter=query, unapproved=True)
+                        rresource.reject(cascade=True)
+                        if manager.error:
+                            break
+                    elif rfield.ondelete == "SET NULL":
+                        try:
+                            db(query).update(**{fn:None})
+                        except:
+                            manager.error = INTEGRITY_ERROR
+                            break
+                    elif rfield.ondelete == "SET DEFAULT":
+                        try:
+                            db(query).update(**{fn:rfield.default})
+                        except:
+                            manager.error = INTEGRITY_ERROR
+                            break
+
+                if manager.error:
+                    db.rollback()
+                    raise RuntimeError("Reject failed for %s.%s" %
+                                      (resource.tablename, row[resource.table._id]))
+                else:
+                    # Pull back prior error status
+                    manager.error = error
+                    error = None
+
+                    # On-reject hook
+                    if onreject:
+                        callback(onreject, row, tablename=tablename)
+
+                    # Park foreign keys
+                    fields = dict(deleted=True)
+                    if "deleted_fk" in table:
+                        record = table[row[pkey]]
+                        fk = {}
+                        for f in table.fields:
+                            if record[f] is not None and \
+                               s3_has_foreign_key(table[f]):
+                                fk[f] = record[f]
+                                fields[f] = None
+                            else:
+                                continue
+                        if fk:
+                            fields.update(deleted_fk=json.dumps(fk))
+
+                    # Update the row, finally
+                    db(table._id == row[pkey]).update(**fields)
+
+                    # Clear session
+                    if get_session(prefix=prefix, name=name) == row[pkey]:
+                        clear_session(prefix=prefix, name=name)
+
+                    # Delete super-entity
+                    delete_super(table, row)
+
+                    # On-delete hook
+                    if ondelete:
+                        callback(ondelete, row, tablename=tablename)
+
+        else:
+            # Hard delete
+            for row in rows:
+
+                # On-delete-cascade
+                if ondelete_cascade:
+                    callback(ondelete_cascade, row, tablename=tablename)
+
+                # On-reject
+                if onreject:
+                    callback(onreject, row, tablename=tablename)
+
+                try:
+                    del table[row[pkey]]
+                except:
+                    # Row is not deletable
+                    manager.error = INTEGRITY_ERROR
+                    db.rollback()
+                    raise
+                else:
+                    # Clear session
+                    if get_session(prefix=prefix, name=name) == row[pkey]:
+                        clear_session(prefix=prefix, name=name)
+
+                    # Delete super-entity
+                    delete_super(table, row)
+
+                    # On-delete
+                    if ondelete:
+                        callback(ondelete, row, tablename=tablename)
+
         return True
 
     # -------------------------------------------------------------------------
@@ -816,32 +1146,253 @@ class S3Resource(object):
                                           main=main)
 
     # -------------------------------------------------------------------------
-    def count(self, left=None, distinct=False):
+    # Exports
+    # -------------------------------------------------------------------------
+    def datatable(self,
+                  fields=None,
+                  start=0,
+                  limit=None,
+                  left=None,
+                  orderby=None,
+                  distinct=False):
         """
-            Get the total number of available records in this resource
+            Generate a data table of this resource
 
-            @param left: left outer joins, if required
-            @param distinct: only count distinct rows
+            @param fields: list of fields to include (field selector strings)
+            @param start: index of the first record to include
+            @param limit: maximum number of records to include
+            @param left: additional left joins for DB query
+            @param orderby: orderby for DB query
+            @param distinct: distinct-flag for DB query
+
+            @returns: an S3DataTable instance
         """
 
-        if self.rfilter is None:
-            self.build_query()
-        if self._length is None:
-            self._length = self.rfilter.count(left=left,
-                                              distinct=distinct)
-        return self._length
+        # Choose fields
+        if fields is None:
+            fields = [f.name for f in self.readable_fields()]
+        selectors = list(fields)
+
+        # Automatically include the record ID
+        table = self.table
+        if table._id.name not in selectors:
+            fields.insert(0, table._id.name)
+            selectors.insert(0, table._id.name)
+
+        # Resolve the selectors
+        rfields = self.resolve_selectors(fields,
+                                         skip_components=False)[0]
+
+        # Retrieve the rows
+        rows = self.select(fields=selectors,
+                           start=start,
+                           limit=limit,
+                           orderby=orderby,
+                           left=left,
+                           distinct=distinct)
+
+        # Generate the data table
+        if rows:
+            data = self.extract(rows,
+                                selectors,
+                                represent=True)
+            return S3DataTable(rfields, data)
+        else:
+            return None
+
+    # -------------------------------------------------------------------------
+    def pivottable(self, rows, cols, layers):
+        """
+            Generate a pivot table of this resource.
+
+            @param rows: field selector for the rows dimension
+            @param cols: field selector for the columns dimension
+            @param layers: list of tuples (field selector, method) for
+                           the aggregation layers
+
+            @returns: an S3Pivottable instance
+
+            Supported methods: see S3Pivottable
+        """
+
+        return S3Pivottable(self, rows, cols, layers)
+
+    # -------------------------------------------------------------------------
+    def json(self,
+             fields=None,
+             start=0,
+             limit=None,
+             left=None,
+             distinct=False,
+             orderby=None):
+        """
+            Export a JSON representation of the records, the JSON would be
+            a list of dicts with {"tablename.fieldname":"value"}.
+
+            @param fields: list of field selector strings
+            @param start: index of the first record
+            @param limit: maximum number of records
+            @param left: list of (additional) left joins
+            @param distinct: select only distinct rows
+            @param orderby: Orderby-expression for the query
+
+            @returns: the JSON
+        """
+
+        # Choose fields
+        if fields is None:
+            fields = [f.name for f in self.readable_fields()]
+        selectors = list(fields)
+
+        # Retrieve the rows
+        rows = self.select(fields=selectors,
+                           start=start,
+                           limit=limit,
+                           orderby=orderby,
+                           left=left,
+                           distinct=distinct)
+
+        # Generate the JSON
+        if rows:
+            return json.dumps(self.extract(rows, fields))
+        else:
+            return "[]"
+
+    # -------------------------------------------------------------------------
+    # Deprecated API methods (retained for backward-compatiblity)
+    # -------------------------------------------------------------------------
+    def _load(self, *fields, **attributes):
+        """
+            Select records with the current query
+
+            @param fields: fields to select
+            @param attributes: select attributes
+
+            @status: deprecated, use select() instead
+        """
+
+        attr = Storage(attributes)
+        rfilter = self.rfilter
+
+        if rfilter is None:
+            rfilter = self.build_query()
+        query = rfilter.get_query()
+        vfltr = rfilter.get_filter()
+
+        distinct = attr.pop("distinct", False) and True or False
+        distinct = rfilter.distinct or distinct
+        attr["distinct"] = distinct
+
+        # Add the left joins from the filter
+        left_joins = []
+        joined_tables = []
+        fjoins = rfilter.get_left_joins()
+        for join in fjoins:
+            tn = str(join.first)
+            if tn not in joined_tables:
+                joined_tables.append(str(join.first))
+                left_joins.append(join)
+        if left_joins:
+            try:
+                left_joins.sort(self.sortleft)
+            except:
+                pass
+            left = left_joins
+            attr["left"] = left
+
+        if vfltr is not None:
+            if "limitby" in attr:
+                limitby = attr["limitby"]
+                start = limitby[0]
+                limit = limitby[1]
+                if limit is not None:
+                    limit = limit - start
+                del attr["limitby"]
+            else:
+                start = limit = None
+            # @todo: override fields => needed for vfilter
+
+        # Get the rows
+        rows = current.db(query).select(*fields, **attr)
+        if vfltr is not None:
+            rows = rfilter(rows, start=start, limit=limit)
+
+        # Audit
+        current.manager.audit("list", self.prefix, self.name)
+
+        # Keep the rows for later access
+        self._rows = rows
+        return rows
+
+    # -------------------------------------------------------------------------
+    # Data Object API
+    # -------------------------------------------------------------------------
+    def load(self, start=None, limit=None, orderby=None):
+        """
+            Loads records from the resource, applying the current filters,
+            and stores them in the instance.
+
+            @param start: the index of the first record to load
+            @param limit: the maximum number of records to load
+            @param orderby: orderby-expression for the query
+
+            @returns: the records as list of Rows
+        """
+
+        table = self.table
+
+        if self.tablename == "gis_location":
+            # Filter out bulky Polygons
+            fields = [f for f in table.fields if f not in ("wkt", "the_geom")]
+        else:
+            fields = [f for f in table.fields]
+
+        if self._rows is not None:
+            self.clear()
+
+        rfilter = self.rfilter
+        multiple = rfilter.multiple if rfilter is not None else True
+        if not multiple and self.parent and self.parent.count() == 1:
+            start = 0
+            limit = 1
+
+        rows = self.select(fields,
+                           start=start,
+                           limit=limit,
+                           orderby=orderby)
+
+        self._ids = []
+        self._rows = []
+
+        if rows:
+            pkey = table._id.name
+            tablename = self.tablename
+
+            for row in rows:
+                if tablename in row and isinstance(row[tablename], Row):
+                    record = row[tablename]
+                else:
+                    record = row
+                record_id = record[table._id.name]
+                if record_id not in self._ids:
+                    self._ids.append(record_id)
+                    self._rows.append(record)
+            uid = current.xml.UID
+            if uid in table.fields:
+                self._uids = [row[table[uid]] for row in self._rows]
+            self._length = len(self._rows)
+
+        return self._rows
 
     # -------------------------------------------------------------------------
     def clear(self):
-        """
-            Removes the current set
-        """
+        """ Removes the records currently stored in this instance """
 
         self._rows = None
         self._rowindex = None
         self._length = None
-        self._ids = []
-        self._uids = []
+        self._ids = None
+        self._uids = None
         self.files = Storage()
 
         if self.components:
@@ -851,32 +1402,38 @@ class S3Resource(object):
     # -------------------------------------------------------------------------
     def records(self, fields=None):
         """
-            Get the current set
+            Get the current set as Rows instance
 
-            @returns: a Set or an empty list if no set is loaded
+            @param fields: the fields to include (list of Fields)
         """
+
+        if fields is None:
+            if self.tablename == "gis_location":
+                fields = [f for f in self.table
+                          if f.name not in ("wkt", "the_geom")]
+            else:
+                fields = [f for f in self.table]
 
         if self._rows is None:
             return Rows(current.db)
         else:
-            if fields is not None:
-                self._rows.colnames = map(str, fields)
-            return self._rows
+            colnames = map(str, fields)
+            return Rows(current.db, self._rows, colnames=colnames)
 
     # -------------------------------------------------------------------------
     def __getitem__(self, key):
         """
-            Retrieves a record from the current set by its ID
+            Find a record currently stored in this instance by its record ID
 
             @param key: the record ID
             @returns: a Row
 
-            @todo: doesn't work for joins (i.e. where _id not in Row)
+            @raises: IndexError if the record is not currently loaded
         """
 
         index = self._rowindex
         if index is None:
-            _id = self.table._id.name
+            _id = self._id.name
             rows = self._rows
             if rows:
                 index = Storage([(str(row[_id]), row) for row in rows])
@@ -891,7 +1448,7 @@ class S3Resource(object):
     # -------------------------------------------------------------------------
     def __iter__(self):
         """
-            Iterate over the selected rows
+            Iterate over the records currently stored in this instance
         """
 
         if self._rows is None:
@@ -902,29 +1459,42 @@ class S3Resource(object):
         return
 
     # -------------------------------------------------------------------------
-    def __call__(self, key, component=None):
+    def get(self, key, component=None):
         """
-            Retrieves component records of a record in the current set
+            Get component records for a record currently stored in this
+            instance.
 
             @param key: the record ID
             @param component: the name of the component
                               (None to get the primary record)
-            @returns: a record (if component is None) or a list of records
+            @returns: a Row (if component is None) or a list of rows
         """
 
-        if not component:
-            return self[key]
-        else:
+        NOT_FOUND = KeyError("Record not found")
+
+        if not key:
+            raise NOT_FOUND
+        if self._rows is None:
+            self.load()
+        try:
             master = self[key]
+        except IndexError:
+            raise NOT_FOUND
+
+        if not component:
+            return master
+        else:
             if component in self.components:
                 c = self.components[component]
             elif component in self.links:
                 c = self.links[component]
             else:
                 raise AttributeError("Undefined component %s" % component)
-            if c._rows is None:
-                c.load()
             rows = c._rows
+            if rows is None:
+                rows = c.load()
+            if not rows:
+                return []
             pkey, fkey = c.pkey, c.fkey
             master_id = master[pkey]
             if c.link:
@@ -937,10 +1507,11 @@ class S3Resource(object):
 
     # -------------------------------------------------------------------------
     def get_id(self):
-        """ Get all record IDs of the current set """
+        """ Get the IDs of all records currently stored in this instance """
 
-        if not self._ids:
+        if self._ids is None:
             self.__load_ids()
+
         if not self._ids:
             return None
         elif len(self._ids) == 1:
@@ -950,12 +1521,13 @@ class S3Resource(object):
 
     # -------------------------------------------------------------------------
     def get_uid(self):
-        """ Get all record UIDs of the current set """
+        """ Get the UUIDs of all records currently stored in this instance """
 
         if current.xml.UID not in self.table.fields:
             return None
-        if not self._uids:
+        if self._ids is None:
             self.__load_ids()
+
         if not self._uids:
             return None
         elif len(self._uids) == 1:
@@ -964,42 +1536,53 @@ class S3Resource(object):
             return self._uids
 
     # -------------------------------------------------------------------------
+    def __len__(self):
+        """
+            The number of currently loaded rows
+        """
+
+        if self._rows is not None:
+            return len(self._rows)
+        else:
+            return 0
+
+    # -------------------------------------------------------------------------
     def __load_ids(self):
         """ Loads the IDs/UIDs of all records matching the current filter """
-
-        left_joins = self.rfilter.get_left_joins()
-        distinct = self.rfilter.distinct
-        if left_joins:
-            try:
-                left_joins.sort(self.sortleft)
-            except:
-                pass
-            left = left_joins
-        else:
-            left = None
 
         table = self.table
         UID = current.xml.UID
 
-        if UID in table.fields:
-            fields = (table._id, table[UID])
-        else:
-            fields = (table._id, )
-
-        vfltr = self.get_filter()
-        if vfltr is not None:
-            fs = [f.name for f in fields]
-            rows = self.sqltable(fields=fs, as_rows=True) or []
-        else:
-            query = self.get_query()
-            rows = current.db(query).select(left=left,
-                                            distinct=distinct,
-                                            *fields)
+        pkey = table._id.name
 
         if UID in table.fields:
-            self._uids = [row[table[UID]] for row in rows]
-        self._ids = [row[table._id] for row in rows]
-        return self._ids
+            has_uid = True
+            fields = (pkey, UID)
+        else:
+            has_uid = False
+            fields = (pkey, )
+
+        rfilter = self.rfilter
+        multiple = rfilter.multiple if rfilter is not None else True
+        if not multiple and self.parent and self.parent.count() == 1:
+            start = 0
+            limit = 1
+        else:
+            start = limit = None
+
+        rows = self.select(fields,
+                           start=start,
+                           limit=limit)
+
+        if rows:
+            records = self.extract(rows, fields)
+            self._ids = [record[str(table._id)] for record in records]
+            if has_uid:
+                self._uids = [record[str(table[UID])] for record in records]
+        else:
+            self._ids = []
+
+        return
 
     # -------------------------------------------------------------------------
     # Representation
@@ -1018,13 +1601,24 @@ class S3Resource(object):
             return "<S3Resource %s>" % self.tablename
 
     # -------------------------------------------------------------------------
-    def __len__(self):
+    def __contains__(self, item):
         """
-            The number of currently loaded rows
+            Tests whether this resource contains a (real) field.
+
+            @param item: the field selector or Field instance
         """
 
-        if self._rows is not None:
-            return len(self._rows)
+        fn = str(item)
+        if "." in fn:
+            tn, fn = fn.split(".", 1)
+            if tn == self.tablename:
+                item = fn
+        try:
+            rf = self.resolve_selector(str(item))
+        except (SyntaxError, AttributeError):
+            return 0
+        if rf.field is not None:
+            return 1
         else:
             return 0
 
@@ -1035,24 +1629,6 @@ class S3Resource(object):
         """
 
         return self is not None
-
-    # -------------------------------------------------------------------------
-    def __contains__(self, item):
-        """
-            Tests whether a record is currently loaded
-        """
-
-        id = item.get("id", None)
-        uid = item.get(current.xml.UID, None)
-
-        if (id or uid) and not self._ids:
-            self.__load_ids()
-        if id and id in self._ids:
-            return 1
-        elif uid and uid in self._uids:
-            return 1
-        else:
-            return 0
 
     # -------------------------------------------------------------------------
     # XML Export
@@ -1189,6 +1765,8 @@ class S3Resource(object):
 
         """
 
+        define_resource = current.s3db.resource
+
         manager = current.manager
         xml = current.xml
 
@@ -1211,8 +1789,17 @@ class S3Resource(object):
         # Total number of results
         results = self.count()
 
+        # Initialize export metadata
+        self.muntil = None
+        self.results = 0
+
         # Load slice
-        self.load(start=start, limit=limit)
+        if msince is not None and "modified_on" in table.fields:
+            orderby = "%s ASC" % table["modified_on"]
+        else:
+            orderby = None
+
+        self.load(start=start, limit=limit, orderby=orderby)
 
         format = current.auth.permission.format
         request = current.request
@@ -1308,9 +1895,9 @@ class S3Resource(object):
             for tablename in load_map:
                 load_list = load_map[tablename]
                 prefix, name = tablename.split("_", 1)
-                rresource = manager.define_resource(prefix, name,
-                                                    id=load_list,
-                                                    components=[])
+                rresource = define_resource(tablename,
+                                            id=load_list,
+                                            components=[])
                 table = rresource.table
                 if manager.s3.base_url:
                     url = "%s/%s/%s" % (manager.s3.base_url, prefix, name)
@@ -1353,6 +1940,10 @@ class S3Resource(object):
                         start=start,
                         limit=limit,
                         maxbounds=maxbounds)
+
+        # Store number of results
+        self.results = results
+
         return tree
 
     # -------------------------------------------------------------------------
@@ -1442,10 +2033,6 @@ class S3Resource(object):
                 _skip = skip+[c.fkey]
                 crfields, cdfields = c.split_fields(skip=_skip)
 
-                # Load records if necessary
-                if c._rows is None:
-                    c.load()
-
                 # Construct the component base URL
                 if record_url:
                     component_url = "%s/%s" % (record_url, c.alias)
@@ -1453,7 +2040,7 @@ class S3Resource(object):
                     component_url = None
 
                 # Find related records
-                crecords = self(record[pkey], component=c.alias)
+                crecords = self.get(record[pkey], component=c.alias)
                 if not c.multiple and len(crecords):
                     crecords = [crecords[0]]
 
@@ -1476,6 +2063,12 @@ class S3Resource(object):
                                              msince=msince)
                     if celement is not None:
                         add = True # keep the parent record
+
+                        # Update "modified until" from component
+                        if not self.muntil or \
+                           c.muntil and c.muntil > self.muntil:
+                            self.muntil = c.muntil
+
                         map_record(crecord, crmap,
                                    reference_map, export_map)
 
@@ -1534,9 +2127,11 @@ class S3Resource(object):
         # NB This can't be moved to tree level as we do want to export records
         #    which have modified components
         MTIME = xml.MTIME
-        if msince is not None:
-            if MTIME in record and record[MTIME] <= msince:
+        if MTIME in record:
+            if msince is not None and record[MTIME] <= msince:
                 return default
+            if not self.muntil or record[MTIME] > self.muntil:
+                self.muntil = record[MTIME]
 
         # Audit read
         prefix = self.prefix
@@ -1786,6 +2381,8 @@ class S3Resource(object):
             @todo: update for link table support
         """
 
+        from s3import import S3ImportJob
+
         manager = current.manager
         db = current.db
         xml = current.xml
@@ -1936,6 +2533,8 @@ class S3Resource(object):
         self.import_created += import_job.created
         self.import_updated += import_job.updated
         self.import_deleted += import_job.deleted
+        if self.mtime is None or import_job.mtime > self.mtime:
+            self.mtime = import_job.mtime
         if self.error:
             if ignore_errors:
                 self.error = "%s - invalid items ignored" % self.error
@@ -2105,7 +2704,243 @@ class S3Resource(object):
             return xml.tostring(tree, pretty_print=True)
 
     # -------------------------------------------------------------------------
-    # Utility functions
+    # Data Model Helpers
+    # -------------------------------------------------------------------------
+    def validate(self, field, value, record=None):
+        """
+            Validates a value for a field
+
+            @param fieldname: name of the field
+            @param value: value to validate
+            @param record: the existing database record, if available
+        """
+
+        table = self.table
+
+        default = (value, None)
+
+        if isinstance(field, str):
+            fieldname = field
+            if fieldname in table.fields:
+                field = table[fieldname]
+            else:
+                return default
+        else:
+            fieldname = field.name
+
+        self_id = None
+
+        if record is not None:
+
+            try:
+                v = record[field]
+            except KeyError:
+                v = None
+            if v and v == value:
+                return default
+
+            try:
+                self_id = record[table._id]
+            except KeyError:
+                pass
+
+        requires = field.requires
+
+        if field.unique and not requires:
+            # Prevent unique-constraint violations
+            field.requires = IS_NOT_IN_DB(current.db, str(field))
+            if self_id:
+                field.requires.set_self_id(self_id)
+
+        elif self_id:
+
+            # Initialize all validators for self_id
+            if not isinstance(requires, (list, tuple)):
+                requires = [requires]
+            for r in requires:
+                if hasattr(r, "set_self_id"):
+                    r.set_self_id(self_id)
+                if hasattr(r, "other") and \
+                    hasattr(r.other, "set_self_id"):
+                    r.other.set_self_id(self_id)
+
+        try:
+            value, error = field.validate(value)
+        except:
+            # Oops - something went wrong in the validator:
+            # write out a debug message, and continue anyway
+            if current.response.s3.debug:
+                from s3utils import s3_debug
+                s3_debug("Validate %s: %s (ignored)" %
+                         (field, sys.exc_info()[1]))
+            return (None, None)
+        else:
+            return (value, error)
+
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def original(table, record):
+        """
+            Find the original record for a possible duplicate:
+                - if the record contains a UUID, then only that UUID is used
+                  to match the record with an existing DB record
+                - otherwise, if the record contains some values for unique
+                  fields, all of them must match the same existing DB record
+
+            @param table: the table
+            @param record: the record as dict or S3XML Element
+        """
+
+        db = current.db
+        xml = current.xml
+        xml_decode = xml.xml_decode
+
+        VALUE = xml.ATTRIBUTE.value
+        UID = xml.UID
+        ATTRIBUTES_TO_FIELDS = xml.ATTRIBUTES_TO_FIELDS
+
+        # Get primary keys
+        pkeys = [f for f in table.fields if table[f].unique]
+        pvalues = Storage()
+
+        # Get the values from record
+        get = record.get
+        if isinstance(record, etree._Element):
+            xpath = record.xpath
+            xexpr = "%s[@%s='%%s']" % (xml.TAG.data, xml.ATTRIBUTE.field)
+            for f in pkeys:
+                v = None
+                if f == UID or f in ATTRIBUTES_TO_FIELDS:
+                    v = get(f, None)
+                else:
+                    child = xpath(xexpr % f)
+                    if child:
+                        child = child[0]
+                        v = child.get(VALUE, xml_decode(child.text))
+                if v:
+                    pvalues[f] = v
+        elif isinstance(record, dict):
+            for f in pkeys:
+                v = get(f, None)
+                if v:
+                    pvalues[f] = v
+        else:
+            raise TypeError
+
+        # Build match query
+        query = None
+        for f in pvalues:
+            if f == UID:
+                continue
+            _query = (table[f] == pvalues[f])
+            if query is not None:
+                query = query | _query
+            else:
+                query = _query
+
+        # Try to find exactly one match by non-UID unique keys
+        if query:
+            original = db(query).select(table.ALL, limitby=(0, 2))
+            if len(original) == 1:
+                return original.first()
+
+        # If no match, then try to find a UID-match
+        if UID in pvalues:
+            uid = xml.import_uid(pvalues[UID])
+            query = (table[UID] == uid)
+            original = db(query).select(table.ALL, limitby=(0, 1)).first()
+            if original:
+                return original
+
+        # No match or multiple matches
+        return None
+
+    # -------------------------------------------------------------------------
+    def extract(self, rows, fields, represent=False):
+        """
+            Extract the fields corresponding to fields from the given
+            rows and return them as a list of Storages, with ambiguous
+            rows collapsed and the original order retained.
+
+            @param rows: the Rows
+            @param fields: list of fields
+
+            @returns: list of dicts of {"tablename.fieldname":value}
+        """
+
+        pkey = self.table._id
+
+        if not rows:
+            return []
+
+        rfields = []
+        for i in fields:
+            if isinstance(i, tuple) and len(i) > 1:
+                f = i[-1]
+            else:
+                f = i
+            if isinstance(f, S3ResourceField):
+                rfields.append(f)
+            elif isinstance(f, str):
+                try:
+                    rfield = S3ResourceField(self, f)
+                except:
+                    continue
+                else:
+                    rfields.append(rfield)
+            elif isinstance(f, S3FieldSelector):
+                try:
+                    rfield = f.resolve(resource)
+                    rfield.op = f.op
+                except:
+                    continue
+                else:
+                    rfields.append(rfield)
+            else:
+                raise SyntaxError("Invalid field: %s" % str(f))
+
+        ids = []
+        duplicates = []
+        records = []
+        for row in rows:
+            _id = row[pkey]
+            if _id in ids:
+                idx = ids.index(_id)
+                data = records[idx]
+                for rfield in rfields:
+                    if rfield.tname != self.tablename and rfield.distinct:
+                        key = rfield.colname
+                        try:
+                            value = rfield.extract(row, represent=represent)
+                        except KeyError:
+                            if represent:
+                                value = ""
+                            else:
+                                value = None
+                        if represent:
+                            data[key] = ", ".join([s3_unicode(data[key]),
+                                                   s3_unicode(value)])
+                        else:
+                            if _id in duplicates:
+                                data[key].append(value)
+                            else:
+                                data[key] = [data[key], value]
+                duplicates.append(_id)
+            else:
+                data = Storage()
+                for rfield in rfields:
+                    try:
+                        value = rfield.extract(row, represent=represent)
+                    except KeyError:
+                        if represent:
+                            value = ""
+                        else:
+                            value = None
+                    data[rfield.colname] = value
+                ids.append(_id)
+                records.append(data)
+        return records
+
     # -------------------------------------------------------------------------
     def readable_fields(self, subset=None):
         """
@@ -2147,28 +2982,44 @@ class S3Resource(object):
 
         table = self.table
 
-        # Collect extra fields
+        prefix = lambda s: "%s.%s" % (self.alias, s) \
+                           if "." not in s.split("$", 1)[0] else s
+
+        # Store field selectors
+        display_fields = []
+        append = display_fields.append
+        for _s in selectors:
+            if isinstance(_s, tuple):
+                s = _s[-1]
+            else:
+                s = _s
+            if isinstance(s, S3ResourceField):
+                selector = s.selector
+            elif isinstance(s, S3FieldSelector):
+                selector = s.name
+            else:
+                selector = s
+            append(prefix(selector))
+
+        # Collect extra fields from virtual tables
         slist = list(selectors)
         append = slist.append
         for vtable in table.virtualfields:
             if hasattr(vtable, "extra_fields"):
-                extra_fields = vtable.extra_fields
-                for selector in extra_fields:
-                    if selector not in slist:
-                        append(selector)
-
-        resolve_selector = self.resolve_selector
+                for selector in vtable.extra_fields:
+                    s = prefix(selector)
+                    if s not in display_fields:
+                        append(s)
 
         joins = Storage()
         left = Storage()
 
         distinct = False
 
-        fields = []
-        append = fields.append
 
-        get_location_hierarchy = current.gis.get_location_hierarchy
-
+        rfields = []
+        columns = []
+        append = rfields.append
         for s in slist:
 
             # Allow to override the field label
@@ -2177,273 +3028,57 @@ class S3Resource(object):
             else:
                 label, selector = None, s
 
+            selector = prefix(selector)
+
             # Resolve the selector
-            if "." not in selector:
-                selector = "%s.%s" % (self.alias, selector)
-            elif skip_components:
-                continue
             try:
-                field = resolve_selector(selector)
+                if isinstance(selector, str):
+                    rfield = S3ResourceField(self, selector, label=label)
+                elif isinstance(selector, S3FieldSelector):
+                    rfield = selector.resolve(self)
+                    if label is not None:
+                        rfield.label = label
+                elif isinstance(selector, S3ResourceField):
+                    rfield = selector
+                    if label is not None:
+                        rfield.label = label
+                else:
+                    continue
             except (AttributeError, SyntaxError):
                 continue
 
-            # Fall back to the field label
-            if label is None:
-                fname = field.fname
-                if fname in ["L1", "L2", "L3", "L3", "L4", "L5"]:
-                    label = get_location_hierarchy(fname)
-                else:
-                    f = field.field
-                    if f:
-                        label = f.label
-                    else:
-                        label = fname.capitalize()
-            field.label = label
+            # Skip components
+            if skip_components:
+                head = rfield.selector.split("$", 1)[0]
+                if "." in head and head.split(".")[0] != self.alias:
+                    continue
+
+            # De-duplicate columns
+            if rfield.colname in columns:
+                continue
+            else:
+                columns.append(rfield.colname)
 
             # Resolve the joins
-            if field.distinct:
-                if field.left:
-                    left.update(field.left)
+            if rfield.distinct:
+                if rfield.left:
+                    left.update(rfield.left)
                 distinct = True
-            elif field.join:
-                joins.update(field.join)
+            elif rfield.join:
+                joins.update(rfield.join)
 
-            field.show = s in selectors
-            append(field)
+            rfield.show = rfield.selector in display_fields
+            append(rfield)
 
-        return (fields, joins, left, distinct)
+        return (rfields, joins, left, distinct)
 
     # -------------------------------------------------------------------------
-    def resolve_selector(self, selector, join=None, left=None):
+    def resolve_selector(self, selector):
         """
-            Resolve a field selector against a resource
-
-            @param selector: the selector
-            @param join: Storage of inner joins to append to
-            @param left: Storage of left joins to append to
-
-            @returns: a tuple of field, distinct, where <field> is
-                      a Storage like:
-                        {
-                            selector    => the selector
-                            field       => Field instance or None (for virtual fields)
-                            join        => Storage of required inner joins
-                            left        => Storage of required left joins
-                            tname       => tablename for the field
-                            fname       => fieldname for the field
-                            colname     => column name in the row
-                        }
-
-                    ...and distinct is the required distinct-flag for
-                    the effective query.
+            Wrapper for S3ResourceField, retained for backward compatibility
         """
 
-        s3db = current.s3db
-        manager = current.manager
-
-        distinct = False
-        original = selector
-        tablename = self._alias
-
-        if join is None:
-            join = Storage()
-        if left is None:
-            left = Storage()
-
-        if "$" in selector:
-            selector, tail = selector.split("$", 1)
-            distinct = True
-        else:
-            tail = None
-        if "." in selector:
-            tn, fn = selector.split(".", 1)
-        else:
-            tn = None
-            fn = selector
-
-        if tn and tn != self.alias:
-            # Field in a component
-            if tn not in self.components:
-                hook = s3db.get_component(self.tablename, tn)
-                if hook:
-                    self._attach(tn, hook)
-            if tn in self.components:
-                c = self.components[tn]
-                distinct = c.link is not None or c.multiple
-                j = c.get_join()
-                l = c.get_left_join()
-                tn = c._alias
-                join[tn] = j
-                left[tn] = l
-                table = c.table
-            else:
-                raise AttributeError("%s is not a component of %s" % (tn, tablename))
-        else:
-            # Field in the master table
-            tn = tablename
-            if tail:
-                original = "%s$%s" % (fn, tail)
-            else:
-                original = fn
-            table = self.table
-
-        if table is None:
-            raise AttributeError("undefined table %s" % tn)
-        else:
-            # Resolve the field name
-            if fn == "uid":
-                fn = current.xml.UID
-            if fn == "id":
-                f = table._id
-            elif fn in table.fields:
-                f = table[fn]
-            else:
-                f = None
-
-        if tail:
-            # Field in a referenced table
-            ktablename = None
-            if not f:
-                # Link table reference
-                # table <-- pkey -- lkey -- ltable -- rkey -- fkey --> ktable
-
-                # Find the link table name
-                LSEP = ":"
-                lname = lkey = rkey = fkey = None
-                if LSEP in fn:
-                    lname, rkey = fn.rsplit(LSEP, 1)
-                    if LSEP in lname:
-                        lkey, lname = lname.split(LSEP, 1)
-                    ltable = s3db.table(lname)
-                    if not ltable and lkey is None:
-                        (lkey, lname, rkey) = (lname, rkey, lkey)
-                else:
-                    ltable = None
-                    lname = fn
-
-                if ltable is None:
-                    ltable = s3db.table(lname,
-                                        SyntaxError("%s.%s is not a foreign key" % (tn, fn)),
-                                        db_only=True)
-
-                # Get the primary key
-                pkey = table._id.name
-
-                # Check the left key
-                if lkey is None:
-                    search_lkey = True
-                else:
-                    if lkey not in ltable.fields:
-                        raise AttributeError("No field %s in %s" % (lkey, lname))
-                    lkey_field = ltable[lkey]
-                    _tn, pkey, multiple = s3_get_foreign_key(lkey_field, m2m=False)
-                    if _tn and _tn != tn:
-                        raise SyntaxError("Invalid link: %s.%s is not a foreign key for %s" % (lname, lkey, tn))
-                    elif not _tn:
-                        raise SyntaxError("%s.%s is not a foreign key" % (lname, lkey))
-                    search_lkey = False
-
-                # Check the right key
-                if rkey is None:
-                    search_rkey = True
-                else:
-                    if rkey not in ltable.fields:
-                        raise AttributeError("No field %s in %s" % (rkey, lname))
-                    rkey_field = ltable[rkey]
-                    ktablename, fkey, multiple = s3_get_foreign_key(rkey_field, m2m=False)
-                    if not ktablename:
-                        raise SyntaxError("%s.%s is not a foreign key" % (lname, lkey))
-                    search_rkey = False
-
-                # Key search
-                if search_lkey or search_rkey:
-                    for fname in ltable.fields:
-                        ktn, key, multiple = s3_get_foreign_key(ltable[fname], m2m=False)
-                        if not ktn:
-                            continue
-                        if search_lkey and ktn == tn:
-                            if lkey is not None:
-                                raise SyntaxError("Ambiguous link: please specify left key in %s" % tn)
-                            else:
-                                lkey = fname
-                                if key:
-                                    pkey = key
-                        if search_rkey and ktn != tn:
-                            if rkey is not None:
-                                raise SyntaxError("Ambiguous link: please specify right key in %s" % tn)
-                            else:
-                                ktablename = ktn
-                                rkey = fname
-                                fkey = key
-                    if lkey is None:
-                        raise SyntaxError("Invalid link: no foreign key for %s in %s" % (tn, lname))
-                    else:
-                        lkey_field = ltable[lkey]
-                    if rkey is None:
-                        raise SyntaxError("Invalid link: no foreign key found in" % lname)
-                    else:
-                        rkey_field = ltable[rkey]
-
-                # Load the referenced table
-                ktable = s3db.table(ktablename,
-                                    AttributeError("Undefined table: %s" % ktablename),
-                                    db_only=True)
-
-                # Resolve fkey, if still unknown
-                if not fkey:
-                    fkey = ktable._id.name
-
-                # Construct the joins
-                lq = (table[pkey] == ltable[lkey])
-                DELETED = manager.DELETED
-                if DELETED in ltable.fields:
-                    lq &= ltable[DELETED] != True
-                rq = (ltable[rkey] == ktable[fkey])
-                distinct = True
-                join[ktablename] = lq & rq
-                left[ktablename] = [ltable.on(lq), ktable.on(rq)]
-
-            else:
-                # Simple forward reference
-                # table -- f -- pkey --> ktable
-
-                # Find the referenced table
-                ktablename, pkey, multiple = s3_get_foreign_key(f)
-                if not ktablename:
-                    raise SyntaxError("%s.%s is not a foreign key" % (tn, f))
-
-                ktable = s3db.table(ktablename,
-                                    AttributeError("Undefined table %s" % ktablename),
-                                    db_only=True)
-                if pkey is None:
-                    pkey = ktable._id
-                else:
-                    pkey = ktable[pkey]
-
-                # Construct the joins
-                j = (f == pkey)
-                join[ktablename] = j
-                left[ktablename] = [ktable.on(j)]
-
-            # Resolve the tail
-            prefix, name = ktablename.split("_", 1)
-            kresource = manager.define_resource(prefix, name, vars=[])
-            field = kresource.resolve_selector(tail, join=join, left=left)
-            field.update(selector=original,
-                         distinct=field.distinct or distinct)
-            return field
-
-        else:
-            # Done, return the field
-            field = Storage(selector=original,
-                            tname = tn,
-                            fname = fn,
-                            colname = "%s.%s" % (tn, fn),
-                            field=f,
-                            join=join,
-                            left=left,
-                            distinct=distinct)
-            return field
+        return S3ResourceField(self, selector)
 
     # -------------------------------------------------------------------------
     def split_fields(self, skip=[], data=None, references=None):
@@ -2496,6 +3131,31 @@ class S3Resource(object):
             self.dfields = dfields
 
         return (rfields, dfields)
+
+    # -------------------------------------------------------------------------
+    # Utility functions
+    # -------------------------------------------------------------------------
+    def configure(self, **settings):
+        """
+            Update configuration settings for this resource
+
+            @param settings: configuration settings for this resource
+                             as keyword arguments
+        """
+
+        current.s3db.configure(self.tablename, **settings)
+
+    # -------------------------------------------------------------------------
+    def get_config(self, key, default=None):
+        """
+            Get a configuration setting for the current resource
+
+            @param key: the setting key
+            @param default: the default value to return if the setting
+                            is not configured for this resource
+        """
+
+        return current.s3db.get_config(self.tablename, key, default=default)
 
     # -------------------------------------------------------------------------
     def limitby(self, start=None, limit=None):
@@ -2645,9 +3305,10 @@ class S3Resource(object):
         ltable = self.table
         mtable = self.parent.table
         ctable = self.linked.table
-        query = join & \
-                (mtable._id == master_id) & \
-                (ltable._id == link_id)
+        query = join & (ltable._id == link_id)
+        if master_id is not None:
+            # master ID is redundant, but can be used to check negatives
+            query &= (mtable._id == master_id)
         row = current.db(query).select(ctable._id, limitby=(0, 1)).first()
         if row:
             return row[ctable._id.name]
@@ -2705,263 +3366,217 @@ class S3Resource(object):
         return link_id
 
     # -------------------------------------------------------------------------
-    def sqltable(self,
-                 fields=None,
-                 start=0,
-                 limit=None,
-                 left=None,
-                 orderby=None,
-                 distinct=False,
-                 linkto=None,
-                 download_url=None,
-                 no_ids=False,
-                 as_rows=False,
-                 as_page=False,
-                 as_list=False,
-                 as_json=False,
-                 format=None):
+    def datatable_filter(self, fields, vars):
         """
-            DRY helper function for SQLTABLEs in REST and CRUD
+            Parse datatable search/sort vars into a tuple of
+            query, orderby and left joins
 
-            @param fields: list of field selectors
-            @param start: index of the first record
-            @param limit: maximum number of records
-            @param left: left outer joins
-            @param orderby: orderby for the query
-            @param distinct: distinct for the query
-            @param linkto: hook to link record IDs
-            @param download_url: the default download URL of the application
-            @param as_rows: return bare Rows, no representations
-            @param as_page: return the list as JSON page
-            @param as_list: return the list as Python list
-            @param format: the representation format
+            @param fields: list of field selectors representing
+                           the order of fields in the datatable (list_fields)
+            @param vars: the datatable GET vars
+
+            @returns: tuple of (query, orderby, left joins)
         """
 
         db = current.db
-        table = self.table
 
-        # Get the query and filters
-        query = self.get_query()
-        vfltr = self.get_filter()
-        rfilter = self.rfilter
+        left = []
 
-        # Handle distinct-attribute (must respect rfilter.distinct)
-        distinct = self.rfilter.distinct | distinct
+        sSearch = "sSearch"
+        iColumns = "iColumns"
+        iSortingCols = "iSortingCols"
 
-        # Resolve the fields
-        if fields is None:
-            fields = [f.name for f in self.readable_fields()]
-        if table._id.name not in fields and not no_ids:
-            fields.insert(0, table._id.name)
-        ffields = rfilter.get_fields()
-        for f in ffields:
-            if f not in fields:
-                fields.append(f)
-        lfields, joins, ljoins, d = self.resolve_selectors(fields)
+        parent = self.parent
+        fkey = self.fkey
 
-        distinct = distinct | d
-        attributes = dict(distinct=distinct)
+        # Skip joins for linked tables
+        if self.linked is not None:
+            skip = self.linked.tablename
+        else:
+            skip = None
 
-        # Left joins
-        left_joins = left
-        if left_joins is None:
-            left_joins = []
-        elif not isinstance(left, list):
-            left_joins = [left_joins]
-        joined_tables = [str(join.first) for join in left_joins]
+        # Resolve the list fields
+        rfields, joins, ljoins, distinct = self.resolve_selectors(fields)
 
-        # Add the left joins from the field query
-        ljoins = [j for tablename in ljoins for j in ljoins[tablename]]
-        for join in ljoins:
-            tn = str(join.first)
-            if tn not in joined_tables:
-                joined_tables.append(str(join.first))
-                left_joins.append(join)
+        # FILTER --------------------------------------------------------------
 
-        # Add the left joins from the filter
-        fjoins = rfilter.get_left_joins()
-        for join in fjoins:
-            tn = str(join.first)
-            if tn not in joined_tables:
-                joined_tables.append(str(join.first))
-                left_joins.append(join)
+        searchq = None
+        if sSearch in vars and iColumns in vars:
 
-        # Sort left joins and add to attributes
-        if left_joins:
+            # Build filter
+            search_text = vars[sSearch]
+            search_like = "%%%s%%" % search_text.lower()
+
             try:
-                left_joins.sort(self.sortleft)
+                numcols = int(vars[iColumns])
             except:
-                pass
-            attributes.update(left=left_joins)
+                numcols = 0
 
-        # Joins
-        for join in joins.values():
-            if str(join) not in str(query):
-                query &= join
-
-        # Orderby
-        if orderby is not None:
-            attributes.update(orderby=orderby)
-
-        # Limitby
-        if vfltr is None:
-            limitby = self.limitby(start=start, limit=limit)
-            if limitby is not None:
-                attributes.update(limitby=limitby)
-        else:
-            # Retrieve all records when filtering for virtual fields
-            # => apply start/limit in vfltr instead
-            limitby = None
-
-        # Column names and headers
-        colnames = [f.colname for f in lfields]
-        headers = dict(map(lambda f: (f.colname, f.label), lfields))
-
-        # Fields in the query
-        load = current.s3db.table
-        qfields = []
-        qtables = []
-        for f in lfields:
-            field = f.field
-            tname = f.tname
-            if field is None:
-                continue
-            qtable = load(tname)
-            if qtable is None:
-                continue
-            if tname not in qtables:
-                # Make sure the primary key of the table this field
-                # belongs to is included in the SELECT
-                qtables.append(tname)
-                pkey = qtable._id
-                qfields.append(pkey)
-                if str(field) == str(pkey):
+            flist = []
+            for i in xrange(numcols):
+                try:
+                    field = rfields[i].field
+                except KeyError:
                     continue
-            qfields.append(field)
+                if field is None:
+                    continue
+                ftype = str(field.type)
 
-        # Add orderby fields which are not in qfields
-        # @todo: this could need some cleanup/optimization
-        if distinct and orderby is not None:
-            qf = [str(f) for f in qfields]
-            if isinstance(orderby, str):
-                of = orderby.split(",")
-            elif not isinstance(orderby, (list, tuple)):
-                of = [orderby]
-            else:
-                of = orderby
-            for e in of:
-                if isinstance(e, Field) and str(e) not in qf:
-                    qfields.append(e)
-                    qf.append(str(e))
-                elif isinstance(e, str):
-                    fn = e.strip().split()[0].split(".", 1)
-                    tn, fn = ([table._tablename] + fn)[-2:]
-                    try:
-                        t = db[tn]
-                        f = t[fn]
-                    except:
-                        continue
-                    if str(f) not in qf:
-                        qfields.append(f)
-                        qf.append(str(e))
-
-        # Retrieve the rows
-        rows = db(query).select(*qfields, **attributes)
-        if not rows:
-            return None
-
-        # Apply virtual filter
-        if vfltr is not None:
-            rows = rfilter(rows, start=start, limit=limit)
-
-        if not rows:
-            # No records found
-            return None
-        if as_rows:
-            # No rendering - return bare Rows
-            return rows
-
-        # Fields to show
-        row = rows.first()
-        def __expand(tablename, row, lfields=lfields):
-            columns = []
-            if not row:
-                return columns
-            for f in lfields:
-                tname = f.tname
-                fname = f.fname
-                # @todo: this is not clean - it could even be Rows
-                if tname in row and type(row[tname]) is Row:
-                    columns += __expand(tname, row[tname], lfields=lfields)
-                elif (tname, fname) not in columns and fname in row:
-                    columns.append((tname, fname))
-            return columns
-        columns = __expand(table._tablename, row)
-        lfields = [lf for lf in lfields
-                   if lf.show and (lf.tname, lf.fname) in columns]
-        colnames = [f.colname for f in lfields]
-        rows.colnames = colnames
-
-        # Representation
-        repr_row = current.manager.represent
-        def __represent(f, row, columns=columns):
-            field = f.field
-            if field is not None:
-                return repr_row(field, record=row, linkto=linkto)
-            else:
-                tname = f.tname
-                fname = f.fname
-                if (tname, fname) in columns:
-                    if tname in row:
-                        row = row[tname]
-                    if fname in row:
-                        return str(row[fname])
+                # For foreign keys, we search through their sortby
+                if ftype[:9] == "reference" and \
+                    hasattr(field, "sortby") and field.sortby:
+                    tn = ftype[10:]
+                    if parent is not None and \
+                       parent.tablename == tn and field.name != fkey:
+                        alias = "%s_%s_%s" % (parent.prefix, "linked", parent.name)
+                        ktable = db[tn].with_alias(alias)
+                        ktable._id = ktable[ktable._id.name]
+                        tn = alias
                     else:
-                        return None
+                        ktable = db[tn]
+                    if tn != skip:
+                        q = (field == ktable._id)
+                        join = [j for j in left if j.first._tablename == tn]
+                        if not join:
+                            left.append(ktable.on(q))
+                    if isinstance(field.sortby, (list, tuple)):
+                        flist.extend([ktable[f] for f in field.sortby
+                                                if f in ktable.fields])
+                    else:
+                        if field.sortby in ktable.fields:
+                            flist.append(ktable[field.sortby])
+
+                # Otherwise, we search through the field itself
                 else:
-                    return None
+                    flist.append(field)
 
-        # Render as...
-        if as_page:
-            # ...JSON page (for pagination)
-            items = [[__represent(f, row) for f in lfields] for row in rows]
-        elif as_list:
-            # ...Python list
-            items = rows.as_list()
-        elif as_json:
-            # ...simple flat JSON (with prefixed field names)
-            items = self.convert_json(rows, lfields)
+            # Build search query
+            for field in flist:
+                query = None
+
+                ftype = str(field.type)
+
+                # Check whether this type has options
+                if ftype in ("integer", "list:integer", "list:string") or \
+                   ftype.startswith("list:reference") or \
+                   ftype.startswith("reference"):
+
+                    requires = field.requires
+                    if not isinstance(requires, (list, tuple)):
+                        requires = [requires]
+                    if requires:
+                        r = requires[0]
+                        if isinstance(r, IS_EMPTY_OR):
+                            r = r.other
+                        if hasattr(r, "options"):
+                            try:
+                                options = r.options()
+                            except:
+                                continue
+                        else:
+                            continue
+
+                        vlist = []
+                        for (value, text) in options:
+                            if str(text).lower().find(search_text.lower()) != -1:
+                                vlist.append(value)
+                        if vlist:
+                            query = field.belongs(vlist)
+                    else:
+                        continue
+
+                # ...or is string/text
+                elif str(field.type) in ("string", "text"):
+                    query = field.lower().like(search_like)
+
+                if searchq is None and query:
+                    searchq = query
+                elif query:
+                    searchq = searchq | query
+
+            # Append all joins
+            # (is this really necessary => rfields joins would be added anyway?)
+            #for j in joins.values():
+                #for q in j:
+                    #if searchq is None:
+                        #searchq = q
+                    #elif str(q) not in str(searchq):
+                        #searchq &= q
+
         else:
-            # ...SQLTABLE
-            items = SQLTABLES3(rows,
-                               headers=headers,
-                               linkto=linkto,
-                               upload=download_url,
-                               _id="list",
-                               _class="dataTable display")
-        return items
+            searchq = None
 
-    # -------------------------------------------------------------------------
-    def convert_json(self, rows, lfields):
-        """
-            Convert rows into JSON, used in sqltable
+        # ORDERBY -------------------------------------------------------------
 
-            @param rows: the rows
-            @param lfields: the (resolved) list fields
-        """
+        orderby = []
+        if iSortingCols in vars:
 
-        fields = [lf.selector for lf in lfields]
+            # Sorting direction
+            def direction(i):
+                dir = vars["sSortDir_%s" % str(i)]
+                return dir and " %s" % dir or ""
 
-        if rows is None:
-            return "[]"
-        records = []
-        for row in rows:
-            record = Storage()
-            for lfield in lfields:
-                record[lfield.colname] = S3FieldSelector.extract(self,
-                                                    row, lfield.selector)
-            records.append(record)
-        return json.dumps(records)
+            # Get the fields to order by
+            try:
+                numcols = int(vars[iSortingCols])
+            except:
+                numcols = 0
+            columns = []
+            for i in xrange(numcols):
+                try:
+                    rfield = rfields[int(vars["iSortCol_%s" % i])]
+                except:
+                    columns.append(None)
+                else:
+                    columns.append(rfield.field)
+
+            # Process the orderby-fields
+            for i in xrange(len(columns)):
+                field = columns[i]
+                if field is None:
+                    continue
+                ftype = str(field.type)
+
+                # Foreign keys with sortby will be ordered by sortby
+                if ftype[:9] == "reference" and \
+                   hasattr(field, "sortby") and field.sortby:
+
+                    # Get the key table
+                    tn = ftype[10:]
+                    if parent is not None and \
+                       parent.tablename == tn and field.name != fkey:
+                        alias = "%s_%s_%s" % (parent.prefix, "linked", parent.name)
+                        ktable = db[tn].with_alias(alias)
+                        ktable._id = ktable[ktable._id.name]
+                        tn = alias
+                    else:
+                        ktable = db[tn]
+
+                    # Add left join (except for linked table)
+                    if tn != skip:
+                        q = (field == ktable._id)
+                        join = [j for j in left if j.first._tablename == tn]
+                        if not join:
+                            left.append(ktable.on(q))
+
+                    # Construct orderby from sortby
+                    if not isinstance(field.sortby, (list, tuple)):
+                        orderby.append("%s.%s%s" % (tn, field.sortby, direction(i)))
+                    else:
+                        orderby.append(", ".join(["%s.%s%s" %
+                                                  (tn, fn, direction(i))
+                                                  for fn in field.sortby]))
+
+                # otherwise, order by the field itself
+                else:
+                    orderby.append("%s%s" % (field, direction(i)))
+
+        if orderby:
+            orderby = ", ".join(orderby)
+        else:
+            orderby = None
+
+        return (searchq, orderby, left)
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -2975,6 +3590,1053 @@ class S3Resource(object):
         if "%s." % ty in qx:
             return 1
         return 0
+
+# =============================================================================
+class S3FieldSelector:
+    """ Helper class to construct a resource query """
+
+    LOWER = "lower"
+    UPPER = "upper"
+
+    OPERATORS = [LOWER, UPPER]
+
+    def __init__(self, name, type=None):
+        """ Constructor """
+
+        if not isinstance(name, str) or not name:
+            raise SyntaxError("name required")
+        self.name = name
+        self.type = type
+
+        self.op = None
+
+    # -------------------------------------------------------------------------
+    def __lt__(self, value):
+        return S3ResourceQuery(S3ResourceQuery.LT, self, value)
+
+    # -------------------------------------------------------------------------
+    def __le__(self, value):
+        return S3ResourceQuery(S3ResourceQuery.LE, self, value)
+
+    # -------------------------------------------------------------------------
+    def __eq__(self, value):
+        return S3ResourceQuery(S3ResourceQuery.EQ, self, value)
+
+    # -------------------------------------------------------------------------
+    def __ne__(self, value):
+        return S3ResourceQuery(S3ResourceQuery.NE, self, value)
+
+    # -------------------------------------------------------------------------
+    def __ge__(self, value):
+        return S3ResourceQuery(S3ResourceQuery.GE, self, value)
+
+    # -------------------------------------------------------------------------
+    def __gt__(self, value):
+        return S3ResourceQuery(S3ResourceQuery.GT, self, value)
+
+    # -------------------------------------------------------------------------
+    def like(self, value):
+        return S3ResourceQuery(S3ResourceQuery.LIKE, self, value)
+
+    # -------------------------------------------------------------------------
+    def belongs(self, value):
+        return S3ResourceQuery(S3ResourceQuery.BELONGS, self, value)
+
+    # -------------------------------------------------------------------------
+    def contains(self, value):
+        return S3ResourceQuery(S3ResourceQuery.CONTAINS, self, value)
+
+    # -------------------------------------------------------------------------
+    def anyof(self, value):
+        return S3ResourceQuery(S3ResourceQuery.ANYOF, self, value)
+
+    # -------------------------------------------------------------------------
+    def lower(self):
+        self.op = self.LOWER
+        return self
+
+    # -------------------------------------------------------------------------
+    def upper(self):
+        self.op = self.UPPER
+        return self
+
+    # -------------------------------------------------------------------------
+    def expr(self, val):
+        if not self.op:
+            return val
+        elif val is not None:
+            if self.op == self.LOWER and \
+               hasattr(val, "lower") and callable(val.lower):
+                return val.lower()
+            elif self.op == self.UPPER and \
+                 hasattr(val, "upper") and callable(val.upper):
+                return val.upper()
+        return val
+
+    # -------------------------------------------------------------------------
+    def represent(self, resource):
+
+        try:
+            lfield = S3ResourceField(resource, self.name)
+        except:
+            return "#undef#_%s" % self.name
+        if self.op is not None:
+            return "%s.%s()" % (lfield.colname, self.op)
+        return lfield.colname
+
+    # -------------------------------------------------------------------------
+    @classmethod
+    def extract(cls, resource, row, field):
+        """
+            Extract a value from a Row
+
+            @param resource: the resource
+            @param row: the Row
+            @param field: the field
+
+            @returns: field if field is not a Field/S3FieldSelector instance,
+                      the value from the row otherwise
+        """
+
+        if isinstance(field, Field):
+            f = field
+            colname = str(field)
+        elif isinstance(field, S3FieldSelector):
+            rfield = S3ResourceField(resource, field)
+            f = rfield.field
+            tname = rfield.tname
+            fname = rfield.fname
+            colname = rfield.colname
+        elif isinstance(field, S3ResourceField):
+            f = field.field
+            tname = field.tname
+            fname = field.fname
+            if not fname:
+                return None
+            colname = field.colname
+        else:
+            return field
+        if f is not None and isinstance(row, Row):
+            try:
+                return row[f]
+            except (KeyError, AttributeError):
+                raise KeyError("Field not found: %s" % colname)
+        elif fname in row:
+            value = row[fname]
+        elif colname in row:
+            value = row[colname]
+        elif tname is not None and \
+             tname in row and fname in row[tname]:
+            value = row[tname][fname]
+        else:
+            raise KeyError("Field not found: %s" % colname)
+        if isinstance(field, S3FieldSelector):
+            return field.expr(value)
+        return value
+
+    # -------------------------------------------------------------------------
+    def resolve(self, resource):
+        """
+            Resolve this field against a resource
+
+            @param resource: the resource
+        """
+        return S3ResourceField(resource, self.name)
+
+# =============================================================================
+class S3ResourceField(object):
+    """ Helper class to resolve a field selector against a resource """
+
+    # -------------------------------------------------------------------------
+    def __init__(self, resource, selector, label=None):
+        """
+            Constructor
+
+            @param resource: the resource
+            @param selector: the field selector (string)
+        """
+
+        self.resource = resource
+        self.selector = selector
+
+        lf = self.resolve(resource, selector)
+
+        self.tname = lf.tname
+        self.fname = lf.fname
+        self.colname = lf.colname
+
+        self.join = lf.join
+        self.left = lf.left
+        self.distinct = lf.distinct
+
+        self.field = lf.field
+
+        if self.field is not None:
+            self.virtual = False
+            field = self.field
+            self.ftype = str(field.type)
+            if resource.linked is not None and self.ftype == "id":
+                # Always represent the link-table's ID as the
+                # linked record's ID => needed for data tables
+                self.represent = lambda i, resource=resource: \
+                                           resource.component_id(None, i)
+            else:
+                self.represent = field.represent
+            self.requires = field.requires
+        else:
+            self.virtual = True
+            self.ftype = "virtual"
+            self.represent = s3_unicode
+            self.requires = None
+
+        # Fall back to the field label
+        if label is None:
+            fname = self.fname
+            if fname in ["L1", "L2", "L3", "L3", "L4", "L5"]:
+                try:
+                    label = current.gis.get_location_hierarchy(fname)
+                except:
+                    label = None
+            if label is None:
+                f = self.field
+                if f:
+                    label = f.label
+                else:
+                    label = " ".join([s.strip().capitalize()
+                                      for s in fname.split("_") if s])
+        self.label = label
+
+        self.show = True
+
+    # -------------------------------------------------------------------------
+    def __repr__(self):
+        """ String representation of this instance """
+
+        return "<S3ResourceField " \
+               "selector='%s' " \
+               "label='%s' " \
+               "table='%s' " \
+               "field='%s' " \
+               "type='%s'>" % \
+               (self.selector, self.label, self.tname, self.fname, self.ftype)
+
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def resolve(resource, selector, join=None, left=None):
+        """ Resolve a field selector against a resource """
+
+        s3db = current.s3db
+        manager = current.manager
+
+        distinct = False
+
+        original = selector
+        tablename = resource._alias
+
+        if join is None:
+            join = Storage()
+        if left is None:
+            left = Storage()
+
+        if "$" in selector:
+            selector, tail = selector.split("$", 1)
+            distinct = True
+        else:
+            tail = None
+        if "." in selector:
+            tn, fn = selector.split(".", 1)
+        else:
+            tn = None
+            fn = selector
+
+        if tn and tn != resource.alias:
+            # Field in a component
+            if tn not in resource.components:
+                hook = s3db.get_component(resource.tablename, tn)
+                if hook:
+                    resource._attach(tn, hook)
+            if tn in resource.components:
+                c = resource.components[tn]
+                distinct = c.link is not None or c.multiple
+                j = c.get_join()
+                l = c.get_left_join()
+                tn = c._alias
+                join[tn] = j
+                left[tn] = l
+                table = c.table
+            else:
+                raise AttributeError("%s is not a component of %s" % (tn, tablename))
+        else:
+            # Field in the master table
+            tn = tablename
+            if tail:
+                original = "%s$%s" % (fn, tail)
+            else:
+                original = fn
+            table = resource.table
+
+        if table is None:
+            raise AttributeError("undefined table %s" % tn)
+        else:
+            # Resolve the field name
+            if fn == "uid":
+                fn = current.xml.UID
+            if fn == "id":
+                f = table._id
+            elif fn in table.fields:
+                f = table[fn]
+            else:
+                f = None
+
+        if tail:
+            # Field in a referenced table
+            ktablename = None
+            if not f:
+                # Link table reference
+                # table <-- pkey -- lkey -- ltable -- rkey -- fkey --> ktable
+
+                # Find the link table name
+                LSEP = ":"
+                lname = lkey = rkey = fkey = None
+                if LSEP in fn:
+                    lname, rkey = fn.rsplit(LSEP, 1)
+                    if LSEP in lname:
+                        lkey, lname = lname.split(LSEP, 1)
+                    ltable = s3db.table(lname)
+                    if not ltable and lkey is None:
+                        (lkey, lname, rkey) = (lname, rkey, lkey)
+                else:
+                    ltable = None
+                    lname = fn
+
+                if ltable is None:
+                    ltable = s3db.table(lname,
+                                        SyntaxError("%s.%s is not a foreign key" % (tn, fn)),
+                                        db_only=True)
+
+                # Get the primary key
+                pkey = table._id.name
+
+                # Check the left key
+                if lkey is None:
+                    search_lkey = True
+                else:
+                    if lkey not in ltable.fields:
+                        raise AttributeError("No field %s in %s" % (lkey, lname))
+                    lkey_field = ltable[lkey]
+                    _tn, pkey, multiple = s3_get_foreign_key(lkey_field, m2m=False)
+                    if _tn and _tn != tn:
+                        raise SyntaxError("Invalid link: %s.%s is not a foreign key for %s" % (lname, lkey, tn))
+                    elif not _tn:
+                        raise SyntaxError("%s.%s is not a foreign key" % (lname, lkey))
+                    search_lkey = False
+
+                # Check the right key
+                if rkey is None:
+                    search_rkey = True
+                else:
+                    if rkey not in ltable.fields:
+                        raise AttributeError("No field %s in %s" % (rkey, lname))
+                    rkey_field = ltable[rkey]
+                    ktablename, fkey, multiple = s3_get_foreign_key(rkey_field, m2m=False)
+                    if not ktablename:
+                        raise SyntaxError("%s.%s is not a foreign key" % (lname, lkey))
+                    search_rkey = False
+
+                # Key search
+                if search_lkey or search_rkey:
+                    for fname in ltable.fields:
+                        ktn, key, multiple = s3_get_foreign_key(ltable[fname], m2m=False)
+                        if not ktn:
+                            continue
+                        if search_lkey and ktn == tn:
+                            if lkey is not None:
+                                raise SyntaxError("Ambiguous link: please specify left key in %s" % tn)
+                            else:
+                                lkey = fname
+                                if key:
+                                    pkey = key
+                        if search_rkey and ktn != tn:
+                            if rkey is not None:
+                                raise SyntaxError("Ambiguous link: please specify right key in %s" % tn)
+                            else:
+                                ktablename = ktn
+                                rkey = fname
+                                fkey = key
+                    if lkey is None:
+                        raise SyntaxError("Invalid link: no foreign key for %s in %s" % (tn, lname))
+                    else:
+                        lkey_field = ltable[lkey]
+                    if rkey is None:
+                        raise SyntaxError("Invalid link: no foreign key found in" % lname)
+                    else:
+                        rkey_field = ltable[rkey]
+
+                # Load the referenced table
+                ktable = s3db.table(ktablename,
+                                    AttributeError("Undefined table: %s" % ktablename),
+                                    db_only=True)
+
+                # Resolve fkey, if still unknown
+                if not fkey:
+                    fkey = ktable._id.name
+
+                # Construct the joins
+                lq = (table[pkey] == ltable[lkey])
+                DELETED = manager.DELETED
+                if DELETED in ltable.fields:
+                    lq &= ltable[DELETED] != True
+                rq = (ltable[rkey] == ktable[fkey])
+                distinct = True
+                join[ktablename] = lq & rq
+                left[ktablename] = [ltable.on(lq), ktable.on(rq)]
+
+            else:
+                # Simple forward reference
+                # table -- f -- pkey --> ktable
+
+                # Find the referenced table
+                ktablename, pkey, multiple = s3_get_foreign_key(f, m2m=False)
+                if not ktablename:
+                    raise SyntaxError("%s is not a foreign key" % f)
+
+                ktable = s3db.table(ktablename,
+                                    AttributeError("Undefined table %s" % ktablename),
+                                    db_only=True)
+                if pkey is None:
+                    pkey = ktable._id
+                else:
+                    pkey = ktable[pkey]
+
+                # Construct the joins
+                j = (f == pkey)
+                join[ktablename] = j
+                left[ktablename] = [ktable.on(j)]
+
+            # Resolve the tail
+            kresource = s3db.resource(ktablename, vars=[])
+            field = S3ResourceField.resolve(kresource, tail, join=join, left=left)
+            field.update(selector=original,
+                         distinct=field.distinct or distinct)
+            return field
+
+        else:
+            # Done, return the field
+            field = Storage(selector=original,
+                            tname = tn,
+                            fname = fn,
+                            colname = "%s.%s" % (tn, fn),
+                            field=f,
+                            join=join,
+                            left=left,
+                            distinct=distinct)
+            return field
+
+    # -------------------------------------------------------------------------
+    def extract(self, row, represent=False):
+        """
+            Extract the value for this field from a row
+
+            @param row: the Row
+        """
+
+        field = self.field
+        tname = self.tname
+        fname = self.fname
+        colname = self.colname
+
+        error = "Field not found in row: %s" % colname
+
+        if field is not None and isinstance(row, Row):
+            try:
+                value = row[field]
+            except KeyError:
+                raise KeyError(error)
+        elif fname in row:
+            value = row[fname]
+        elif colname in row:
+            value = row[colname]
+        elif tname is not None and \
+             tname in row and fname in row[tname]:
+            value = row[tname][fname]
+        else:
+            raise KeyError(error)
+        if represent:
+            if self.represent is not None:
+                return self.represent(value)
+            else:
+                return s3_unicode(value)
+        else:
+            return value
+
+# =============================================================================
+class S3ResourceQuery:
+    """
+        Helper class representing a resource query
+        - unlike DAL Query objects, these can be converted to/from URL filters
+    """
+
+    # Supported operators
+    NOT = "not"
+    AND = "and"
+    OR = "or"
+    LT = "lt"
+    LE = "le"
+    EQ = "eq"
+    NE = "ne"
+    GE = "ge"
+    GT = "gt"
+    LIKE = "like"
+    BELONGS = "belongs"
+    CONTAINS = "contains"
+    ANYOF = "anyof"
+
+    OPERATORS = [NOT, AND, OR,
+                 LT, LE, EQ, NE, GE, GT,
+                 LIKE, BELONGS, CONTAINS, ANYOF]
+
+    # -------------------------------------------------------------------------
+    def __init__(self, op, left=None, right=None):
+        """ Constructor """
+
+        if op not in self.OPERATORS:
+            raise SyntaxError("Invalid operator: %s" % op)
+
+        self.op = op
+
+        self.left = left
+        self.right = right
+
+    # -------------------------------------------------------------------------
+    def __and__(self, other):
+        """ AND """
+
+        return S3ResourceQuery(self.AND, self, other)
+
+    # -------------------------------------------------------------------------
+    def __or__(self, other):
+        """ OR """
+
+        return S3ResourceQuery(self.OR, self, other)
+
+    # -------------------------------------------------------------------------
+    def __invert__(self):
+        """ NOT """
+
+        if self.op == self.NOT:
+            return self.left
+        else:
+            return S3ResourceQuery(self.NOT, self)
+
+    # -------------------------------------------------------------------------
+    def joins(self, resource, left=False):
+        """
+            Get a Storage {tablename: join} for this query.
+
+            @param resource: the resource to resolve the query against
+            @param left: get left joins rather than inner joins
+        """
+
+        op = self.op
+        l = self.left
+        r = self.right
+        distinct = False
+
+        if op in (self.AND, self.OR):
+            ljoins, ld = l.joins(resource, left=left)
+            rjoins, rd = r.joins(resource, left=left)
+            ljoins = Storage(ljoins)
+            ljoins.update(rjoins)
+            return (ljoins, ld or rd)
+        elif op == self.NOT:
+            return l.joins(resource, left=left)
+        if isinstance(l, S3FieldSelector):
+            try:
+                rfield = l.resolve(resource)
+            except:
+                return (Storage(), False)
+            if rfield.distinct:
+                if left:
+                    return (rfield.left, True)
+                else:
+                    return (Storage(), True)
+            else:
+                if left:
+                    return (Storage(), False)
+                else:
+                    return (rfield.join, False)
+        return(Storage(), False)
+
+    # -------------------------------------------------------------------------
+    def fields(self):
+        """ Get all field selectors involved with this query """
+
+        op = self.op
+        l = self.left
+        r = self.right
+
+        if op in (self.AND, self.OR):
+            lf = l.fields()
+            rf = r.fields()
+            return lf + rf
+        elif op == self.NOT:
+            return l.fields()
+        elif isinstance(l, S3FieldSelector):
+            return [l.name]
+        else:
+            return []
+
+    # -------------------------------------------------------------------------
+    def query(self, resource):
+        """
+            Convert this S3ResourceQuery into a DAL query, ignoring virtual
+            fields (the necessary joins for this query can be constructed
+            with the joins() method)
+
+            @param resource: the resource to resolve the query against
+        """
+
+        op = self.op
+        l = self.left
+        r = self.right
+
+        # Resolve query components
+        if op == self.AND:
+            l = l.query(resource)
+            r = r.query(resource)
+            if l is None or r is None:
+                return None
+            else:
+                return l & r
+        elif op == self.OR:
+            l = l.query(resource)
+            r = r.query(resource)
+            if l is None or r is None:
+                return None
+            else:
+                return l | r
+        elif op == self.NOT:
+            l = l.query(resource)
+            if l is None:
+                return None
+            else:
+                return ~l
+
+        # Resolve the fields
+        if isinstance(l, S3FieldSelector):
+            try:
+                rfield = S3ResourceField(resource, l.name)
+            except:
+                return None
+            lfield = rfield.field
+            if lfield is None:
+                return None # virtual field
+            lfield = l.expr(lfield)
+        elif isinstance(l, Field):
+            lfield = l
+        else:
+            return None # not a field at all
+        if isinstance(r, S3FieldSelector):
+            try:
+                rfield = S3ResourceField(resource, r.name)
+            except:
+                return None
+            rfield = rfield.field
+            if rfield is None:
+                return None # virtual field
+            rfield = r.expr(rfield)
+        else:
+            rfield = r
+
+        # Resolve the operator
+        invert = False
+        query_bare = self._query_bare
+        ftype = str(lfield.type)
+        if isinstance(rfield, (list, tuple)) and ftype[:4] != "list":
+            if op == self.EQ:
+                op = self.BELONGS
+            elif op == self.NE:
+                op = self.BELONGS
+                invert = True
+            elif op != self.BELONGS:
+                query = None
+                for v in rfield:
+                    q = query_bare(op, lfield, v)
+                    if q is not None:
+                        if query is None:
+                            query = q
+                        else:
+                            query |= q
+                return query
+        query = query_bare(op, lfield, rfield)
+        if invert:
+            query = ~(query)
+        return query
+
+    # -------------------------------------------------------------------------
+    def _query_bare(self, op, l, r):
+        """
+            Translate a filter expression into a DAL query
+
+            @param op: the operator
+            @param l: the left operand
+            @param r: the right operand
+        """
+
+        if op == self.CONTAINS:
+            q = l.contains(r, all=True)
+        elif op == self.ANYOF:
+            q = l.contains(r, all=False)
+        elif op == self.BELONGS:
+            if type(r) is not list:
+                r = [r]
+            if None in r:
+                _r = [item for item in r if item is not None]
+                q = ((l.belongs(_r)) | (l == None))
+            else:
+                q = l.belongs(r)
+        elif op == self.LIKE:
+            q = l.like(str(r))
+        elif op == self.LT:
+            q = l < r
+        elif op == self.LE:
+            q = l <= r
+        elif op == self.EQ:
+            q = l == r
+        elif op == self.NE:
+            q = l != r
+        elif op == self.GE:
+            q = l >= r
+        elif op == self.GT:
+            q = l > r
+        else:
+            q = None
+        return q
+
+    # -------------------------------------------------------------------------
+    def __call__(self, resource, row, virtual=True):
+        """
+            Probe whether the row matches the query
+
+            @param resource: the resource to resolve the query against
+            @param row: the DB row
+            @param virtual: execute only virtual queries
+        """
+
+        if self.op == self.AND:
+            l = self.left(resource, row, virtual=False)
+            r = self.right(resource, row, virtual=False)
+            if l is None:
+                return r
+            if r is None:
+                return l
+            return l and r
+        elif self.op == self.OR:
+            l = self.left(resource, row, virtual=False)
+            r = self.right(resource, row, virtual=False)
+            if l is None:
+                return r
+            if r is None:
+                return l
+            return l or r
+        elif self.op == self.NOT:
+            l = self.left(resource, row)
+            if l is None:
+                return None
+            else:
+                return not l
+
+        real = False
+        left = self.left
+        if isinstance(left, S3FieldSelector):
+            try:
+                lfield = left.resolve(resource)
+            except (AttributeError, KeyError, SyntaxError):
+                return None
+            if lfield.field is not None:
+                real = True
+        else:
+            lfield = left
+            if isinstance(left, Field):
+                real = True
+        right = self.right
+        if isinstance(right, S3FieldSelector):
+            try:
+                rfield = right.resolve(resource)
+            except (AttributeError, KeyError, SyntaxError):
+                return None
+            if rfield.field is None:
+                real = False
+        else:
+            rfield = right
+        if virtual and real:
+            return None
+
+        extract = lambda f: S3FieldSelector.extract(resource, row, f)
+        try:
+            l = extract(lfield)
+            r = extract(rfield)
+        except (KeyError, SyntaxError):
+            if current.response.s3.debug:
+                from s3utils import s3_debug
+                s3_debug(sys.exc_info()[1])
+            return None
+
+        if isinstance(left, S3FieldSelector):
+            l = left.expr(l)
+        if isinstance(right, S3FieldSelector):
+            r = right.expr(r)
+
+        op = self.op
+        invert = False
+        probe = self._probe
+        if isinstance(rfield, (list, tuple)) and \
+           not isinstance(lfield, (list, tuple)):
+            if op == self.EQ:
+                op = self.BELONGS
+            elif op == self.NE:
+                op = self.BELONGS
+                invert = True
+            elif op != self.BELONGS:
+                for v in r:
+                    try:
+                        r = probe(op, l, v)
+                    except (TypeError, ValueError):
+                        r = False
+                    if r:
+                        return True
+                return False
+        try:
+            r = probe(op, l, r)
+        except (TypeError, ValueError):
+            return False
+        if invert and r is not None:
+            return not r
+        else:
+            return r
+
+    # -------------------------------------------------------------------------
+    def _probe(self, op, l, r):
+        """
+            Probe whether the value pair matches the query
+
+            @param l: the left value
+            @param r: the right value
+        """
+
+        result = False
+
+        contains = self._contains
+        convert = S3TypeConverter.convert
+        if op == self.CONTAINS:
+            r = convert(l, r)
+            result = contains(l, r)
+        elif op == self.ANYOF:
+            if not isinstance(r, (list, tuple)):
+                r = [r]
+            for v in r:
+                if isinstance(l, (list, tuple, basestring)):
+                    if contains(l, r):
+                        return True
+                elif l == r:
+                    return True
+            return False
+        elif op == self.BELONGS:
+            if not isinstance(r, (list, tuple)):
+                r = [r]
+            r = convert(l, r)
+            result = contains(r, l)
+        elif op == self.LIKE:
+            pattern = re.escape(str(r)).replace("\\%", ".*").replace(".*.*", "\\%")
+            return re.match(pattern, str(l)) is not None
+        else:
+            r = convert(l, r)
+            if op == self.LT:
+                result = l < r
+            elif op == self.LE:
+                result = l <= r
+            elif op == self.EQ:
+                result = l == r
+            elif op == self.NE:
+                result = l != r
+            elif op == self.GE:
+                result = l >= r
+            elif op == self.GT:
+                result = l > r
+        return result
+
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def _contains(a, b):
+        """
+            Probe whether a contains b
+        """
+
+        if a is None:
+            return False
+        try:
+            if isinstance(a, basestring):
+                return str(b) in a
+            elif isinstance(a, (list, tuple)):
+                if isinstance(b, (list, tuple)):
+                    l = [item for item in b if item not in a]
+                    if l:
+                        return False
+                    return True
+                else:
+                    return b in a
+            else:
+                return str(b) in str(a)
+        except:
+            return False
+
+    # -------------------------------------------------------------------------
+    def represent(self, resource):
+        """
+            Represent this query as a human-readable string.
+
+            @param resource: the resource to resolve the query against
+        """
+
+        op = self.op
+        l = self.left
+        r = self.right
+        if op == self.AND:
+            l = l.represent(resource)
+            r = r.represent(resource)
+            return "(%s and %s)" % (l, r)
+        elif op == self.OR:
+            l = l.represent(resource)
+            r = r.represent(resource)
+            return "(%s or %s)" % (l, r)
+        elif op == self.NOT:
+            l = l.represent(resource)
+            return "(not %s)" % l
+        else:
+            if isinstance(l, S3FieldSelector):
+                l = l.represent(resource)
+            elif isinstance(l, basestring):
+                l = '"%s"' % l
+            if isinstance(r, S3FieldSelector):
+                r = r.represent(resource)
+            elif isinstance(r, basestring):
+                r = '"%s"' % r
+            if op == self.CONTAINS:
+                return "(%s in %s)" % (r, l)
+            elif op == self.BELONGS:
+                return "(%s in %s)" % (l, r)
+            elif op == self.LIKE:
+                return "(%s like %s)" % (l, r)
+            elif op == self.LT:
+                return "(%s < %s)" % (l, r)
+            elif op == self.LE:
+                return "(%s <= %s)" % (l, r)
+            elif op == self.EQ:
+                return "(%s == %s)" % (l, r)
+            elif op == self.NE:
+                return "(%s != %s)" % (l, r)
+            elif op == self.GE:
+                return "(%s >= %s)" % (l, r)
+            elif op == self.GT:
+                return "(%s > %s)" % (l, r)
+            else:
+                return "(%s ?%s? %s)" % (l, op, r)
+
+    # -------------------------------------------------------------------------
+    def serialize_url(self, resource=None):
+        """
+            Serialize this query as URL query
+
+            @returns: a Storage of URL variables
+        """
+
+        op = self.op
+        l = self.left
+        r = self.right
+
+        url_query = Storage()
+        def _serialize(n, o, v, invert):
+            try:
+                if isinstance(v, list):
+                    v = ",".join([S3TypeConverter.convert(str, val) for val in v])
+                else:
+                    v = S3TypeConverter.convert(str, v)
+            except:
+                return
+            if "." not in n:
+                if resource is not None:
+                    n = "%s.%s" % (resource.alias, n)
+                else:
+                    return url_query
+            if o == self.LIKE:
+                v = v.replace("%", "*")
+            if o == self.EQ:
+                operator = ""
+            else:
+                operator = "__%s" % o
+            if invert:
+                operator = "%s!" % operator
+            key = "%s%s" % (n, operator)
+            if key in url_query:
+                url_query[key] = "%s,%s" % (url_query[key], v)
+            else:
+                url_query[key] = v
+            return url_query
+        if op == self.AND:
+            lu = l.serialize_url(resource=resource)
+            url_query.update(lu)
+            ru = r.serialize_url(resource=resource)
+            url_query.update(ru)
+        elif op == self.OR:
+            sub = self._or()
+            if sub is None:
+                # This OR-subtree is not serializable
+                return url_query
+            n, o, v, invert = sub
+            _serialize(n, o, v, invert)
+        elif op == self.NOT:
+            lu = l.serialize_url(resource=resource)
+            for k in lu:
+                url_query["%s!" % k] = lu[k]
+        elif isinstance(l, S3FieldSelector):
+            _serialize(l.name, op, r, False)
+        return url_query
+
+    # -------------------------------------------------------------------------
+    def _or(self):
+        """
+            Helper method to URL-serialize an OR-subtree in a query in
+            alternative field selector syntax if they all use the same
+            operator and value (this is needed to URL-serialize an
+            S3SearchSimpleWidget query).
+        """
+
+        op = self.op
+        l = self.left
+        r = self.right
+
+        if self.op == self.AND:
+            return None
+        elif self.op == self.NOT:
+            lname, lop, lval, linv = l._or()
+            return (lname, lop, lval, not linv)
+        elif self.op == self.OR:
+            lvars = l._or()
+            rvars = r._or()
+            if lvars is None or rvars is None:
+                return None
+            lname, lop, lval, linv = lvars
+            rname, rop, rval, rinv = rvars
+            if lop != rop or linv != rinv:
+                return None
+            if lname == rname:
+                return (lname, lop, [lval, rval], linv)
+            elif lval == rval:
+                return ("%s|%s" % (lname, rname), lop, lval, linv)
+            else:
+                return None
+        else:
+            return (self.left.name, self.op, self.right, False)
 
 # =============================================================================
 class S3ResourceFilter:
@@ -3025,7 +4687,12 @@ class S3ResourceFilter:
         #
         # Accessible/available query
         if resource.accessible_query is not None:
-            mquery = resource.accessible_query("read", table)
+            method = []
+            if resource._approved:
+                method.append("read")
+            if resource._unapproved:
+                method.append("review")
+            mquery = resource.accessible_query(method, table)
         else:
             mquery = (table._id > 0)
 
@@ -3510,7 +5177,7 @@ class S3ResourceFilter:
         """
 
         if type(value) is list:
-            value = ",".join[value]
+            value = ",".join(value)
         vlist = []
         w = ""
         quote = False
@@ -3631,13 +5298,11 @@ class S3ResourceFilter:
                 else:
                     return 0
         else:
-            list_fields = current.s3db.get_config(tablename,
-                                                  "list_fields")
-            sqltable = resource.sqltable
-            rows = sqltable(fields=list_fields,
-                            left=left,
-                            distinct=distinct,
-                            as_list=True)
+            rows = resource.select([table._id.name],
+                                   left=left,
+                                   distinct=distinct)
+            rows = resource.extract(rows, [table._id.name])
+
         if rows is None:
             return 0
         return len(rows)
@@ -3703,729 +5368,514 @@ class S3ResourceFilter:
         return url_vars
 
 # =============================================================================
+class S3Pivottable:
+    """ Class representing a pivot table of a resource """
 
-class S3FieldSelector:
-    """ Helper class to construct a resource query """
+    #: Supported aggregation methods
+    METHODS = ["list", "count", "min", "max", "sum", "avg"] #, "std"]
 
-    LOWER = "lower"
-    UPPER = "upper"
-
-    OPERATORS = [LOWER, UPPER]
-
-    def __init__(self, name, type=None):
-        """ Constructor """
-
-        if not isinstance(name, str) or not name:
-            raise SyntaxError("name required")
-        self.name = name
-        self.type = type
-
-        self.op = None
-
-    # -------------------------------------------------------------------------
-    def __lt__(self, value):
-        return S3ResourceQuery(S3ResourceQuery.LT, self, value)
-
-    # -------------------------------------------------------------------------
-    def __le__(self, value):
-        return S3ResourceQuery(S3ResourceQuery.LE, self, value)
-
-    # -------------------------------------------------------------------------
-    def __eq__(self, value):
-        return S3ResourceQuery(S3ResourceQuery.EQ, self, value)
-
-    # -------------------------------------------------------------------------
-    def __ne__(self, value):
-        return S3ResourceQuery(S3ResourceQuery.NE, self, value)
-
-    # -------------------------------------------------------------------------
-    def __ge__(self, value):
-        return S3ResourceQuery(S3ResourceQuery.GE, self, value)
-
-    # -------------------------------------------------------------------------
-    def __gt__(self, value):
-        return S3ResourceQuery(S3ResourceQuery.GT, self, value)
-
-    # -------------------------------------------------------------------------
-    def like(self, value):
-        return S3ResourceQuery(S3ResourceQuery.LIKE, self, value)
-
-    # -------------------------------------------------------------------------
-    def belongs(self, value):
-        return S3ResourceQuery(S3ResourceQuery.BELONGS, self, value)
-
-    # -------------------------------------------------------------------------
-    def contains(self, value):
-        return S3ResourceQuery(S3ResourceQuery.CONTAINS, self, value)
-
-    # -------------------------------------------------------------------------
-    def anyof(self, value):
-        return S3ResourceQuery(S3ResourceQuery.ANYOF, self, value)
-
-    # -------------------------------------------------------------------------
-    def lower(self):
-        self.op = self.LOWER
-        return self
-
-    # -------------------------------------------------------------------------
-    def upper(self):
-        self.op = self.UPPER
-        return self
-
-    # -------------------------------------------------------------------------
-    def expr(self, val):
-        if not self.op:
-            return val
-        elif val is not None:
-            if self.op == self.LOWER and \
-               hasattr(val, "lower") and callable(val.lower):
-                return val.lower()
-            elif self.op == self.UPPER and \
-                 hasattr(val, "upper") and callable(val.upper):
-                return val.upper()
-        return val
-
-    # -------------------------------------------------------------------------
-    def represent(self, resource):
-
-        try:
-            lfield = resource.resolve_selector(self.name)
-        except:
-            return "#undef#_%s" % self.name
-        if self.op is not None:
-            return "%s.%s()" % (lfield.colname, self.op)
-        return lfield.colname
-
-    # -------------------------------------------------------------------------
-    @classmethod
-    def extract(cls, resource, row, field):
+    def __init__(self, resource, rows, cols, layers):
         """
-            Extract a value from a Row
+            Constructor
 
-            @param resource: the resource
-            @param row: the Row
-            @param field: the field
-
-            @returns: field if field is not a Field/S3FieldSelector instance,
-                      the value from the row otherwise
+            @param resource: the S3Resource
+            @param rows: field selector for the rows dimension
+            @param cols: field selector for the columns dimension
+            @param layers: list of tuples of (field selector, method)
+                           for the aggregation layers
         """
 
-        if isinstance(field, basestring):
-            field = S3FieldSelector(field)
-        if isinstance(field, Field):
-            f = field
-            colname = str(field)
-        elif isinstance(field, S3FieldSelector):
-            lf = field.resolve(resource)
-            f = lf.field
-            tname = lf.tname
-            fname = lf.fname
-            colname = lf.colname
-        elif isinstance(field, dict):
-            f = field.field
-            tname = field.get("tname", None)
-            fname = field.get("fname", None)
-            if not fname:
-                return None
-            colname = field.colname
-        else:
-            return field
-        if f is not None and isinstance(row, Row):
+        # Initialize ----------------------------------------------------------
+        #
+        if not rows and not cols:
+            raise SyntaxError("No rows or columns specified for pivot table")
+
+        self.resource = resource
+
+        self.lfields = None
+        self.dfields = None
+        self.rfields = None
+
+        self.rows = rows
+        self.cols = cols
+        self.layers = layers
+
+        # API variables -------------------------------------------------------
+        #
+        self.records = None
+        """ All records in the pivot table as a Storage like:
+                {
+                 <record_id>: <Row>
+                }
+        """
+
+        self.empty = False
+        """ Empty-flag (True if no records could be found) """
+        self.numrows = None
+        """ The number of rows in the pivot table """
+        self.numcols = None
+        """ The number of columns in the pivot table """
+
+        self.cell = None
+        """ Array of pivot table cells in [rows[columns]]-order, each
+            cell is a Storage like:
+                {
+                 records: <list_of_record_ids>,
+                 (<fact>, <method>): <aggregated_value>, ...per layer
+                }
+        """
+        self.row = None
+        """ List of row headers, each header is a Storage like:
+                {
+                 value: <dimension value>,
+                 records: <list_of_record_ids>,
+                 (<fact>, <method>): <total value>, ...per layer
+                }
+        """
+        self.col = None
+        """ List of column headers, each header is a Storage like:
+                {
+                 value: <dimension value>,
+                 records: <list_of_record_ids>,
+                 (<fact>, <method>): <total value>, ...per layer
+                }
+        """
+        self.totals = Storage()
+        """ The grand total values for each layer, as a Storage like:
+                {
+                 (<fact>, <method): <total value>, ...per layer
+                }
+        """
+
+        # Get the fields ------------------------------------------------------
+        #
+        s3db = current.s3db
+        tablename = resource.tablename
+        get_config = s3db.get_config
+
+        # The "report_fields" table setting defines which additional
+        # fields shall be included in the report base layer. This is
+        # useful to provide easy access to the record data behind a
+        # pivot table cell.
+        fields = get_config(tablename, "report_fields",
+                 get_config(tablename, "list_fields", []))
+
+        # We also want to include all rows/cols options which are
+        # defined for this resource
+        options = get_config(resource.tablename, "report_options")
+        if options is not None:
+            fields += options.get("rows", []) + options.get("cols", [])
+
+        self._get_fields(fields=fields)
+
+        # Retrieve the records --------------------------------------------------
+        #
+        records = resource.select(self.dfields)
+
+        ## Generate the report -------------------------------------------------
+        ##
+        if records:
             try:
-                return row[f]
+                pkey = resource.table._id
+                self.records = Storage([(i[pkey], i) for i in records])
             except KeyError:
-                raise KeyError("Field not found: %s" % colname)
-        elif fname in row:
+                raise KeyError("Could not retrieve primary key values of %s" %
+                               resource.tablename)
+
+            # Generate the data frame -----------------------------------------
+            #
+            from pyvttbl import DataFrame
+            df = DataFrame()
+            insert = df.insert
+
+            item_list = []
+            seen = item_list.append
+
+            flatten = self._flatten
+            expand = self._expand
+
+            for row in records:
+                item = expand(flatten(row))
+                for i in item:
+                    if i not in item_list:
+                        seen(i)
+                        insert(i)
+
+            # Group the records -----------------------------------------------
+            #
+            tfields = self.tfields
+            hpkey = tfields[self.pkey]
+            hrows = self.rows and [tfields[self.rows]] or []
+            hcols = self.cols and [tfields[self.cols]] or []
+            pt = df.pivot(hpkey, hrows, hcols, aggregate="tolist")
+
+            # Initialize columns and rows -------------------------------------
+            #
+            if cols:
+                self.col = [Storage({"value": v != "__NONE__" and v or None})
+                            for v in [n[0][1] for n in pt.cnames]]
+                self.numcols = len(self.col)
+            else:
+                self.col = [Storage({"value": None})]
+                self.numcols = 1
+
+            if rows:
+                self.row = [Storage({"value": v != "__NONE__" and v or None})
+                            for v in [n[0][1] for n in pt.rnames]]
+                self.numrows = len(self.row)
+            else:
+                self.row = [Storage({"value": None})]
+                self.numrows = 1
+
+            # Add the layers --------------------------------------------------
+            #
+            add_layer = self._add_layer
+            layers = list(self.layers)
+            for f, m in self.layers:
+                add_layer(pt, f, m)
+
+        else:
+            # No items to report on -------------------------------------------
+            #
+            self.empty = True
+
+    # -------------------------------------------------------------------------
+    # API methods
+    # -------------------------------------------------------------------------
+    def __len__(self):
+        """ Total number of records in the report """
+
+        items = self.records
+        if items is None:
+            return 0
+        else:
+            return len(self.records)
+
+    # -------------------------------------------------------------------------
+    # Internal methods
+    # -------------------------------------------------------------------------
+    def _get_fields(self, fields=None):
+        """
+            Determine the fields needed to generate the report
+
+            @param fields: fields to include in the report (all fields)
+        """
+
+        resource = self.resource
+        table = resource.table
+
+        # Lambda to prefix all field selectors
+        alias = resource.alias
+        def prefix(s):
+            if isinstance(s, (tuple, list)):
+                return prefix(s[-1])
+            return "%s.%s" % (alias, s) \
+                   if "." not in s.split("$", 1)[0] else s
+
+        self.pkey = pkey = prefix(table._id.name)
+        self.rows = rows = self.rows and prefix(self.rows) or None
+        self.cols = cols = self.cols and prefix(self.cols) or None
+
+        if not fields:
+            fields = []
+
+        # dfields (data-fields): fields to generate the layers
+        dfields = [prefix(s) for s in fields]
+        if rows and rows not in dfields:
+            dfields.append(rows)
+        if cols and cols not in dfields:
+            dfields.append(cols)
+        if pkey not in dfields:
+            dfields.append(pkey)
+        for i in xrange(len(self.layers)):
+            f, m = self.layers[i]
+            s = prefix(f)
+            self.layers[i] = (s, m)
+            if s not in dfields:
+                dfields.append(f)
+        self.dfields = dfields
+
+        # rfields (resource-fields): dfields resolved into a ResourceFields map
+        rfields, joins, left, distinct = resource.resolve_selectors(dfields)
+        rfields = Storage([(f.selector, f) for f in rfields])
+        self.rfields = rfields
+
+        # tfields (transposition-fields): fields to group the records by
+        key = lambda s: str(hash(s)).replace("-", "_")
+        tfields = {pkey:key(pkey)}
+        if rows:
+            tfields[rows] = key(rows)
+        if cols:
+            tfields[cols] = key(cols)
+        self.tfields = tfields
+
+        return
+
+    # -------------------------------------------------------------------------
+    def _flatten(self, row):
+        """
+            Prepare a DAL Row for the data frame
+
+            The item must consist of
+            the primary key of the table, rows-value, cols-value
+
+            @param row: the row
+        """
+
+        item = {}
+        rfields = self.rfields
+        tfields = self.tfields
+
+        extract = lambda rf: S3FieldSelector.extract(self.resource, row, rf)
+        for f in tfields:
+            rfield = rfields[f]
+            value = extract(rfield)
+            if value is None and f != self.pkey:
+                value = "__NONE__"
+            if type(value) is str:
+                value = s3_unicode(value)
+            item[tfields[f]] = value
+        return item
+
+    # -------------------------------------------------------------------------
+    def _extract(self, row, field):
+        """
+            Extract a field value from a DAL row
+
+            @param row: the row
+            @param field: the fieldname (list_fields syntax)
+        """
+
+        rfields = self.rfields
+        if field not in rfields:
+            raise KeyError("Invalid field name: %s" % field)
+        lfield = rfields[field]
+        tname = lfield.tname
+        fname = lfield.fname
+        if fname in row:
             value = row[fname]
-        elif colname in row:
-            value = row[colname]
-        elif tname is not None and \
-             tname in row and fname in row[tname]:
+        elif tname in row and fname in row[tname]:
             value = row[tname][fname]
         else:
-            raise KeyError("Field not found: %s" % colname)
-        if isinstance(field, S3FieldSelector):
-            return field.expr(value)
+            value = None
         return value
 
     # -------------------------------------------------------------------------
-    def resolve(self, resource):
+    def _expand(self, row, field=None):
         """
-            Resolve this field against a resource
+            Expand a data frame row into a list of rows for list:type values
 
-            @param resource: the resource
+            @param row: the row
+            @param field: the field to expand (None for all fields)
         """
-        return resource.resolve_selector(self.name)
 
-# =============================================================================
-class S3ResourceQuery:
-    """
-        Helper class representing a resource query
-        - unlike DAL Query objects, these can be converted to/from URL filters
-    """
-
-    # Supported operators
-    NOT = "not"
-    AND = "and"
-    OR = "or"
-    LT = "lt"
-    LE = "le"
-    EQ = "eq"
-    NE = "ne"
-    GE = "ge"
-    GT = "gt"
-    LIKE = "like"
-    BELONGS = "belongs"
-    CONTAINS = "contains"
-    ANYOF = "anyof"
-
-    OPERATORS = [NOT, AND, OR,
-                 LT, LE, EQ, NE, GE, GT,
-                 LIKE, BELONGS, CONTAINS, ANYOF]
-
-    # -------------------------------------------------------------------------
-    def __init__(self, op, left=None, right=None):
-        """ Constructor """
-
-        if op not in self.OPERATORS:
-            raise SyntaxError("Invalid operator: %s" % op)
-
-        self.op = op
-
-        self.left = left
-        self.right = right
-
-    # -------------------------------------------------------------------------
-    def __and__(self, other):
-        """ AND """
-
-        return S3ResourceQuery(self.AND, self, other)
-
-    # -------------------------------------------------------------------------
-    def __or__(self, other):
-        """ OR """
-
-        return S3ResourceQuery(self.OR, self, other)
-
-    # -------------------------------------------------------------------------
-    def __invert__(self):
-        """ NOT """
-
-        if self.op == self.NOT:
-            return self.left
+        if field is None:
+            rows = [row]
+            for field in row:
+                rows = self._expand(rows, field=field)
+            return rows
         else:
-            return S3ResourceQuery(self.NOT, self)
-
-    # -------------------------------------------------------------------------
-    def joins(self, resource, left=False):
-        """
-            Get a Storage {tablename: join} for this query.
-
-            @param resource: the resource to resolve the query against
-            @param left: get left joins rather than inner joins
-        """
-
-        op = self.op
-        l = self.left
-        r = self.right
-        distinct = False
-
-        if op in (self.AND, self.OR):
-            ljoins, ld = l.joins(resource, left=left)
-            rjoins, rd = r.joins(resource, left=left)
-            ljoins = Storage(ljoins)
-            ljoins.update(rjoins)
-            return (ljoins, ld or rd)
-        elif op == self.NOT:
-            return l.joins(resource, left=left)
-        if isinstance(l, S3FieldSelector):
-            try:
-                lfield = l.resolve(resource)
-            except:
-                return (Storage(), False)
-            if lfield.distinct:
-                if left:
-                    return (lfield.left, True)
+            results = []
+            rows = row
+            for r in rows:
+                value = r[field]
+                if isinstance(value, (list, tuple)):
+                    if not len(value):
+                        # Always have at least a None-entry
+                        value.append(None)
+                    for v in value:
+                        result = Storage(r)
+                        result[field] = v
+                        results.append(result)
                 else:
-                    return (Storage(), True)
-            else:
-                if left:
-                    return (Storage(), False)
+                    results.append(r)
+            return results
+
+    # -------------------------------------------------------------------------
+    def _add_layer(self, pt, fact, method):
+        """
+            Compute a new layer from the base layer (pt+items)
+
+            @param pt: the pivot table with record IDs
+            @param fact: the fact field for the layer
+            @param method: the aggregation method of the layer
+        """
+
+        if method not in self.METHODS:
+            raise SyntaxError("Unsupported aggregation method: %s" % method)
+
+        items = self.records
+        rfields = self.rfields
+        rows = self.row
+        cols = self.col
+        records = self.records
+        extract = self._extract
+        aggregate = self._aggregate
+        resource = self.resource
+
+        RECORDS = "records"
+        VALUES = "values"
+
+        table = resource.table
+        pkey = table._id.name
+
+        if method is None:
+            method = "list"
+        layer = (fact, method)
+
+        numcols = len(pt.cnames)
+        numrows = len(pt.rnames)
+
+        # Initialize cells
+        if self.cell is None:
+            self.cell = [[Storage()
+                          for i in xrange(numcols)]
+                         for j in xrange(numrows)]
+        cells = self.cell
+
+        all_values = []
+        for r in xrange(numrows):
+
+            # Initialize row header
+            row = rows[r]
+            row[RECORDS] = []
+            row[VALUES] = []
+
+            row_records = row[RECORDS]
+            row_values = row[VALUES]
+
+            for c in xrange(numcols):
+
+                # Initialize column header
+                col = cols[c]
+                if RECORDS not in col:
+                    col[RECORDS] = []
+                col_records = col[RECORDS]
+                if VALUES not in col:
+                    col[VALUES] = []
+                col_values = col[VALUES]
+
+                # Get the records
+                cell = cells[r][c]
+                if RECORDS in cell and cell[RECORDS] is not None:
+                    ids = cell[RECORDS]
                 else:
-                    return (lfield.join, False)
-        return(Storage(), False)
+                    data = pt[r][c]
+                    if data:
+                        remove = data.remove
+                        while None in data:
+                            remove(None)
+                        ids = data
+                    else:
+                        ids = []
+                    cell[RECORDS] = ids
+                row_records.extend(ids)
+                col_records.extend(ids)
 
-    # -------------------------------------------------------------------------
-    def fields(self):
-        """ Get all field selectors involved with this query """
+                # Get the values
+                if fact is None:
+                    fact = pkey
+                    values = ids
+                    row_values = row_records
+                    col_values = row_records
+                    all_values = self.records.keys()
+                else:
+                    values = []
+                    append = values.append
+                    for i in ids:
+                        value = extract(records[i], fact)
+                        if value is None:
+                            continue
+                        append(value)
+                    if len(values) and type(values[0]) is list:
+                        values = reduce(lambda x, y: x.extend(y) or x, values)
+                    if method in ("list", "count"):
+                        values =  list(set(values))
+                    row_values.extend(values)
+                    col_values.extend(values)
+                    all_values.extend(values)
 
-        op = self.op
-        l = self.left
-        r = self.right
+                # Aggregate values
+                value = aggregate(values, method)
+                cell[layer] = value
 
-        if op in (self.AND, self.OR):
-            lf = l.fields()
-            rf = r.fields()
-            return lf + rf
-        elif op == self.NOT:
-            return l.fields()
-        elif isinstance(l, S3FieldSelector):
-            return [l.name]
-        else:
-            return []
+            # Compute row total
+            row[layer] = aggregate(row_values, method)
+            del row[VALUES]
 
-    # -------------------------------------------------------------------------
-    def query(self, resource):
-        """
-            Convert this S3ResourceQuery into a DAL query, ignoring virtual
-            fields (the necessary joins for this query can be constructed
-            with the joins() method)
+        # Compute column total
+        for c in xrange(numcols):
+            col = cols[c]
+            col[layer] = aggregate(col[VALUES], method)
+            del col[VALUES]
 
-            @param resource: the resource to resolve the query against
-        """
-
-        op = self.op
-        l = self.left
-        r = self.right
-
-        # Resolve query components
-        if op == self.AND:
-            l = l.query(resource)
-            r = r.query(resource)
-            if l is None or r is None:
-                return None
-            else:
-                return l & r
-        elif op == self.OR:
-            l = l.query(resource)
-            r = r.query(resource)
-            if l is None or r is None:
-                return None
-            else:
-                return l | r
-        elif op == self.NOT:
-            l = l.query(resource)
-            if l is None:
-                return None
-            else:
-                return ~l
-
-        # Resolve the fields
-        if isinstance(l, S3FieldSelector):
-            try:
-                lf = resource.resolve_selector(l.name)
-            except:
-                return None
-            lfield = lf.field
-            if lfield is None:
-                return None # virtual field
-            lfield = l.expr(lfield)
-        elif isinstance(l, Field):
-            lfield = l
-        else:
-            return None # not a field at all
-        if isinstance(r, S3FieldSelector):
-            try:
-                lf = resource.resolve_selector(r.name)
-            except:
-                return None
-            rfield = lf.field
-            if rfield is None:
-                return None # virtual field
-            rfield = r.expr(rfield)
-        else:
-            rfield = r
-
-        # Resolve the operator
-        invert = False
-        query_bare = self._query_bare
-        ftype = str(lfield.type)
-        if isinstance(rfield, (list, tuple)) and ftype[:4] != "list":
-            if op == self.EQ:
-                op = self.BELONGS
-            elif op == self.NE:
-                op = self.BELONGS
-                invert = True
-            elif op != self.BELONGS:
-                query = None
-                for v in rfield:
-                    q = query_bare(op, lfield, v)
-                    if q is not None:
-                        if query is None:
-                            query = q
-                        else:
-                            query |= q
-                return query
-        query = query_bare(op, lfield, rfield)
-        if invert:
-            query = ~(query)
-        return query
-
-    # -------------------------------------------------------------------------
-    def _query_bare(self, op, l, r):
-        """
-            Translate a filter expression into a DAL query
-
-            @param op: the operator
-            @param l: the left operand
-            @param r: the right operand
-        """
-
-        if op == self.CONTAINS:
-            q = l.contains(r, all=True)
-        elif op == self.ANYOF:
-            q = l.contains(r, all=False)
-        elif op == self.BELONGS:
-            if type(r) is not list:
-                r = [r]
-            if None in r:
-                _r = [item for item in r if item is not None]
-                q = ((l.belongs(_r)) | (l == None))
-            else:
-                q = l.belongs(r)
-        elif op == self.LIKE:
-            q = l.like(str(r))
-        elif op == self.LT:
-            q = l < r
-        elif op == self.LE:
-            q = l <= r
-        elif op == self.EQ:
-            q = l == r
-        elif op == self.NE:
-            q = l != r
-        elif op == self.GE:
-            q = l >= r
-        elif op == self.GT:
-            q = l > r
-        else:
-            q = None
-        return q
-
-    # -------------------------------------------------------------------------
-    def __call__(self, resource, row, virtual=True):
-        """
-            Probe whether the row matches the query
-
-            @param resource: the resource to resolve the query against
-            @param row: the DB row
-            @param virtual: execute only virtual queries
-        """
-
-        if self.op == self.AND:
-            l = self.left(resource, row, virtual=False)
-            r = self.right(resource, row, virtual=False)
-            if l is None:
-                return r
-            if r is None:
-                return l
-            return l and r
-        elif self.op == self.OR:
-            l = self.left(resource, row, virtual=False)
-            r = self.right(resource, row, virtual=False)
-            if l is None:
-                return r
-            if r is None:
-                return l
-            return l or r
-        elif self.op == self.NOT:
-            l = self.left(resource, row)
-            if l is None:
-                return None
-            else:
-                return not l
-
-        real = False
-        left = self.left
-        if isinstance(left, S3FieldSelector):
-            try:
-                lfield = left.resolve(resource)
-            except KeyError, SyntaxError:
-                return None
-            if lfield.field is not None:
-                real = True
-        else:
-            lfield = left
-            if isinstance(left, Field):
-                real = True
-        right = self.right
-        if isinstance(right, S3FieldSelector):
-            try:
-                rfield = right.resolve(resource)
-            except KeyError, SyntaxError:
-                return None
-            if rfield.field is None:
-                real = False
-        else:
-            rfield = right
-        if virtual and real:
-            return None
-
-        extract = lambda f: S3FieldSelector.extract(resource, row, f)
-        try:
-            l = extract(lfield)
-            r = extract(rfield)
-        except KeyError, SyntaxError:
-            if current.response.s3.debug:
-                from s3utils import s3_debug
-                s3_debug(sys.exc_info()[1])
-            return None
-
-        if isinstance(left, S3FieldSelector):
-            l = left.expr(l)
-        if isinstance(right, S3FieldSelector):
-            r = right.expr(r)
-
-        op = self.op
-        invert = False
-        probe = self._probe
-        if isinstance(rfield, (list, tuple)) and \
-           not isinstance(lfield, (list, tuple)):
-            if op == self.EQ:
-                op = self.BELONGS
-            elif op == self.NE:
-                op = self.BELONGS
-                invert = True
-            elif op != self.BELONGS:
-                for v in r:
-                    try:
-                        r = probe(op, l, v)
-                    except (TypeError, ValueError):
-                        r = False
-                    if r:
-                        return True
-                return False
-        try:
-            r = probe(op, l, r)
-        except (TypeError, ValueError):
-            return False
-        if invert and r is not None:
-            return not r
-        else:
-            return r
-
-    # -------------------------------------------------------------------------
-    def _probe(self, op, l, r):
-        """
-            Probe whether the value pair matches the query
-
-            @param l: the left value
-            @param r: the right value
-        """
-
-        result = False
-
-        contains = self._contains
-        convert = S3TypeConverter.convert
-        if op == self.CONTAINS:
-            r = convert(l, r)
-            result = contains(l, r)
-        elif op == self.ANYOF:
-            if not isinstance(r, (list, tuple)):
-                r = [r]
-            for v in r:
-                if isinstance(l, (list, tuple, basestring)):
-                    if contains(l, r):
-                        return True
-                elif l == r:
-                    return True
-            return False
-        elif op == self.BELONGS:
-            if not isinstance(r, (list, tuple)):
-                r = [r]
-            r = convert(l, r)
-            result = contains(r, l)
-        elif op == self.LIKE:
-            pattern = re.escape(str(r)).replace("\\%", ".*").replace(".*.*", "\\%")
-            return re.match(pattern, str(l)) is not None
-        else:
-            r = convert(l, r)
-            if op == self.LT:
-                result = l < r
-            elif op == self.LE:
-                result = l <= r
-            elif op == self.EQ:
-                result = l == r
-            elif op == self.NE:
-                result = l != r
-            elif op == self.GE:
-                result = l >= r
-            elif op == self.GT:
-                result = l > r
-        return result
+        # Compute overall total
+        self.totals[layer] = aggregate(all_values, method)
+        return
 
     # -------------------------------------------------------------------------
     @staticmethod
-    def _contains(a, b):
+    def _aggregate(values, method):
         """
-            Probe whether a contains b
-        """
+            Compute an aggregation of atomic values
 
-        if a is None:
-            return False
-        try:
-            if isinstance(a, basestring):
-                return str(b) in a
-            elif isinstance(a, (list, tuple)):
-                if isinstance(b, (list, tuple)):
-                    l = [item for item in b if item not in a]
-                    if l:
-                        return False
-                    return True
-                else:
-                    return b in a
-            else:
-                return str(b) in str(a)
-        except:
-            return False
-
-    # -------------------------------------------------------------------------
-    def represent(self, resource):
-        """
-            Represent this query as a human-readable string.
-
-            @param resource: the resource to resolve the query against
+            @param values: the values
+            @param method: the aggregation method
         """
 
-        op = self.op
-        l = self.left
-        r = self.right
-        if op == self.AND:
-            l = l.represent(resource)
-            r = r.represent(resource)
-            return "(%s and %s)" % (l, r)
-        elif op == self.OR:
-            l = l.represent(resource)
-            r = r.represent(resource)
-            return "(%s or %s)" % (l, r)
-        elif op == self.NOT:
-            l = l.represent(resource)
-            return "(not %s)" % l
-        else:
-            if isinstance(l, S3FieldSelector):
-                l = l.represent(resource)
-            elif isinstance(l, basestring):
-                l = '"%s"' % l
-            if isinstance(r, S3FieldSelector):
-                r = r.represent(resource)
-            elif isinstance(r, basestring):
-                r = '"%s"' % r
-            if op == self.CONTAINS:
-                return "(%s in %s)" % (r, l)
-            elif op == self.BELONGS:
-                return "(%s in %s)" % (l, r)
-            elif op == self.LIKE:
-                return "(%s like %s)" % (l, r)
-            elif op == self.LT:
-                return "(%s < %s)" % (l, r)
-            elif op == self.LE:
-                return "(%s <= %s)" % (l, r)
-            elif op == self.EQ:
-                return "(%s == %s)" % (l, r)
-            elif op == self.NE:
-                return "(%s != %s)" % (l, r)
-            elif op == self.GE:
-                return "(%s >= %s)" % (l, r)
-            elif op == self.GT:
-                return "(%s > %s)" % (l, r)
-            else:
-                return "(%s ?%s? %s)" % (l, op, r)
-
-    # -------------------------------------------------------------------------
-    def serialize_url(self, resource=None):
-        """
-            Serialize this query as URL query
-
-            @returns: a Storage of URL variables
-        """
-
-        op = self.op
-        l = self.left
-        r = self.right
-
-        url_query = Storage()
-        def _serialize(n, o, v, invert):
-            try:
-                if isinstance(v, list):
-                    v = ",".join([S3TypeConverter.convert(str, val) for val in v])
-                else:
-                    v = S3TypeConverter.convert(str, v)
-            except:
-                return
-            if "." not in n:
-                if resource is not None:
-                    n = "%s.%s" % (resource.alias, n)
-                else:
-                    return url_query
-            if o == self.LIKE:
-                v = v.replace("%", "*")
-            if o == self.EQ:
-                operator = ""
-            else:
-                operator = "__%s" % o
-            if invert:
-                operator = "%s!" % operator
-            key = "%s%s" % (n, operator)
-            if key in url_query:
-                url_query[key] = "%s,%s" % (url_query[key], v)
-            else:
-                url_query[key] = v
-            return url_query
-        if op == self.AND:
-            lu = l.serialize_url()
-            url_query.update(lu)
-            ru = r.serialize_url()
-            url_query.update(ru)
-        elif op == self.OR:
-            sub = self._or()
-            if sub is None:
-                # This OR-subtree is not serializable
-                return url_query
-            n, o, v, invert = sub
-            _serialize(n, o, v, invert)
-        elif op == self.NOT:
-            lu = l.serialize_url()
-            for k in lu:
-                url_query["%s!" % k] = lu[k]
-        elif isinstance(l, S3FieldSelector):
-            _serialize(l.name, op, r, False)
-        return url_query
-
-    # -------------------------------------------------------------------------
-    def _or(self):
-        """
-            Helper method to URL-serialize an OR-subtree in a query in
-            alternative field selector syntax if they all use the same
-            operator and value (this is needed to URL-serialize an
-            S3SearchSimpleWidget query).
-        """
-
-        op = self.op
-        l = self.left
-        r = self.right
-
-        if self.op == self.AND:
+        if values is None:
             return None
-        elif self.op == self.NOT:
-            lname, lop, lval, linv = l._or()
-            return (lname, lop, lval, not linv)
-        elif self.op == self.OR:
-            lvars = l._or()
-            rvars = r._or()
-            if lvars is None or rvars is None:
-                return None
-            lname, lop, lval, linv = lvars
-            rname, rop, rval, rinv = rvars
-            if lop != rop or linv != rinv:
-                return None
-            if lname == rname:
-                return (lname, lop, [lval, rval], linv)
-            elif lval == rval:
-                return ("%s|%s" % (lname, rname), lop, lval, linv)
+
+        if method is None or method == "list":
+            if values:
+                return values
             else:
                 return None
-        else:
-            return (self.left.name, self.op, self.right, False)
 
+        elif method == "count":
+            return len(values)
+
+        elif method == "min":
+            try:
+                return min(values)
+            except TypeError:
+                return None
+
+        elif method == "max":
+            try:
+                return max(values)
+            except (TypeError, ValueError):
+                return None
+
+        elif method == "sum":
+            try:
+                return sum(values)
+            except (TypeError, ValueError):
+                return None
+
+        elif method in ("avg"):
+            try:
+                if len(values):
+                    return sum(values) / float(len(values))
+                else:
+                    return 0.0
+            except (TypeError, ValueError):
+                return None
+
+        #elif method == "std":
+            #import numpy
+            #if not values:
+                #return 0.0
+            #try:
+                #return numpy.std(values)
+            #except (TypeError, ValueError):
+                #return None
+
+        else:
+            return None
+
+# =============================================================================
+# Utility classes - move?
 # =============================================================================
 class S3TypeConverter:
     """ Universal data type converter """
@@ -4657,12 +6107,12 @@ class S3RecordMerger(object):
     # -------------------------------------------------------------------------
     def delete_record(self, table, id, replaced_by=None):
 
+        s3db = current.s3db
+
         if replaced_by is not None:
             replaced_by = {str(id): replaced_by}
-
-        prefix, name = table._tablename.split("_", 1)
-        resource = current.manager.define_resource(prefix, name, id=id)
-        ondelete = current.s3db.get_config(resource.tablename, "ondelete")
+        resource = s3db.resource(table, id=id)
+        ondelete = s3db.get_config(resource.tablename, "ondelete")
         success = resource.delete(ondelete=ondelete,
                                   replaced_by=replaced_by,
                                   cascade=True)
@@ -4670,6 +6120,39 @@ class S3RecordMerger(object):
             self.raise_error("Could not delete %s.%s (%s)" %
                             (resource.tablename, id, manager.error))
         return success
+
+    # -------------------------------------------------------------------------
+    def merge_realms(self, table, original, duplicate):
+        """
+            Merge the realms of two person entities (update all
+            realm_entities in all records from duplicate to original)
+
+            @param table: the table original and duplicate belong to
+            @param original: the original record
+            @param duplicate: the duplicate record
+        """
+
+        if "pe_id" not in table.fields:
+            return
+
+        original_pe_id = original["pe_id"]
+        duplicate_pe_id = duplicate["pe_id"]
+
+        db = current.db
+
+        for t in db:
+            if "realm_entity" in t.fields:
+
+                query = (t.realm_entity == duplicate_pe_id)
+                if "deleted" in t.fields:
+                    query &= (t.deleted != True)
+                try:
+                    db(query).update(realm_entity = original_pe_id)
+                except:
+                    db.rollback()
+                    raise
+        return
+
 
     # -------------------------------------------------------------------------
     def fieldname(self, key):
@@ -4784,7 +6267,7 @@ class S3RecordMerger(object):
                           "instance_type" in table.fields
 
         # Find all references
-        referenced_by = table._referenced_by
+        referenced_by = list(table._referenced_by)
 
         # Append virtual references
         virtual_references = s3db.get_config(tablename, "referenced_by")
@@ -4804,7 +6287,13 @@ class S3RecordMerger(object):
         fieldname = self.fieldname
 
         # Update all references
-        for tn, fn in referenced_by:
+        define_resource = s3db.resource
+        for referee in referenced_by:
+
+            if isinstance(referee, Field):
+                tn, fn = referee.tablename, referee.name
+            else:
+                tn, fn = referee
 
             se = s3db.get_config(tn, "super_entity")
             if is_super_entity and \
@@ -4853,10 +6342,11 @@ class S3RecordMerger(object):
                         # Two records => merge them
                         osub_id = osub[component.table._id]
                         dsub_id = dsub[component.table._id]
-                        cresource = manager.define_resource(component.prefix,
-                                                            component.name)
+                        cresource = define_resource(component.tablename)
                         cresource.merge(osub_id, dsub_id,
-                                        replace=replace, update=update, main=resource)
+                                        replace=replace,
+                                        update=update,
+                                        main=resource)
                     continue
 
             # Find the foreign key
@@ -4899,8 +6389,7 @@ class S3RecordMerger(object):
                 skey_o = original[superkey]
                 skey_d = duplicate[superkey]
                 # Merge the super-records
-                prefix, name = entity.split("_", 1)
-                sresource = manager.define_resource(prefix, name)
+                sresource = define_resource(entity)
                 sresource.merge(skey_o, skey_d,
                                 replace=replace,
                                 update=update,
@@ -4923,23 +6412,10 @@ class S3RecordMerger(object):
 
         # Delete the duplicate
         if not is_super_entity:
+            self.merge_realms(table, original, duplicate)
             delete_record(table, duplicate_id, replaced_by=original_id)
 
         # Success
         return True
-
-# =============================================================================
-class S3MarkupStripper(HTMLParser.HTMLParser):
-    """ Simple markup stripper """
-
-    def __init__(self):
-        self.reset()
-        self.result = []
-
-    def handle_data(self, d):
-        self.result.append(d)
-
-    def stripped(self):
-        return "".join(self.result)
 
 # END =========================================================================

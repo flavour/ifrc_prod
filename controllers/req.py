@@ -27,6 +27,7 @@ def is_affiliated():
         Check if User is affiliated to an Organisation
         @ToDo: Move this elsewhere
     """
+
     if not auth.is_logged_in():
         return False
     elif s3_has_role(ADMIN):
@@ -129,12 +130,8 @@ def req():
                     # - list_fields over-rides, so still visible within list itself
                     s3db.req_create_form_mods()
                     s3db.configure(s3db.req_req,
-                                    create_next = URL(c="req",
-                                                      f="req",
-                                                      args=["[id]",
-                                                            "req_item"
-                                                           ]
-                                                     )
+                                   create_next = URL(c="req", f="req",
+                                                     args=["[id]", "req_item"])
                                    )
                     # Get the default Facility for this user
                     # @ToDo: Use site_id in User Profile (like current organisation_id)
@@ -183,10 +180,10 @@ def req():
                 if r.interactive:
                     # Redirect to the Items tab after creation
                     s3db.configure(table,
-                                    create_next = URL(c="req", f="commit",
-                                                      args=["[id]", "commit_item"]),
-                                    update_next = URL(c="req", f="commit",
-                                                      args=["[id]", "commit_item"]))
+                                   create_next = URL(c="req", f="commit",
+                                                     args=["[id]", "commit_item"]),
+                                   update_next = URL(c="req", f="commit",
+                                                     args=["[id]", "commit_item"]))
             else:
                 # Non-Item commits can have an Organisation
                 # Check if user is affiliated to an Organisation
@@ -208,10 +205,11 @@ def req():
                 if r.interactive and r.record.type == 3: # People
                     # Redirect to the Persons tab after creation
                     s3db.configure(table,
-                                    create_next = URL(c="req", f="commit",
-                                                      args=["[id]", "commit_person"]),
-                                    update_next = URL(c="req", f="commit",
-                                                      args=["[id]", "commit_person"]))
+                                   create_next = URL(c="req", f="commit",
+                                                     args=["[id]", "commit_person"]),
+                                   update_next = URL(c="req", f="commit",
+                                                     args=["[id]", "commit_person"])
+                                   )
         else:
             # Limit site_id to facilities the user has permissions for
             # @ToDo: Non-Item requests shouldn't be bound to a Facility?
@@ -230,9 +228,8 @@ def req():
                 if deployment_settings.get_req_use_commit():
                     # This is appropriate to all
                     s3.actions.append(
-                        dict(url = URL(c = "req",
-                                       f = "req",
-                                       args = ["[id]", "commit", "create"]),
+                        dict(url = URL(c="req", f="req",
+                                       args=["[id]", "commit", "create"]),
                              _class = "action-btn",
                              label = str(T("Commit"))
                             )
@@ -242,9 +239,8 @@ def req():
                 rows = db(query).select(r.table.id)
                 restrict = [str(row.id) for row in rows]
                 s3.actions.append(
-                    dict(url = URL(c = "req",
-                                   f = "req",
-                                   args = ["[id]", "req_item"]),
+                    dict(url = URL(c="req", f="req",
+                                   args=["[id]", "req_item"]),
                          _class = "action-btn",
                          label = str(T("View Items")),
                          restrict = restrict
@@ -257,7 +253,7 @@ def req():
                                                       ),
                                              _class = "action-btn",
                                              label = str(T("Request from Facility")),
-                                            )
+                                             )
                 s3.actions.append(req_item_inv_item_btn)
             elif r.component.name == "req_skill":
                 pass
@@ -293,10 +289,8 @@ def req_item():
 
     output = s3_rest_controller()
 
-    req_item_inv_item_btn = dict(url = URL(c = "req",
-                                           f = "req_item_inv_item",
-                                           args = ["[id]"]
-                                          ),
+    req_item_inv_item_btn = dict(url = URL(c="req", f="req_item_inv_item",
+                                           args=["[id]"]),
                                 _class = "action-btn",
                                 label = str(T("Request from Facility")),
                                )
@@ -341,13 +335,11 @@ def req_item_inv_item():
     output = {}
 
     output["title"] = T("Request Stock from Available Warehouse")
-    output["req_btn"] = A( T("Return to Request"),
-                           _href = URL( c = "req",
-                                        f = "req",
-                                        args = [req_item.req_id, "req_item"]
-                                        ),
-                           _class = "action-btn"
-                           )
+    output["req_btn"] = A(T("Return to Request"),
+                          _href = URL(c="req", f="req",
+                                      args=[req_item.req_id, "req_item"]),
+                          _class = "action-btn"
+                          )
 
     output["req_item"] = TABLE( TR(
                                     TH( "%s: " % T("Requested By") ),
@@ -424,8 +416,39 @@ def req_item_inv_item():
 def req_skill():
     """ REST Controller """
 
-    # Defined in the Model for use from Multiple Controllers for unified menus
-    return req_skill_controller()
+    tablename = "req_req_skill"
+    table = s3db[tablename]
+
+    s3db.configure(tablename,
+                   insertable=False)
+
+    def prep(r):
+        if r.interactive:
+            if r.method != "update" and r.method != "read":
+                # Hide fields which don't make sense in a Create form
+                # - includes one embedded in list_create
+                # - list_fields over-rides, so still visible within list itself
+                s3db.req_hide_quantities(r.table)
+
+        return True
+    s3.prep = prep
+
+    # Post-process
+    def postp(r, output):
+        if r.interactive:
+            response.s3.actions = [
+                dict(url = URL(c="req", f="req",
+                               args=["req_skill", "[id]"]),
+                     _class = "action-btn",
+                     label = str(READ)
+                    )
+                ]
+        return output
+    s3.postp = postp
+
+    output = s3_rest_controller("req", "req_skill")
+
+    return output
 
 # =============================================================================
 def commit():
@@ -629,10 +652,8 @@ def commit_req():
                                                             resourcename),
                                                  record_id=id):
         session.error = T("You do not have permission to make this commitment.")
-        redirect(URL(c = "req",
-                     f = "req",
-                     args = [req_id],
-                     ))
+        redirect(URL(c="req", f="req",
+                     args=[req_id]))
 
     # Create a new commit record
     commit_id = s3db.req_commit.insert(date = request.utcnow,
@@ -683,9 +704,8 @@ def commit_req():
             s3db.req_commit_item_onaccept(None)
 
     # Redirect to commit
-    redirect(URL(c = "req",
-                 f = "commit",
-                 args = [commit_id, "commit_item"]))
+    redirect(URL(c="req", f="commit",
+                 args=[commit_id, "commit_item"]))
 
 # =============================================================================
 def send_req():
@@ -713,8 +733,7 @@ def send_req():
                                                             resourcename),
                                                  record_id=id):
         session.error = T("You do not have permission to send this shipment.")
-        redirect(URL(c = "req",
-                     f = "req",
+        redirect(URL(c="req", f="req",
                      args = [req_id]))
 
     # Create a new send record

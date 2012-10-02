@@ -9,23 +9,176 @@ T = current.T
 """
     Template settings for IFRC
 """
+# =============================================================================
+# System Settings
+# -----------------------------------------------------------------------------
+# Authorization Settings
+settings.auth.registration_requires_approval = True
+settings.auth.registration_requires_verification = True
+settings.auth.registration_requests_organisation = True
+settings.auth.registration_organisation_required = True
+settings.auth.registration_requests_site = True
+settings.auth.record_approval = True
 
-# Pre-Populate
-settings.base.prepopulate = ["IFRC_Train"]
+settings.auth.registration_roles = {"site_id": ["asset_reader",
+                                                "inv_reader",
+                                                "irs_reader",
+                                                "member_reader",
+                                                "project_reader",
+                                                "staff_reader",
+                                                "vol_reader",
+                                                "survey_reader",
+                                                "vulnerability_reader",
+                                                ],
+                                    "organisation_id": ["asset_reader",
+                                                        "inv_reader",
+                                                        "irs_reader",
+                                                        "member_reader",
+                                                        "project_reader",
+                                                        "staff_reader",
+                                                        "vol_reader",
+                                                        "survey_reader",
+                                                        "vulnerability_reader",
+                                                        ]
+                                    }
 
-settings.base.system_name = T("Resource Management System")
-settings.base.system_name_short = T("Resource Management System")
-
-# Theme (folder to use for views/layout.html)
-settings.base.theme = "IFRC"
-settings.gis.map_height = 600
-settings.gis.map_width = 854
-
+# -----------------------------------------------------------------------------
 # Security Policy
 settings.security.policy = 8 # Delegations
 settings.security.map = True
 
-# L10n settings
+# Owner Entity
+settings.auth.person_realm_human_resource_org = True
+settings.auth.person_realm_member_org = True
+
+def ifrc_realm_entity(table, row):
+    """
+        Assign a Realm Entity to records
+    """
+
+    db = current.db
+    s3db = current.s3db
+    tablename = table._tablename
+
+    # Entity reference fields
+    EID = "pe_id"
+    OID = "organisation_id"
+    SID = "site_id"
+    GID = "group_id"
+    PID = "person_id"
+    entity_fields = (EID, OID, SID, GID, PID)
+
+    # Entity tables
+    otablename = "org_organisation"
+    stablename = "org_site"
+    gtablename = "pr_group"
+    ptablename = "pr_person"
+
+    # Owner Entity Foreign Key
+    realm_entity_fks = dict(pr_contact = EID,
+                            pr_physical_description = EID,
+                            pr_address = EID,
+                            pr_image = EID,
+                            pr_identity = "person_id",
+                            pr_education = "person_id",
+                            pr_note = "person_id",
+                            inv_recv = "site_id",
+                            inv_recv_item = "req_id",
+                            inv_track_item = "track_org_id",
+                            inv_adj_item = "adj_id",
+                            req_req_item = "req_id"
+                            )
+
+    # Default Foreign Keys (ordered by priority)
+    default_fks = ["catalog_id",
+                   "project_id",
+                   "project_location_id"
+                   ]
+
+    # Link Tables
+    realm_entity_link_table = dict(
+        project_task = Storage(tablename = "project_task_project",
+                               link_key = "task_id"
+                               )
+        )
+    if tablename in realm_entity_link_table:
+        # Replace row with the record from the link table
+        link_table = realm_entity_link_table[tablename]
+        table = s3db[link_table.tablename]
+        rows = db(table[link_table.link_key] == row.id).select(table.id,
+                                                               limitby=(0, 1))
+        if rows:
+            # Update not Create
+            row = rows.first()
+
+    # Check if there is a FK to inherit the realm_entity
+    realm_entity = 0
+    fk = realm_entity_fks.get(tablename,None)
+    for default_fk in [fk] + default_fks:
+        if default_fk in table.fields:
+            fk = default_fk
+            # Inherit realm_entity from parent record
+            if fk == EID:
+                ftable = s3db.pr_person
+                query = ftable[EID] == row[EID]
+            else:
+                ftablename = table[fk].type[10:] # reference tablename
+                ftable = s3db[ftablename]
+                query = (table.id == row.id) & \
+                        (table[fk] == ftable.id)
+            record = db(query).select(ftable.realm_entity,
+                                      limitby=(0, 1)).first()
+            if record:
+                realm_entity = record.realm_entity
+                break
+            else:
+                realm_entity = 0 # Fall back to default get_realm_entity function
+                # continue to loop through the rest of the default_fks
+                
+    
+    use_user_organisation = False
+    # Suppliers & Partners are owned by the user's organisation
+    if realm_entity == 0 and tablename == "org_organisation":
+        ott = s3db.org_organisation_type
+        row = table[row.id]
+        row = db(table.organisation_type_id == ott.id).select(ott.name,
+                                                              limitby = (0,1)
+                                                              ).first()
+        
+        if row and row.name != "Red Cross / Red Crescent":
+            use_user_organisation = True
+
+    # Groups are owned by the user's organisation
+    if tablename in ["pr_group"]:
+        use_user_organisation = True
+
+    user = current.auth.user
+    if use_user_organisation and user:
+        # @ToDo - this might cause issues if the user's org is different from the realm that gave them permissions to create the Org 
+        realm_entity = s3db.pr_get_pe_id("org_organisation",
+                                         user.organisation_id)
+
+    return realm_entity
+settings.auth.realm_entity = ifrc_realm_entity
+
+# -----------------------------------------------------------------------------
+# Pre-Populate
+settings.base.prepopulate = ["IFRC_Train"]
+
+settings.base.system_name = T("Resource Management System")
+settings.base.system_name_short = T("RMS")
+
+# -----------------------------------------------------------------------------
+# Theme (folder to use for views/layout.html)
+settings.base.theme = "IFRC"
+settings.gis.map_height = 600
+settings.gis.map_width = 854
+# Display Resources recorded to Admin-Level Locations on the map
+# @ToDo: Move into gis_config?
+settings.gis.display_L0 = True
+
+# -----------------------------------------------------------------------------
+# L10n (Localization) settings
 settings.L10n.languages = OrderedDict([
     ("en-gb", "English"),
     ("es", "Español"),
@@ -40,11 +193,12 @@ settings.L10n.decimal_separator = "."
 # Thousands separator for numbers (defaults to space)
 settings.L10n.thousands_separator = ","
 # Unsortable 'pretty' date format
-settings.L10n.date_format = T("%d-%b-%Y")
+settings.L10n.date_format = T("%d-%b-%y")
 settings.L10n.datetime_format = T("%d-%b-%Y %H:%M:%S")
 # Make last name in person/user records mandatory
 settings.L10n.mandatory_lastname = True
 
+# -----------------------------------------------------------------------------
 # Finance settings
 settings.fin.currencies = {
     "AUD" : T("Australian Dollars"),
@@ -56,24 +210,26 @@ settings.fin.currencies = {
     "USD" : T("United States Dollars"),
 }
 
-# Display Resources recorded to Admin-Level Locations on the map
-# @ToDo: Move into gis_config?
-settings.gis.display_L0 = True
-
+# -----------------------------------------------------------------------------
 # Enable this for a UN-style deployment
 #settings.ui.cluster = True
 # Enable this to use the label 'Camp' instead of 'Shelter'
 settings.ui.camp = True
 
-settings.req.req_type = ["Stock"]
-#settings.req.use_commit = False
+# -----------------------------------------------------------------------------
+# Save Search Widget
+settings.save_search.widget = False
 
-#settings.inv.collapse_tabs = True
 
+# =============================================================================
+# Module Settings
+
+# -----------------------------------------------------------------------------
 # Organisation Management
 # Set the length of the auto-generated org/site code the default is 10
 settings.org.site_code_len = 3
 
+# -----------------------------------------------------------------------------
 # Human Resource Management
 # Uncomment to allow Staff & Volunteers to be registered without an email address
 settings.hrm.email_required = False
@@ -85,9 +241,14 @@ settings.hrm.staff_experience = False
 settings.hrm.use_credentials = False
 # Uncomment to enable the use of HR Education
 settings.hrm.use_education = True
+# Uncomment to disable the use of HR Skills
+settings.hrm.use_skills = False
 # Uncomment to disable the use of HR Teams
-settings.hrm.use_teams = False
+#settings.hrm.use_teams = False
+# Custom label for Organisations in HR module
+settings.hrm.organisation_label = T("National Society / Branch")
 
+# -----------------------------------------------------------------------------
 # Projects
 # Uncomment this to use settings suitable for a global/regional organisation (e.g. DRR)
 settings.project.mode_3w = True
@@ -108,9 +269,14 @@ settings.project.organisation_roles = {
     5: T("Partner")
 }
 
-# Save Search Widget
-settings.save_search.widget = False
+# -----------------------------------------------------------------------------
+# Request Managemetn
+settings.req.req_type = ["Stock"]
+#settings.req.use_commit = False
+#settings.inv.collapse_tabs = True
 
+# =============================================================================
+# Template Modules
 # Comment/uncomment modules here to disable/enable them
 settings.modules = OrderedDict([
     # Core modules which shouldn't be disabled
@@ -145,6 +311,11 @@ settings.modules = OrderedDict([
             restricted = True,
             access = "|1|",     # Only Administrators can see this module in the default menu & access the controller
             module_type = None  # This item is handled separately for the menu
+        )),
+    ("translate", Storage(
+            name_nice = T("Translation Functionality"),
+            #description = "Selective translation of strings based on module.",
+            module_type = None,
         )),
     # Uncomment to enable internal support requests
     ("support", Storage(

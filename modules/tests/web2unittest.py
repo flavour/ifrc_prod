@@ -1,13 +1,12 @@
 import unittest
 import sys
+import datetime
+import time
+
 # Selenium WebDriver
 from selenium import webdriver
 from selenium.common.exceptions import NoSuchElementException
 #from selenium.webdriver.common.keys import Keys
-
-import datetime
-import time
-
 
 from gluon import current
 
@@ -120,7 +119,13 @@ class SeleniumUnitTest(Web2UnitTest):
                             except:
                                 pass
                             break
-                    self.assertTrue(raw_value,"%s option cannot be found in %s" % (el_value, el_id))
+                    # Test that we have an id that can be used in the database
+                    if el_value and el_value != "-":
+                        self.assertTrue(raw_value,"%s option cannot be found in %s" % (el_value, el_id))
+                elif el_type == "checkbox":
+                    for value in el_value:
+                        self.browser.find_element_by_xpath("//label[contains(text(),'%s')]" % value).click()
+                        # @ToDo: Add value to id_data to check for create function
                 elif el_type == "autocomplete":
                     raw_value = self.w_autocomplete(el_value,
                                                     el_id,
@@ -168,6 +173,7 @@ class SeleniumUnitTest(Web2UnitTest):
                     # @ToDo: Fix hack to stop checking datetime field. This is because the field does not support data entry by key press  
                     # Use the raw value to check that the record was added succesfully
                 else:
+                    el.clear()
                     el.send_keys(el_value)
                     raw_value = el_value
 
@@ -185,6 +191,15 @@ class SeleniumUnitTest(Web2UnitTest):
             self.reporter(elem.text)
         except NoSuchElementException:
             confirm = False
+        if (confirm != success):
+            # Do we have a validation error?
+            try:
+                elem_error = browser.find_element_by_xpath("//div[@class='error']")
+                if elem_error:
+                    msg = "%s %s" % (elem_error.get_attribute("id"), elem_error.text)
+                    self.reporter(msg)
+            except NoSuchElementException:
+                pass
         self.assertTrue(confirm == success,
                         "Unexpected create success of %s" % confirm)
         result["after"] = self.getRows(table, id_data, dbcallback)

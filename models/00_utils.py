@@ -16,6 +16,52 @@ if not auth.permission.has_permission("read"):
     auth.permission.fail()
 
 # =============================================================================
+# Menus
+#
+from eden.layouts import *
+import eden.menus as default_menus
+
+S3MainMenu = default_menus.S3MainMenu
+S3OptionsMenu = default_menus.S3OptionsMenu
+
+current.menu = Storage(options=None, override={})
+if auth.permission.format in ("html"):
+    menus = None
+    theme = settings.get_theme()
+    if theme != "default":
+        # If there is a custom Theme, then attempot to load a custom menu from it
+        menus = "applications.%s.private.templates.%s.menus" % \
+                (appname, theme)
+    else:
+        template = settings.get_template()
+        if template != "default":
+            # If there is a custom Template, then attempt to load a custom menu from it
+            menus = "applications.%s.private.templates.%s.menus" % \
+                    (appname, template)
+    if menus:
+        try:
+            exec("import %s as deployment_menus" % menus)
+        except ImportError:
+            pass
+        else:
+            if "S3MainMenu" in deployment_menus.__dict__:
+                S3MainMenu = deployment_menus.S3MainMenu
+
+            if "S3OptionsMenu" in deployment_menus.__dict__:
+                S3OptionsMenu = deployment_menus.S3OptionsMenu
+
+    main = S3MainMenu.menu()
+else:
+    main = None
+
+menu = current.menu
+menu["main"] = main
+
+# Override controller menus
+# @todo: replace by current.menu.override
+s3_menu_dict = {}
+
+# =============================================================================
 def s3_get_utc_offset():
     """ Get the current UTC offset for the client """
 
@@ -187,25 +233,25 @@ def s3_rest_controller(prefix=None, resourcename=None, **attr):
 
         *** Callbacks:
 
-        create_onvalidation     Function/Lambda for additional record validation on create
-        create_onaccept         Function/Lambda after successful record insertion
+        create_onvalidation     Function for additional record validation on create
+        create_onaccept         Function after successful record insertion
 
-        update_onvalidation     Function/Lambda for additional record validation on update
-        update_onaccept         Function/Lambda after successful record update
+        update_onvalidation     Function for additional record validation on update
+        update_onaccept         Function after successful record update
 
         onvalidation            Fallback for both create_onvalidation and update_onvalidation
         onaccept                Fallback for both create_onaccept and update_onaccept
-        ondelete                Function/Lambda after record deletion
+        ondelete                Function after record deletion
     """
 
     # Parse the request
-    r = s3mgr.parse_request(prefix, resourcename)
+    r = s3_request(prefix, resourcename)
 
     # Set method handlers
     r.set_handler("barchart", s3_barchart)
     r.set_handler("compose", s3base.S3Compose())
     r.set_handler("copy", s3_copy)
-    r.set_handler("report", s3base.S3Cube())
+    r.set_handler("report", s3base.S3Report())
     r.set_handler("import", s3base.S3Importer())
     r.set_handler("map", s3base.S3Map())
 
@@ -215,6 +261,18 @@ def s3_rest_controller(prefix=None, resourcename=None, **attr):
         r.set_handler("import", S3PDF(),
                       http = ["GET", "POST"],
                       representation="pdf")
+
+    # Plugin OrgRoleManager where appropriate
+    if r.record and auth.user is not None and \
+       r.tablename in s3base.S3OrgRoleManager.ENTITY_TYPES:
+
+        sr = auth.get_system_roles()
+        realms = auth.user.realms or Storage()
+
+        if sr.ADMIN in realms or sr.ORG_ADMIN in realms and \
+           (realms[sr.ORG_ADMIN] is None or \
+            r.record.pe_id in realms[sr.ORG_ADMIN]):
+            r.set_handler("roles", s3base.S3OrgRoleManager())
 
     # Execute the request
     output = r(**attr)
@@ -270,7 +328,7 @@ def s3_rest_controller(prefix=None, resourcename=None, **attr):
                 add_btn = A(label, _href=url, _class="action-btn")
                 output.update(add_btn=add_btn)
 
-    elif r.method != "import":
+    elif r.method not in ("import", "review", "approve", "reject"):
         s3.actions = None
 
     return output

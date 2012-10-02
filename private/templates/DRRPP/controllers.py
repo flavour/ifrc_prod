@@ -437,10 +437,10 @@ class register():
         s3 = response.s3
         appname = request.application
         if s3.debug:
-            s3.scripts.append("/%s/static/scripts/jquery.pstrength.1.3.js" % appname)
+            s3.scripts.append("/%s/static/scripts/jquery.pstrength.2.1.0.js" % appname)
             s3.scripts.append("/%s/static/scripts/jquery.validate.js" % appname)
         else:
-            s3.scripts.append("/%s/static/scripts/jquery.pstrength.1.3.min.js" % appname)
+            s3.scripts.append("/%s/static/scripts/jquery.pstrength.2.1.0.min.js" % appname)
             s3.scripts.append("/%s/static/scripts/jquery.validate.min.js" % appname)
         s3.jquery_ready.append("".join(('''
 $('#regform').validate({
@@ -516,7 +516,9 @@ def register_onaccept(form):
     id = form.vars.id
     db = current.db
     table = db.auth_user
-    db(table.id==form.vars.id).update(comments = "%s | %s" % (position, reason))
+    db(table.id == form.vars.id).update(
+                                    comments = "%s | %s" % (position, reason)
+                                )
 
 # =============================================================================
 class contact():
@@ -715,12 +717,10 @@ class organisations():
         """
         """
 
-        from s3 import S3FieldSelector
+        from s3 import S3FieldSelector, s3_request
         T = current.T
 
-        s3request = current.manager.parse_request("org",
-                                                  "organisation",
-                                                  extension="aadata")
+        s3request = s3_request("org", "organisation", extension="aadata")
         # (S3FieldSelector("project.id") != None) & \
         f = (S3FieldSelector("organisation_type_id$name").anyof(["Regional Organisation",
                                                                  "Regional Office",
@@ -745,12 +745,10 @@ class organisations():
         """
         """
 
-        from s3 import S3FieldSelector
+        from s3 import S3FieldSelector, s3_request
         T = current.T
 
-        s3request = current.manager.parse_request("org",
-                                                  "organisation",
-                                                  extension="aadata")
+        s3request = s3_request("org", "organisation", extension="aadata")
         #(S3FieldSelector("project.id") != None) & \
         f = (S3FieldSelector("organisation_type_id$name").anyof(["Committees/Mechanism/Forum",
                                                                  "Network"]))

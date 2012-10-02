@@ -79,8 +79,8 @@ class S3RequestModel(S3Model):
         T = current.T
         db = current.db
         auth = current.auth
-        request = current.request
         session = current.session
+        settings = current.deployment_settings
 
         human_resource_id = self.hrm_human_resource_id
 
@@ -88,15 +88,11 @@ class S3RequestModel(S3Model):
         NONE = messages.NONE
         UNKNOWN_OPT = messages.UNKNOWN_OPT
 
+        s3_string_represent = lambda str: str if str else NONE
+
         add_component = self.add_component
         crud_strings = current.response.s3.crud_strings
         set_method = self.set_method
-
-        settings = current.deployment_settings
-        s3_date_format = settings.get_L10n_date_format()
-        s3_date_represent = lambda dt: S3DateTime.date_represent(dt, utc=True)
-        s3_datetime_represent = lambda dt: S3DateTime.datetime_represent(dt, utc=True)
-        s3_string_represent = lambda str: str if str else NONE
 
         # Multiple Item/Skill Types per Request?
         multiple_req_items = settings.get_req_multiple_req_items()
@@ -157,25 +153,13 @@ class S3RequestModel(S3Model):
                                             req_type_opts.get(opt, UNKNOWN_OPT),
                                         label = T("Request Type")),
                                   req_ref(),
-                                  Field("date", "datetime",
-                                        label = T("Date Requested"),
-                                        requires = [IS_EMPTY_OR(
-                                                    #IS_UTC_DATETIME_IN_RANGE(
-                                                    IS_DATE_IN_RANGE(
-                                                        #maximum=request.utcnow,
-                                                        maximum=request.utcnow.date(),
-                                                        error_message="%s %%(max)s!" %
-                                                            T("Enter a valid past date"),
-                                                        format=s3_date_format))],
-                                        # @ToDo: deployment_setting
-                                        #widget = S3DateTimeWidget(past=8760, # Hours, so 1 year
-                                        #                          future=0),
-                                        #represent = s3_datetime_represent
-                                        widget = S3DateWidget(past=12, # Months, so 1 year
-                                                              future=0),
-                                        represent = s3_date_represent,
-                                        default = request.utcnow,
-                                        ),
+                                  s3_datetime(label = T("Date Requested"),
+                                              default="now",
+                                              past=8760, # Hours, so 1 year
+                                              future=0,
+                                              represent="date",
+                                              widget="date",
+                                              ),
                                   Field("priority", "integer",
                                         default = 2,
                                         label = T("Priority"),
@@ -188,37 +172,20 @@ class S3RequestModel(S3Model):
                                         ),
                                   Field("purpose", "text",
                                         label=T("Purpose")), # Donations: What will the Items be used for?; People: Task Details
-                                  Field("date_required", "datetime",
-                                        label = T("Date Needed By"),
-                                        requires = [IS_EMPTY_OR(
-                                                    #IS_UTC_DATETIME_IN_RANGE(
-                                                    IS_DATE_IN_RANGE(
-                                                      #minimum=request.utcnow - datetime.timedelta(days=1),
-                                                      minimum=request.utcnow.date() - datetime.timedelta(days=1),
-                                                      error_message="%s %%(min)s!" %
-                                                            T("Enter a valid past date"),
-                                                        format=s3_date_format))],
-                                        # @ToDo: deployment_setting
-                                        #widget = S3DateTimeWidget(past=0,
-                                        #                          future=8760), # Hours, so 1 year
-                                        #represent = s3_datetime_represent
-                                        widget = S3DateWidget(past=0,
-                                                              future=12), # Months, so 1 year
-                                        represent = s3_date_represent,
-                                        ),
-                                  Field("date_required_until", "datetime",
-                                        label = T("Date Required Until"),
-                                        requires = [IS_EMPTY_OR(
-                                                    IS_UTC_DATETIME_IN_RANGE(
-                                                        minimum=request.utcnow - datetime.timedelta(days=1),
-                                                        error_message="%s %%(min)s!" %
-                                                            T("Enter a valid future date")))],
-                                        widget = S3DateTimeWidget(past=0,
-                                                                  future=8760), # Hours, so 1 year
-                                        represent = s3_datetime_represent,
-                                        readable = False,
-                                        writable = False
-                                        ),
+                                  s3_datetime("date_required",
+                                              label = T("Date Needed By"),
+                                              past=0,
+                                              future=8760, # Hours, so 1 year
+                                              represent="date",
+                                              widget="date",
+                                              ),
+                                  s3_datetime("date_required_until",
+                                              label = T("Date Required Until"),
+                                              past=0,
+                                              future=8760, # Hours, so 1 year
+                                              readable = False,
+                                              writable = False
+                                              ),
                                   human_resource_id("requester_id",
                                                     label = T("Requester"),
                                                     empty = False,
@@ -243,17 +210,20 @@ class S3RequestModel(S3Model):
                                   # This is a component, so needs to be a super_link
                                   # - can't override field name, ondelete or requires
                                   self.super_link("site_id", "org_site",
-                                                   label = T("Requested For Facility"),
-                                                   default = auth.user.site_id if auth.is_logged_in() else None,
-                                                   readable = True,
-                                                   writable = True,
-                                                   empty = False,
-                                                   # Comment these to use a Dropdown & not an Autocomplete
-                                                   #widget = S3SiteAutocompleteWidget(),
-                                                   #comment = DIV(_class="tooltip",
-                                                   #              _title="%s|%s" % (T("Requested By Facility"),
-                                                   #                                T("Enter some characters to bring up a list of possible matches"))),
-                                                   represent = self.org_site_represent),
+                                                  label = T("Requested For Facility"),
+                                                  default = auth.user.site_id if auth.is_logged_in() else None,
+                                                  readable = True,
+                                                  writable = True,
+                                                  empty = False,
+                                                  instance_types = auth.org_site_types,
+                                                  updateable = True,
+                                                  # Comment these to use a Dropdown & not an Autocomplete
+                                                  #widget = S3SiteAutocompleteWidget(),
+                                                  #comment = DIV(_class="tooltip",
+                                                  #              _title="%s|%s" % (T("Requested By Facility"),
+                                                  #                                T("Enter some characters to bring up a list of possible matches"))),
+                                                  represent = self.org_site_represent
+                                                  ),
                                   #Field("location",
                                   #      label = T("Neighborhood")),
                                   Field("transport_req", "boolean",
@@ -264,19 +234,13 @@ class S3RequestModel(S3Model):
                                         readable = False,
                                         writable = False,
                                         label = T("Security Required")),
-                                  Field("date_recv", "datetime",
-                                        label = T("Date Received"), # Could be T("Date Delivered") - make deployment_setting
-                                        requires = [IS_EMPTY_OR(
-                                                    IS_UTC_DATETIME_IN_RANGE(
-                                                        maximum=request.utcnow,
-                                                        error_message="%s %%(max)s!" %
-                                                             T("Enter a valid past date")))],
-                                        widget = S3DateTimeWidget(past=8760, # Hours, so 1 year
-                                                                  future=0),
-                                        represent = s3_datetime_represent,
-                                        readable = False,
-                                        writable = False
-                                        ),
+                                  s3_datetime("date_recv",
+                                              label = T("Date Received"), # Could be T("Date Delivered") - make deployment_setting
+                                              past=8760, # Hours, so 1 year
+                                              future=0,
+                                              readable = False,
+                                              writable = False
+                                              ),
                                   human_resource_id("recv_by_id",
                                                     label = T("Received By"),
                                                     # @ToDo: Set this in Update forms? Dedicated 'Receive' button?
@@ -594,7 +558,7 @@ $(function() {
                        "quantity_fulfil",
                       ]
 
-        exporter = r.resource.exporter.pdf
+        exporter = S3Exporter().pdf
         return exporter(r,
                         method = "list",
                         pdf_title = current.deployment_settings.get_req_form_name(),
@@ -643,7 +607,7 @@ $(function() {
         s3_has_permission = current.auth.s3_has_permission
         settings = current.deployment_settings
         if settings.has_module("req") and \
-            s3_has_permission("read", "req_req"):
+           s3_has_permission("read", "req_req", c="req"):
             tabs= [(T("Requests"), "req")]
             if s3_has_permission("read", "req_req",
                                  c=current.request.controller,
@@ -990,6 +954,8 @@ $(document).ready(function(){
  });
 })'''),
                                         )
+
+        # -------------------------------------------------------------------------
 
         self.configure(tablename,
                        super_entity="supply_item_entity",
@@ -2024,6 +1990,10 @@ def req_match():
 
     if tablename == "org_office":
         rheader = s3db.org_rheader
+    elif tablename == "org_facility":
+        rheader = s3db.org_facility_rheader
+    elif tablename == "inv_warehouse":
+        rheader = s3db.inv_warehouse_rheader
     elif tablename == "cr_shelter":
         rheader = s3db.cr_shelter_rheader
     elif tablename == "hms_hospital":
@@ -2033,10 +2003,17 @@ def req_match():
 
     s3.filter = (s3db.req_req.site_id != site_id)
     s3db.configure("req_req", insertable=False)
+
+    # Post-process
+    def postp(r, output):
+        if r.representation == "html":
+            output["title"] = s3.crud_strings[tablename].title_display
+        return output
+
+    s3.postp = postp
+
     output = current.rest_controller("req", "req", rheader = rheader)
 
-    if tablename == "org_office" and isinstance(output, dict):
-        output["title"] = T("Warehouse Details")
     return output
 
 # END =========================================================================

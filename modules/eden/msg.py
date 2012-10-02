@@ -74,12 +74,6 @@ class S3MessagingModel(S3Model):
             1:T("Low")
         }
 
-        mtable = self.msg_inbound_email_settings
-        source_opts = []
-        append = source_opts.append
-        records = db(mtable.id > 0).select(mtable.username)
-        for record in records:
-            append(record.username)
 
         # ---------------------------------------------------------------------
         # Message Log - all Inbound & Outbound Messages
@@ -112,8 +106,7 @@ class S3MessagingModel(S3Model):
                              Field("reply", "text" ,
                                    label = T("Reply")),
                              Field("source_task_id",
-                                   requires = IS_IN_SET(source_opts,
-                                                        zero = None)),
+                                   label = T("Message Source")),
                              *s3_meta_fields())
 
         configure(tablename,
@@ -357,6 +350,8 @@ class S3SMSModel(S3Model):
              "msg_modem_settings",
              "msg_api_settings",
              "msg_smtp_to_sms_settings",
+             "msg_twilio_inbound_settings",
+             "msg_twilio_inbox"
             ]
 
     def model(self):
@@ -364,7 +359,7 @@ class S3SMSModel(S3Model):
         #T = current.T
 
         define_table = self.define_table
-
+        configure = self.configure
         # ---------------------------------------------------------------------
         # Settings
         tablename = "msg_setting"
@@ -421,6 +416,36 @@ class S3SMSModel(S3Model):
                              #Field("preference", "integer", default = 5),
                              *s3_meta_fields())
 
+        # ---------------------------------------------------------------------
+        tablename = "msg_twilio_inbound_settings"
+        table = define_table(tablename,
+                             Field("account_name"),
+                             Field("url",
+                                   default = \
+                                   "https://api.twilio.com/2010-04-01/Accounts"
+                                   ),
+                             Field("account_sid", length=64,
+                                   requires=IS_NOT_EMPTY()),
+                             Field("auth_token", length=64,
+                                   requires=IS_NOT_EMPTY()),
+                             *s3_meta_fields())
+
+        # ---------------------------------------------------------------------
+        tablename = "msg_twilio_inbox"
+        table = define_table(tablename,
+                             Field("sid", length=64),
+                             Field("body", "text"),
+                             Field("status"),
+                             Field("sender"),
+                             Field("received_on"),
+                             *s3_meta_fields())
+
+        configure(tablename,
+                  list_fields = ["body",
+                                 "sender",
+                                 "received_on"
+                                 ]
+                  )
         # ---------------------------------------------------------------------
         return Storage()
 
@@ -545,7 +570,8 @@ class S3TwitterModel(S3Model):
                                    readable = False, writable = False),
                              Field("oauth_secret",
                                    readable = False, writable = False),
-                             Field("twitter_account", writable = False),
+                             Field("twitter_account",
+                                   writable = False),
                              *s3_meta_fields())
 
         configure(tablename,
@@ -561,10 +587,20 @@ class S3TwitterModel(S3Model):
         # ---------------------------------------------------------------------
         tablename = "msg_twitter_search_results"
         table = define_table(tablename,
-                             Field("tweet", length=140),
-                             Field("posted_by"),
-                             Field("posted_at"),
-                             Field("twitter_search", db.msg_twitter_search),
+                             Field("tweet", length=140,
+                                   writable=False),
+                             Field("category",
+                                   writable=False),
+                             Field("priority", "integer",
+                                   writable=False),
+                             self.gis_location_id(),
+                             Field("posted_by",
+                                   represent = self.twitter_represent,
+                                   writable=False),
+                             Field("posted_at",
+                                   writable=False),
+                             Field("twitter_search", db.msg_twitter_search,
+                                   writable=False),
                              *s3_meta_fields())
 
         #table.twitter_search.requires = IS_ONE_OF(db, "twitter_search.search_query")
@@ -574,7 +610,11 @@ class S3TwitterModel(S3Model):
         #self.add_component(table, msg_twitter_search="twitter_search")
 
         configure(tablename,
+                  orderby=table.priority,
                   list_fields=["id",
+                               "priority",
+                               "category",
+                               "location_id",
                                "tweet",
                                "posted_by",
                                "posted_at",
@@ -586,14 +626,43 @@ class S3TwitterModel(S3Model):
 
     # -------------------------------------------------------------------------
     @staticmethod
+    def twitter_represent(nickname, show_link=True):
+        """
+            Represent a Twitter account
+        """
+
+        db = current.db
+        s3db = current.s3db
+        table = s3db.pr_contact
+        query = (table.contact_method == "TWITTER") & \
+                (table.value == nickname)
+        row = db(query).select(table.pe_id,
+                               limitby=(0, 1)).first()
+        if row:
+            repr = s3db.pr_pentity_represent(row.pe_id, show_label=False)
+            if show_link:
+                # Assume person
+                ptable = s3db.pr_person
+                row = db(ptable.pe_id == row.pe_id).select(ptable.id,
+                                                           limitby=(0, 1))
+                if row:
+                    link = URL(c="pr", f="person", args=[row.id])
+                    return A(repr, _href=link)
+            return repr
+        else:
+            return nickname
+
+    # -------------------------------------------------------------------------
+    @staticmethod
     def twitter_settings_onvalidation(form):
         """
-            Complete oauth: take tokens from session + pin from form, and do the 2nd API call to Twitter
+            Complete oauth: take tokens from session + pin from form,
+            and do the 2nd API call to Twitter
         """
 
         T = current.T
         session = current.session
-        settings = current.deployment_settings
+        settings = current.deployment_settings.msg
         s3 = session.s3
         vars = form.vars
 
@@ -603,8 +672,8 @@ class S3TwitterModel(S3Model):
             except:
                 raise HTTP(501, body=T("Can't import tweepy"))
 
-            oauth = tweepy.OAuthHandler(settings.twitter.oauth_consumer_key,
-                                        settings.twitter.oauth_consumer_secret)
+            oauth = tweepy.OAuthHandler(settings.twitter_oauth_consumer_key,
+                                        settings.twitter_oauth_consumer_secret)
             oauth.set_request_token(s3.twitter_request_key,
                                     s3.twitter_request_secret)
             try:
@@ -657,66 +726,84 @@ class S3ParsingModel(S3Model):
         Message Parsing Model
     """
 
-    names = ["msg_workflow"]
+    names = ["msg_workflow",
+             "msg_session",
+             "msg_keyword",
+             "msg_sender",
+             ]
 
     def model(self):
 
-        import inspect
-        import sys
-
         T = current.T
         
-        parser = current.deployment_settings.get_msg_parser()
-        module_name = "applications.%s.private.templates.%s.parser" % \
-            (current.request.application, parser)
-        __import__(module_name)
-        mymodule = sys.modules[module_name]
-        S3Parsing = mymodule.S3Parsing()
-        
-        mtable = self.msg_inbound_email_settings
-        # source_opts contains the available message sources.
-        source_opts = []
-        append = source_opts.append
-        records = current.db(mtable.deleted == False).select(mtable.username)
-        for record in records:
-            append(record.username)
-
-        # Dynamic lookup of the parsing functions in S3Parsing class.
-        parsers = inspect.getmembers(S3Parsing, predicate=inspect.isfunction)
-        parse_opts = []
-        for parser in parsers:
-            parse_opts += [parser[0]]
+        # ---------------------------------------------------------------------
+        #
+        # Link between Message Sources and Workflows in parser.py
 
         tablename = "msg_workflow"
         table = self.define_table(tablename,
                                   Field("source_task_id",
                                         label = T("Inbound Message Source"),
-                                        requires = IS_IN_SET(source_opts,
-
-                                                             zero = None),
-                                        represent = lambda id: \
-                                        self.source_represent(id, 
-                                                              show_link=True)),
+                                        represent = self.source_represent,
+                                        ),
                                   Field("workflow_task_id",
-                                        label = T("Workflow"),
-                                        requires = IS_IN_SET(parse_opts,
+                                        label = T("Workflow")),                                          
+                                  *s3_meta_fields())
+                                  
+        # ---------------------------------------------------------------------
+        #
+        # Login sessions for Message Parsing
 
-                                                             zero=None)), 
+        tablename = "msg_session"
+        table = self.define_table(tablename,
+                                  Field("email"),
+                                  Field("created_datetime","datetime",
+                                        default = current.request.utcnow),
+                                  Field("expiration_time", "integer"),
+                                  Field("is_expired", "boolean",
+                                        default = False),
+                                  Field("sender"),
+                                  *s3_meta_fields())
+                                  
+        # ---------------------------------------------------------------------
+        #
+        # Keywords for Message Parsing
+
+        tablename = "msg_keyword"
+        table = self.define_table(tablename,
+                                  Field("keyword",
+                                        label=T("Keyword")),
+                                  self.event_incident_type_id(),
                                   *s3_meta_fields())
 
+        # ---------------------------------------------------------------------
+        #
+        # Senders for Message Parsing
+
+        tablename = "msg_sender"
+        table = self.define_table(tablename,
+                                  self.super_link("pe_id", "pr_pentity"),
+                                  Field("priority", "integer",
+                                        label=T("Priority")),
+                                  *s3_meta_fields())
+
+        # ---------------------------------------------------------------------
         return Storage()
+
     # -------------------------------------------------------------------------
     @staticmethod
-    def source_represent(id, show_link = True):
+    def source_represent(id, show_link=True):
         """ Represent a Message Source in the Workflow Table """
     
         db = current.db
         stable = db.msg_inbound_email_settings
         wtable = db.msg_workflow
         source = db(wtable.source_task_id == id).select(wtable.source_task_id,
-                                                        limitby = (0,1)).first()
+                                                        limitby=(0, 1)
+                                                        ).first()
         setting = db(stable.username == source.source_task_id).select(stable.id,
-                                                        limitby = (0,1)).first()
+                                                                      limitby=(0, 1)
+                                                                      ).first()
         repr = source.source_task_id
         if setting:
             id = setting.id

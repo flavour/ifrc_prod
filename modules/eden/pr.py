@@ -145,6 +145,7 @@ class S3PersonEntity(S3Model):
                            pr_group = T("Group"),
                            org_organisation = T("Organization"),
                            org_office = T("Office"),
+                           inv_warehouse = T("Warehouse"),
                            # If we want these, then pe_id needs adding to their
                            # tables & configuring as a super-entity
                            #cr_shelter = shelter,
@@ -162,7 +163,7 @@ class S3PersonEntity(S3Model):
         # Search method
         pentity_search = S3PentitySearch(name = "pentity_search_simple",
                                          label = T("Name and/or ID"),
-                                         comment = T(""),
+                                         comment = "",
                                          field = ["pe_label"])
 
         pentity_search.pentity_represent = pr_pentity_represent
@@ -564,6 +565,13 @@ class S3PersonModel(S3Model):
             9:T("other")
         }
 
+        pr_marital_status = S3ReusableField("marital_status", "integer",
+                                            requires = IS_IN_SET(pr_marital_status_opts, zero=None),
+                                            default = 1,
+                                            label = T("Marital Status"),
+                                            represent = lambda opt: \
+                                                        pr_marital_status_opts.get(opt, UNKNOWN_OPT))
+
         pr_religion_opts = settings.get_L10n_religions()
 
         pr_impact_tags = {
@@ -640,6 +648,7 @@ class S3PersonModel(S3Model):
                                    writable = False,
                                   ),
                              pr_gender(label = T("Gender")),
+                             pr_marital_status(),
                              s3_date("date_of_birth",
                                      label = T("Date of Birth"),
                                      past = 1320,  # Months, so 110 years
@@ -732,6 +741,7 @@ class S3PersonModel(S3Model):
                                        (T("Organization"), "hrm_human_resource:organisation_id$name")
                                        ],
                         onvalidation=self.pr_person_onvalidation,
+                        onaccept=self.pr_person_onaccept,
                         search_method=pr_person_search,
                         deduplicate=self.person_deduplicate,
                         main="first_name",
@@ -824,10 +834,83 @@ class S3PersonModel(S3Model):
                 ag = 6
 
             if age != ag:
-                form.errors.age_group = T("Age group does not match actual age.")
-                return False
+                form.errors.age_group = current.T("Age group does not match actual age.")
 
-        return True
+   # -------------------------------------------------------------------------
+    @staticmethod
+    def pr_person_onaccept(form):
+        """ Onaccept callback
+            Update any user associated with this person
+
+        """
+
+        db = current.db
+        s3db = current.s3db
+        auth = current.auth
+
+        vars = form.vars
+        person_id = vars.id
+
+        ptable = s3db.pr_person
+        ltable = s3db.pr_person_user
+        utable = auth.settings.table_user
+
+        # Find a user for this person
+        query = (ptable.id == person_id) & \
+                (ltable.pe_id == ptable.pe_id) & \
+                (utable.id == ltable.user_id)
+        user = db(query).select(utable.id,
+                                utable.first_name,
+                                utable.last_name,
+                                limitby=(0, 1)).first()
+
+        # If there is a user and their first or last name have changed
+        if user and \
+           ( user.first_name != vars.first_name or \
+             user.last_name != vars.last_name ):
+            # Update the user record
+            query = utable.id == user.id
+            db(query).update( first_name = vars.first_name,
+                              last_name = vars.last_name,
+                             )
+
+   # -------------------------------------------------------------------------
+    @staticmethod
+    def pr_person_onaccept(form):
+        """ Onaccept callback
+            Update any user associated with this person
+
+        """
+
+        db = current.db
+        s3db = current.s3db
+        auth = current.auth
+
+        vars = form.vars
+        person_id = vars.id
+
+        ptable = s3db.pr_person
+        ltable = s3db.pr_person_user
+        utable = auth.settings.table_user
+
+        # Find a user for this person
+        query = (ptable.id == person_id) & \
+                (ltable.pe_id == ptable.pe_id) & \
+                (utable.id == ltable.user_id)
+        user = db(query).select(utable.id,
+                                utable.first_name,
+                                utable.last_name,
+                                limitby=(0, 1)).first()
+
+        # If there is a user and their first or last name have changed
+        if user and \
+           ( user.first_name != vars.first_name or \
+             user.last_name != vars.last_name ):
+            # Update the user record
+            query = utable.id == user.id
+            db(query).update( first_name = vars.first_name,
+                              last_name = vars.last_name,
+                             )
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -881,9 +964,17 @@ class S3PersonModel(S3Model):
                                       ptable.date_of_birth,
                                       etable.value,
                                       stable.value,
-                                      left=left)
+                                      left=left,
+                                      orderby=["pr_person.created_on ASC"])
 
         duplicates = Storage()
+
+        def rank(a, b, match, mismatch):
+            if a and b:
+                return match if a == b else mismatch
+            else:
+                return untested
+
         for row in candidates:
             row_fname = row[ptable.first_name]
             row_lname = row[ptable.last_name]
@@ -893,36 +984,27 @@ class S3PersonModel(S3Model):
             row_sms = row[stable.value]
 
             check = 0
+
             if fname and row_fname:
-                if fname.lower() == row_fname.lower():
-                    check += 2
-                else:
-                    check -= 2
+                check += rank(fname.lower(), row_fname.lower(), +2, -2)
+
             if lname and row_lname:
-                if lname.lower() == row_lname.lower():
-                    check += 2
-                else:
-                    check -= 2
+                check += rank(lname.lower(), row_lname.lower(), +2, -2)
+
             if dob and row_dob:
-                if dob == row_dob:
-                    check += 2
-                else:
-                    check -= 2
-            if initials and row_initials:
-                if initials.lower() == row_initials.lower():
-                    check += 1
-                else:
-                    check -= 1
+                check += rank(dob, row_dob, +3, -2)
+
             if email and row_email:
-                if email.lower() == row_email.lower():
-                    check += 1
-                else:
-                    check -= 1
+                check += rank(email.lower(), row_email.lower(), +2, -5)
+            elif not email:
+                # Treat missing email as mismatch
+                check -= 2 if initials else 3 if not row_email else 4
+
+            if initials and row_initials:
+                check += rank(initials.lower(), row_initials.lower(), +4, -1)
+
             if sms and row_sms:
-                if sms.lower() == row_sms.lower():
-                    check += 1
-                else:
-                    check -= 1
+                check += rank(sms.lower(), row_sms.lower(), +1, -1)
 
             if check in duplicates:
                 continue
@@ -1316,7 +1398,7 @@ class S3ContactModel(S3Model):
         if form.vars.contact_method == "EMAIL":
             email, error = IS_EMAIL()(form.vars.value)
             if error:
-                form.errors.value = T("Enter a valid email")
+                form.errors.value = current.T("Enter a valid email")
         return False
 
     # -------------------------------------------------------------------------
@@ -1595,7 +1677,7 @@ class S3PersonImageModel(S3Model):
                        onaccept = self.pr_image_onaccept,
                        onvalidation = self.pr_image_onvalidation,
                        ondelete = self.pr_image_ondelete,
-                       mark_required = ["url", "image"],
+                       #mark_required = ["url", "image"],
                        list_fields=["id",
                                     "title",
                                     "profile",
@@ -1612,17 +1694,18 @@ class S3PersonImageModel(S3Model):
 
     # -------------------------------------------------------------------------
     @staticmethod
-    def pr_image_represent(image):
+    def pr_image_represent(image, size=None):
         """ Representation """
 
         if not image:
             return current.messages.NONE
         url_full = URL(c="default", f="download", args=image)
-        size = (None, 60)
+        if size is None:
+            size = (None, 60)
         image = pr_image_represent(image, size=size)
         url_small = URL(c="default", f="download", args=image)
 
-        return DIV(A(IMG(_src=url_small, _height=60), _href=url_full))
+        return DIV(A(IMG(_src=url_small, _height=size[1]), _href=url_full))
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -1693,7 +1776,7 @@ class S3PersonImageModel(S3Model):
 
         if not hasattr(image, "file") and not image and not url:
             form.errors.image = \
-            form.errors.url = T("Either file upload or image URL required.")
+            form.errors.url = current.T("Either file upload or image URL required.")
         return
 
     # -------------------------------------------------------------------------
@@ -1706,7 +1789,7 @@ class S3PersonImageModel(S3Model):
         query = (table.id == row.get("id"))
         deleted_row = db(query).select(table.image,
                                        limitby=(0, 1)).first()
-        s3db.pr_image_delete_all(deleted_row.image)
+        current.s3db.pr_image_delete_all(deleted_row.image)
 
 # =============================================================================
 class S3ImageLibraryModel(S3Model):
@@ -2002,8 +2085,8 @@ class S3SavedSearch(S3Model):
                                         writable = False,
                                         default = auth.user_id),
                                   Field("search_vars","text",
-                                        label = T("Search Criteria"),
-                                        represent=lambda id:s3_search_vars_represent(id)),
+                                        label = T("Search Criteria")),
+                                        #represent=lambda id:s3_search_vars_represent(id)),
                                   Field("subscribed","boolean",
                                         default=False),
                                   self.pr_person_id(
@@ -2070,8 +2153,6 @@ class S3PersonPresence(S3Model):
 
         ADD_LOCATION = current.messages.ADD_LOCATION
         UNKNOWN_OPT = current.messages.UNKNOWN_OPT
-
-        datetime_represent = S3DateTime.datetime_represent
 
         crud_strings = current.response.s3.crud_strings
 
@@ -2147,12 +2228,12 @@ class S3PersonPresence(S3Model):
                                         comment = DIV(_class="tooltip",
                                                       _title="%s|%s" % (T("Location Details"),
                                                                         T("Specific Area (e.g. Building/Room) within the Location that this Person/Group is seen.")))),
-                                  Field("datetime", "datetime",
-                                        label = T("Date/Time"),
-                                        default = current.request.utcnow,
-                                        requires = IS_UTC_DATETIME(allow_future=False),
-                                        widget = S3DateTimeWidget(future=0),
-                                        represent = lambda val: datetime_represent(val, utc=True)),
+                                  s3_datetime("datetime",
+                                              label = T("Date/Time"),
+                                              empty=False,
+                                              default="now",
+                                              future=0
+                                              ),
                                   Field("presence_condition", "integer",
                                         requires = IS_IN_SET(pr_presence_conditions,
                                                              zero=None),
@@ -2439,11 +2520,10 @@ class S3PersonDescription(S3Model):
                                    label=T("Status"),
                                    represent=lambda opt: \
                                             person_status.get(opt, UNKNOWN_OPT)),
-                             Field("timestmp", "datetime",
-                                   label=T("Date/Time"),
-                                   requires=[IS_EMPTY_OR(IS_UTC_DATETIME_IN_RANGE())],
-                                   widget = S3DateTimeWidget(),
-                                   default=current.request.utcnow),
+                             s3_datetime("timestmp",
+                                         label=T("Date/Time"),
+                                         default="now"
+                                         ),
                              Field("note_text", "text",
                                    label=T("Text")),
                              Field("note_contact", "text",
@@ -2676,7 +2756,7 @@ class S3PersonDescription(S3Model):
                                                 pr_hair_color_opts.get(opt, UNKNOWN_OPT)),
                              Field("facial_hair_length", "integer",
                                    requires = IS_EMPTY_OR(IS_IN_SET(pr_facial_hair_length_opts)),
-                                   label = T("Facial hear, length"),
+                                   label = T("Facial hair, length"),
                                    represent = lambda opt: \
                                                 pr_facial_hair_length_opts.get(opt, UNKNOWN_OPT)),
                              Field("facial_hair_comment"),
@@ -2699,9 +2779,6 @@ class S3PersonDescription(S3Model):
         table.pe_id.writable = False
 
         # CRUD Strings
-        # ?
-
-        # Resource Configuration
         # ?
 
         # ---------------------------------------------------------------------
@@ -2969,6 +3046,11 @@ def pr_pentity_represent(id, show_label=True, default_label="[No ID Tag]"):
                                               limitby=(0, 1)).first()
         if office:
             pe_str = "%s (%s)" % (office.name, instance_type_nice)
+    elif instance_type == "inv_warehouse":
+        warehouse = db(table.pe_id == id).select(table.name,
+                                                 limitby=(0, 1)).first()
+        if warehouse:
+            pe_str = "%s (%s)" % (warehouse.name, instance_type_nice)
     else:
         pe_str = "[%s] (%s)" % (label,
                                 instance_type_nice)
@@ -2991,9 +3073,19 @@ def pr_person_represent(person_id, show_link=False):
                                  lambda: s3_fullname(person_id),
                                  time_expire=60)
     if show_link:
-        # @ToDo: Use pr controller for other usecases
+        request = current.request
+        group = request.get_vars.get("group", None)
+        c = request.controller
+        if group == "staff" or \
+           c == "hrm":
+            controller = "hrm"
+        elif group == "volunteer" or \
+             c == "vol":
+            controller = "vol"
+        else:
+            controller = "pr"
         name = A(name,
-                 _href = URL(c="hrm", f="person", args=[person_id]))
+                 _href = URL(c=controller, f="person", args=[person_id]))
     return name
 
 # =============================================================================
@@ -3894,7 +3986,7 @@ def pr_delete_role(role_id):
         @param role_id: the role ID
     """
 
-    resource = current.manager.define_resource("pr", "role", id=role_id)
+    resource = s3db.resource("pr_role", role_id)
     return resource.delete()
 
 # =============================================================================

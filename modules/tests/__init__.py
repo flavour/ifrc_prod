@@ -1,4 +1,5 @@
 from core import *
+from roles import *
 from org import *
 from hrm import *
 from inv import *
@@ -6,3 +7,5 @@ from asset import *
 from project import *
 from smoke import *
 from member import *
+from volunteer import *
+from staff import *

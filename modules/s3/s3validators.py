@@ -41,7 +41,6 @@ __all__ = ["single_phone_number_pattern",
            "IS_HTML_COLOUR",
            "IS_UTC_OFFSET",
            "IS_UTC_DATETIME",
-           "IS_UTC_DATETIME_IN_RANGE",
            "IS_ONE_OF",
            "IS_ONE_OF_EMPTY",
            "IS_ONE_OF_EMPTY_SELECT",
@@ -199,6 +198,10 @@ class IS_INT_AMOUNT(IS_INT_IN_RANGE):
 
         if number is None:
             return ""
+        try:
+            intnumber = int(number)
+        except:
+            intnumber = number
 
         T = current.T
         settings = current.deployment_settings
@@ -219,7 +222,7 @@ class IS_INT_AMOUNT(IS_INT_IN_RANGE):
         else:
             sign = ""
 
-        str_number = unicode(number)
+        str_number = unicode(intnumber)
 
         if str_number[0] == "-":
             str_number = str_number[1:]
@@ -366,6 +369,8 @@ class IS_ONE_OF_EMPTY(Validator):
                  filter_opts=None,
                  not_filterby=None,
                  not_filter_opts=None,
+                 updateable=False,
+                 instance_types=None,
                  error_message="invalid value!",
                  orderby=None,
                  groupby=None,
@@ -375,6 +380,37 @@ class IS_ONE_OF_EMPTY(Validator):
                  sort=True,
                  _and=None,
                 ):
+        """
+            Validator for foreign keys.
+
+            @param dbset: a Set of records like db(query), or db itself
+            @param field: the field in the referenced table
+            @param label: lookup method for the label corresponding a value,
+                          alternatively a string template to be filled with
+                          values from the record
+            @param filterby: a field in the referenced table to filter by
+            @param filter_opts: values for the filterby field which indicate
+                                records to include
+            @param not_filterby: a field in the referenced table to filter by
+            @param not_filter_opts: values for not_filterby field which indicate
+                                    records to exclude
+            @param updateable: only include records in the referenced table which
+                               can be updated by the user (if False, all readable
+                               records will be included)
+            @param instance_types: if the referenced table is a super-entity, then
+                                   only include these instance types (this parameter
+                                   is required for super entity lookups!)
+            @param error_message: the error message to return for failed validation
+            @param orderby: orderby for the options
+            @param groupby: groupby for the options
+            @param left: additional left joins required for the options lookup
+                         (super-entity instance left joins will be included
+                         automatically)
+            @param multiple: allow multiple values (for list:reference types)
+            @param zero: add this as label for the None-option (allow selection of "None")
+            @param sort: sort options alphabetically by their label
+            @param _and: internal use
+        """
 
         if hasattr(dbset, "define_table"):
             self.dbset = dbset()
@@ -420,6 +456,9 @@ class IS_ONE_OF_EMPTY(Validator):
         self.not_filterby = not_filterby
         self.not_filter_opts = not_filter_opts
 
+        self.updateable = updateable
+        self.instance_types = instance_types
+
     # -------------------------------------------------------------------------
     def set_self_id(self, id):
         if self._and:
@@ -464,9 +503,14 @@ class IS_ONE_OF_EMPTY(Validator):
                 # Caching breaks Colorbox dropdown refreshes
                 #dd = dict(orderby=orderby, groupby=groupby, cache=(current.cache.ram, 60))
                 dd = dict(orderby=orderby, groupby=groupby)
-                query = current.auth.s3_accessible_query("read", table)
+
+                method = "update" if self.updateable else "read"
+                query, left = self.accessible_query(method, table,
+                                                    instance_types=self.instance_types)
+
                 if "deleted" in table:
                     query = ((table["deleted"] == False) & query)
+
                 filterby = self.filterby
                 if filterby and filterby in table:
                     filter_opts = self.filter_opts
@@ -477,18 +521,27 @@ class IS_ONE_OF_EMPTY(Validator):
                             filter_opts = [f for f in filter_opts if f is not None]
                             if filter_opts:
                                 _query = _query | (table[filterby].belongs(filter_opts))
-                            query = query & _query
+                            query &= _query
                         else:
-                            query = query & (table[filterby].belongs(filter_opts))
+                            query &= (table[filterby].belongs(filter_opts))
                     if not self.orderby:
                         dd.update(orderby=table[filterby])
-                if self.not_filterby and self.not_filterby in table and self.not_filter_opts:
-                    query = query & (~(table[self.not_filterby].belongs(self.not_filter_opts)))
+
+                not_filterby = self.not_filterby
+                if not_filterby and not_filterby in table:
+                    not_filter_opts = self.not_filter_opts
+                    if not_filter_opts:
+                        query &= (~(table[not_filterby].belongs(not_filter_opts)))
                     if not self.orderby:
                         dd.update(orderby=table[filterby])
+
+                if self.left is not None:
+                    self.left.append(left)
+                else:
+                    self.left = left
                 if self.left is not None:
                     dd.update(left=self.left)
-                records = dbset(query).select(*fields, **dd)
+                records = dbset(query).select(distinct=True, *fields, **dd)
             else:
                 # Note this does not support filtering.
                 orderby = self.orderby or \
@@ -543,6 +596,64 @@ class IS_ONE_OF_EMPTY(Validator):
         else:
             self.theset = None
             self.labels = None
+
+    # -------------------------------------------------------------------------
+    @classmethod
+    def accessible_query(cls, method, table, instance_types=None):
+        """
+            Returns an accessible query (and left joins, if necessary) for
+            records in table the user is permitted to access with method
+
+            @param method: the method (e.g. "read" or "update")
+            @param table: the table
+            @param instance_types: list of instance tablenames, if table is
+                                   a super-entity (required in this case!)
+
+            @returns: tuple (query, left) where query is the query and left joins
+                      is the list of left joins required for the query
+
+            @note: for higher security policies and super-entities with many
+                   instance types this can give a very complex query. Try to
+                   always limit the instance types to what is really needed
+        """
+
+        DEFAULT = (table._id > 0)
+
+        left = None
+
+        if "instance_type" in table:
+            # Super-entity
+            if not instance_types:
+                return DEFAULT, left
+            query = None
+            auth = current.auth
+            s3db = current.s3db
+            for instance_type in instance_types:
+                itable = s3db.table(instance_type)
+                if itable is None:
+                    continue
+
+                join = itable.on(itable[table._id.name] == table._id)
+                if left is None:
+                    left = [join]
+                else:
+                    left.append(join)
+
+                q = (itable._id != None) & \
+                    auth.s3_accessible_query(method, itable)
+                if "deleted" in itable:
+                    q &= itable.deleted != True
+                if query is None:
+                    query = q
+                else:
+                    query |= q
+
+            if query is None:
+                query = DEFAULT
+        else:
+            query = current.auth.s3_accessible_query(method, table)
+
+        return query, left
 
     # -------------------------------------------------------------------------
     # Removed as we don't want any options downloaded unnecessarily
@@ -1593,123 +1704,17 @@ class IS_UTC_DATETIME(Validator):
 
         @param format:          strptime/strftime format template string, for
                                 directives refer to your strptime implementation
-        @param error_message:   dict of error messages to be returned
+        @param error_message:   error message to be returned
         @param utc_offset:      offset to UTC in seconds, if not specified, the
                                 value is considered to be UTC
-        @param allow_future:    whether future date/times are allowed or not,
-                                if set to False, all date/times beyond
-                                now+max_future will fail
-        @type allow_future:     boolean
-        @param max_future:      the maximum acceptable future time interval in
-                                seconds from now for unsynchronized local clocks
+        @param minimum:         the minimum acceptable datetime
+        @param maximum:         the maximum acceptable datetime
 
         @note:
             datetime has to be in the ISO8960 format YYYY-MM-DD hh:mm:ss,
             with an optional trailing UTC offset specified as +/-HHMM
             (+ for eastern, - for western timezones)
     """
-
-    def __init__(self,
-                 format=None,
-                 error_message=None,
-                 utc_offset=None,
-                 allow_future=True,
-                 max_future=900
-                ):
-
-        if format is None:
-            self.format = current.deployment_settings.get_L10n_datetime_format()
-        else:
-            self.format = format
-
-        self.error_message = dict(
-            format = "Required format: %s!" % self.format,
-            offset = "Invalid UTC offset!",
-            future = "Future times not allowed!")
-
-        if error_message and isinstance(error_message, dict):
-            self.error_message["format"] = error_message.get("format", None) or self.error_message["format"]
-            self.error_message["offset"] = error_message.get("offset", None) or self.error_message["offset"]
-            self.error_message["future"] = error_message.get("future", None) or self.error_message["future"]
-        elif error_message:
-            self.error_message["format"] = error_message
-
-        if utc_offset is None:
-            utc_offset = current.session.s3.utc_offset
-
-        validate = IS_UTC_OFFSET()
-        offset, error = validate(utc_offset)
-
-        if error:
-            self.utc_offset = "UTC +0000" # fallback to UTC
-        else:
-            self.utc_offset = offset
-
-        self.allow_future = allow_future
-        self.max_future = max_future
-
-    # -------------------------------------------------------------------------
-    def __call__(self, value):
-
-        _dtstr = value.strip()
-
-        if len(_dtstr) > 6 and \
-            (_dtstr[-6:-4] == " +" or _dtstr[-6:-4] == " -") and \
-            _dtstr[-4:].isdigit():
-            # UTC offset specified in dtstr
-            dtstr = _dtstr[0:-6]
-            _offset_str = _dtstr[-5:]
-        else:
-            # use default UTC offset
-            dtstr = _dtstr
-            _offset_str = self.utc_offset
-
-        offset_hrs = int(_offset_str[-5] + _offset_str[-4:-2])
-        offset_min = int(_offset_str[-5] + _offset_str[-2:])
-        offset = 3600 * offset_hrs + 60 * offset_min
-
-        # Offset must be in range -1439 to +1439 minutes
-        if offset < -86340 or offset > 86340:
-            return (dt, self.error_message["offset"])
-
-        try:
-            (y, m, d, hh, mm, ss, t0, t1, t2) = time.strptime(dtstr, str(self.format))
-            dt = datetime(y, m, d, hh, mm, ss)
-        except:
-            try:
-                (y, m, d, hh, mm, ss, t0, t1, t2) = time.strptime(dtstr+":00", str(self.format))
-                dt = datetime(y, m, d, hh, mm, ss)
-            except:
-                return(value, self.error_message["format"])
-
-        if self.allow_future:
-            return (dt, None)
-        else:
-            latest = datetime.utcnow() + timedelta(seconds=self.max_future)
-            dt_utc = dt - timedelta(seconds=offset)
-            if dt_utc > latest:
-                return (dt_utc, self.error_message["future"])
-            else:
-                return (dt_utc, None)
-
-    # -------------------------------------------------------------------------
-    def formatter(self, value):
-
-        format = self.format
-        offset = IS_UTC_OFFSET.get_offset_value(self.utc_offset)
-
-        if not value:
-            return "-"
-        elif offset:
-            dt = value + timedelta(seconds=offset)
-            return dt.strftime(str(format))
-        else:
-            dt = value
-            return dt.strftime(str(format)) + " +0000"
-
-
-# =============================================================================
-class IS_UTC_DATETIME_IN_RANGE(Validator):
 
     def __init__(self,
                  format=None,
@@ -1741,8 +1746,8 @@ class IS_UTC_DATETIME_IN_RANGE(Validator):
             else:
                 error_message = "enter date and time in range %(min)s %(max)s"
 
-        d = dict(min = min_local, max = max_local)
-        self.error_message = error_message % d
+        self.error_message = error_message % dict(min = min_local,
+                                                  max = max_local)
 
     # -------------------------------------------------------------------------
     def delta(self, utc_offset=None):
