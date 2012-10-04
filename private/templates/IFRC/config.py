@@ -416,13 +416,13 @@ settings.modules = OrderedDict([
            #description = "Membership Management System",
            restricted = True,
            module_type = 10,
-       )),
-    #("stats", Storage(
-    #        name_nice = T("Statistics"),
-    #        #description = "Manages statistics",
-    #        restricted = True,
-    #        module_type = None,
-    #    )),
+        )),
+    ("stats", Storage(
+            name_nice = T("Statistics"),
+            #description = "Manages statistics",
+            restricted = True,
+            module_type = None,
+        )),
     #("vulnerability", Storage(
     #        name_nice = T("Vulnerability"),
     #        #description = "Manages vulnerability indicators",
