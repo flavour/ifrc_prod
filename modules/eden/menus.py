@@ -441,32 +441,22 @@ class S3OptionsMenu(object):
                         M("Report", m="report"),
                         M("Import", m="import", p="create"),
                     ),
-                    M("Items", c="supply", f="item")(
+                    M("Items", f="item")(
                         M("New", m="create"),
                         M("List All"),
                         M("Search", m="search"),
                         M("Report", m="report"),
                         M("Import", m="import", p="create"),
                     ),
-                    M("Catalogs", c="supply", f="catalog")(
-                        M("New", m="create"),
-                        M("List All"),
-                        #M("Search", m="search"),
-                    ),
-                    M("Item Categories", c="supply", f="item_category")(
+                    M("Item Categories", f="item_category")(
                         M("New", m="create"),
                         M("List All"),
                     ),
-                    M("Suppliers", c="inv", f="supplier")(
+                    M("Suppliers", f="supplier")(
                         M("New", m="create"),
                         M("List All"),
                         M("Search", m="search"),
                         M("Import", m="import", p="create"),
-                    ),
-                    M("Facilities", c="inv", f="facility")(
-                        M("New", m="create"),
-                        M("List All"),
-                        #M("Search", m="search"),
                     ),
                 )
 
@@ -866,6 +856,11 @@ class S3OptionsMenu(object):
                         M("New", m="create"),
                         M("List All"),
                     ),
+                    M("Department Catalog", f="department",
+                      check=manager_mode)(
+                        M("New", m="create"),
+                        M("List All"),
+                    ),
                     M("Job Role Catalog", f="job_role",
                       check=[manager_mode, job_roles])(
                         M("New", m="create"),
@@ -957,6 +952,11 @@ class S3OptionsMenu(object):
                     ),
                     M("Teams", f="group",
                       check=[manager_mode, use_teams])(
+                        M("New", m="create"),
+                        M("List All"),
+                    ),
+                    M("Department Catalog", f="department",
+                      check=manager_mode)(
                         M("New", m="create"),
                         M("List All"),
                     ),
@@ -1481,8 +1481,8 @@ class S3OptionsMenu(object):
                         M("List All"),
                         M("Map", m="map"),
                         M("Search", m="search"),
-                        M("List All Community Contacts", f="community_contact"),
-                        M("Search Community Contacts", f="community_contact",
+                        M("List All Community Contacts", f="location_contact"),
+                        M("Search Community Contacts", f="location_contact",
                           m="search"),
                      ),
                     )
@@ -1495,10 +1495,13 @@ class S3OptionsMenu(object):
                         M("Search", m="search"),
                      )
                     )
+            stats = lambda i: settings.has_module("stats")
             menu(
                  M("Reports", f="location", m="report")(
                     M("3W", f="location", m="report"),
-                    M("Beneficiaries", f="beneficiary", m="report"),
+                    M("Beneficiaries", f="beneficiary", m="report",
+                      check = stats,
+                      ),
                     M("Funding", f="organisation", args="report"),
                  ),
                  M("Import", f="index", p="create")(
@@ -1524,7 +1527,8 @@ class S3OptionsMenu(object):
                     M("List All"),
                     #M("Search", m="search")
                  ),
-                 M("Beneficiary Types", f="beneficiary_type")(
+                 M("Beneficiary Types", f="beneficiary_type",
+                   check = stats,)(
                     M("New", m="create"),
                     M("List All"),
                  ),

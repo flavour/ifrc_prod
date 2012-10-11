@@ -2,10 +2,10 @@
 
 """ RESTful Search Methods
 
-    @requires: U{B{I{gluon}} <http://web2py.com>}
-
     @copyright: 2009-2012 (c) Sahana Software Foundation
     @license: MIT
+
+    @requires: U{B{I{gluon}} <http://web2py.com>}
 
     Permission is hereby granted, free of charge, to any person
     obtaining a copy of this software and associated documentation
@@ -47,7 +47,7 @@ from gluon.html import BUTTON
 
 from s3crud import S3CRUD
 from s3navigation import s3_search_tabs
-from s3utils import s3_debug, S3DateTime, s3_get_foreign_key, s3_unicode
+from s3utils import S3DateTime, s3_get_foreign_key, s3_unicode
 from s3validators import *
 from s3widgets import S3OrganisationHierarchyWidget, s3_grouped_checkboxes_widget
 from s3export import S3Exporter
@@ -67,7 +67,6 @@ __all__ = ["S3SearchWidget",
            "S3PersonSearch",
            "S3HRSearch",
            "S3PentitySearch",
-           "S3CAPSearch",
            ]
 
 MAX_RESULTS = 1000
@@ -779,6 +778,7 @@ class S3SearchLocationWidget(S3SearchWidget):
         try:
             from shapely.wkt import loads as wkt_loads
         except ImportError:
+            from s3utils import s3_debug
             s3_debug("WARNING: %s: Shapely GIS library not installed" % __name__)
             return None
 
@@ -803,17 +803,19 @@ class S3SearchLocationWidget(S3SearchWidget):
 
         # Button to open the Map
         OPEN_MAP = T("Open Map")
-        map_button = A(OPEN_MAP,
-                       _style="cursor:pointer; cursor:hand",
-                       _id="gis_search_map-btn")
+        CLEAR_MAP = T("Clear selection")
+        map_buttons = TAG[""](BUTTON(OPEN_MAP,
+                                     _id="gis_search_map-btn"),
+                              BUTTON(CLEAR_MAP,
+                                     _id="gis_search_polygon_input_clear"))
 
         # Settings to be read by static/scripts/S3/s3.gis.js
-        js_location_search = """S3.gis.draw_polygon = true;"""
+        js_location_search = '''S3.gis.draw_polygon=true'''
 
         # The overall layout of the components
         return TAG[""](
                         polygon_input,
-                        map_button,
+                        map_buttons,
                         #map_popup,
                         SCRIPT(js_location_search)
                       )
@@ -838,6 +840,7 @@ class S3SearchLocationWidget(S3SearchWidget):
             try:
                 shape = wkt_loads(value)
             except:
+                from s3utils import s3_debug
                 s3_debug("WARNING: S3Search: Invalid WKT")
                 return None
 
@@ -1584,8 +1587,9 @@ S3.i18n.edit_saved_search="%s"
             if advanced_form.accepts(form_values,
                                      formname="search_advanced"):
                 simple = False
+                resource = self.resource
                 for name, widget in self.advanced:
-                    query, errors = self._build_widget_query(self.resource,
+                    query, errors = self._build_widget_query(resource,
                                                              name,
                                                              widget,
                                                              advanced_form,
@@ -2045,8 +2049,7 @@ S3.i18n.edit_saved_search="%s"
             errors = True
 
         # How can this be done more elegantly?
-        resource_represent = { "human_resource":
-                               lambda id: \
+        resource_represent = {"human_resource": lambda id: \
                                 response.s3.hrm_human_resource_represent(id,
                                                                          show_link=True)
                               }
@@ -2063,7 +2066,7 @@ S3.i18n.edit_saved_search="%s"
         rows = resource._load(field, **attributes)
 
         if not errors:
-            output = [{ "id"   : row[get_fieldname],
+            output = [{"id" : row[get_fieldname],
                        "represent" : str(represent(row[get_fieldname]))
                        } for row in rows ]
         else:
@@ -2221,7 +2224,7 @@ class S3LocationSearch(S3Search):
             filter = _vars.filter
             if filter == "~":
                 if children:
-                    # New LocationSelector
+                    # LocationSelector
                     children = current.gis.get_children(children, level=level)
                     children = children.find(lambda row: \
                                              row.name and value in str.lower(row.name))
@@ -2229,15 +2232,8 @@ class S3LocationSearch(S3Search):
                     response.headers["Content-Type"] = "application/json"
                     return output
 
-                if exclude_field and exclude_value:
-                    # Old LocationSelector
-                    # Filter out poor-quality data, such as from Ushahidi
-                    query = (field.lower().like(value + "%")) & \
-                            ((table[exclude_field].lower() != exclude_value) | \
-                             (table[exclude_field] == None))
-
-                elif field2:
-                    # New LocationSelector
+                if field2:
+                    # LocationSelector for addr_street
                     query = ((field.lower().like(value + "%")) | \
                              (field2.lower().like(value + "%")))
 
@@ -2245,9 +2241,9 @@ class S3LocationSearch(S3Search):
                     # Normal single-field
                     query = (field.lower().like(value + "%"))
 
+                resource.add_filter(query)
                 if level:
-                    resource.add_filter(query)
-                    # New LocationSelector or Autocomplete
+                    # LocationSelector or Autocomplete
                     if isinstance(level, list):
                         query = (table.level.belongs(level))
                     elif str.upper(level) == "NULLNONE":
@@ -2255,9 +2251,12 @@ class S3LocationSearch(S3Search):
                         query = (table.level == level)
                     else:
                         query = (table.level == level)
+                else:
+                    # Filter out poor-quality data, such as from Ushahidi
+                    query = (table.level != "XX")
 
                 if parent:
-                    # New LocationSelector
+                    # LocationSelector
                     resource.add_filter(query)
                     query = (table.parent == parent)
 
@@ -2290,11 +2289,8 @@ class S3LocationSearch(S3Search):
                           table.addr_postcode
                           ]
             else:
-                output = current.xml.json_message(
-                                False,
-                                400,
-                                "Unsupported filter! Supported filters: ~, ="
-                            )
+                output = current.xml.json_message(False, 400,
+                                "Unsupported filter! Supported filters: ~, =")
                 raise HTTP(400, body=output)
 
 
@@ -2309,17 +2305,17 @@ class S3LocationSearch(S3Search):
             if (not limit or limit > MAX_SEARCH_RESULTS) and resource.count() > MAX_SEARCH_RESULTS:
                 output = jsons([dict(id="",
                                      name="Search results are over %d. Please input more characters." \
-                                     % MAX_SEARCH_RESULTS)])
+                                        % MAX_SEARCH_RESULTS)])
         elif not parent:
             if (not limit or limit > MAX_RESULTS) and resource.count() > MAX_RESULTS:
                 output = jsons([])
 
         if output is None:
             output = S3Exporter().json(resource,
-                                            start=0,
-                                            limit=limit,
-                                            fields=fields,
-                                            orderby=field)
+                                       start=0,
+                                       limit=limit,
+                                       fields=fields,
+                                       orderby=field)
 
         response.headers["Content-Type"] = "application/json"
         return output
@@ -2370,16 +2366,13 @@ class S3OrganisationSearch(S3Search):
                         (S3FieldSelector("organisation.acronym").lower().like(value + "%"))
 
             else:
-                output = current.xml.json_message(
-                                False,
-                                400,
-                                "Unsupported filter! Supported filters: ~"
-                            )
+                output = current.xml.json_message(False, 400,
+                                "Unsupported filter! Supported filters: ~")
                 raise HTTP(400, body=output)
 
         resource.add_filter(query)
 
-        limit = int(_vars.limit or 0)
+        limit = int(_vars.limit or MAX_SEARCH_RESULTS)
         if (not limit or limit > MAX_SEARCH_RESULTS) and resource.count() > MAX_SEARCH_RESULTS:
             output = jsons([dict(id="",
                                  name="Search results are over %d. Please input more characters." \
@@ -2409,13 +2402,11 @@ class S3OrganisationSearch(S3Search):
                     parent = db(query).select(table.name,
                                               limitby = (0, 1)).first()
                     if parent:
-                        name = "%s > %s" % (parent.name,
-                                            name)
+                        name = "%s > %s" % (parent.name, name)
                 if not parent:
                     acronym = row[table].acronym
                     if acronym:
-                        name = "%s (%s)" % (name,
-                                            acronym)
+                        name = "%s (%s)" % (name, acronym)
                 record = dict(
                     id = row[table].id,
                     name = name,
@@ -2537,11 +2528,7 @@ class S3HRSearch(S3Search):
         value = _vars.term or _vars.value or _vars.q or None
 
         if not value:
-            output = current.xml.json_message(
-                            False,
-                            400,
-                            "No value provided!"
-                        )
+            output = current.xml.json_message(False, 400, "No value provided!")
             raise HTTP(400, body=output)
 
         # We want to do case-insensitive searches
@@ -2570,7 +2557,7 @@ class S3HRSearch(S3Search):
         if (not limit or limit > MAX_SEARCH_RESULTS) and resource.count() > MAX_SEARCH_RESULTS:
             output = jsons([dict(id="",
                                  name="Search results are over %d. Please input more characters." \
-                                 % MAX_SEARCH_RESULTS)])
+                                    % MAX_SEARCH_RESULTS)])
         else:
             fields = ["id",
                       "person_id$first_name",
@@ -2662,11 +2649,8 @@ class S3PentitySearch(S3Search):
                             (field3.lower().like(value + "%")))
                 resource.add_filter(query)
             else:
-                output = current.xml.json_message(
-                                False,
-                                400,
-                                "Unsupported filter! Supported filters: ~"
-                            )
+                output = current.xml.json_message(False, 400,
+                                "Unsupported filter! Supported filters: ~")
                 raise HTTP(400, body=output)
 
         resource.add_filter(ptable.pe_id == table.pe_id)
@@ -2712,13 +2696,6 @@ class S3PentitySearch(S3Search):
         output = json.dumps(items)
         response.headers["Content-Type"] = "application/json"
         return output
-
-# =============================================================================
-class S3CAPSearch(S3Search):
-    """
-        Search method with specifics for Alerts
-    """
-    pass
 
 # =============================================================================
 class S3SearchOrgHierarchyWidget(S3SearchOptionsWidget):

@@ -8,6 +8,7 @@
          CSV column...........Format..........Content
 
          Name.................string..........Name
+         Comments.............string..........Comments
          Sector:<Sector Abrv>.Yes/blank.......Flag to link activity type to Sector 
 
     *********************************************************************** -->
@@ -40,7 +41,7 @@
                     <resource name="project_activity_type_sector">
                         <reference field="sector_id" resource="org_sector">
                             <xsl:attribute name="tuid">
-                                <xsl:value-of  select="concat('[&quot;',normalize-space(substring-after(@field, ':')),'&quot;]')"/>
+                                <xsl:value-of  select="normalize-space(substring-after(@field, ':'))"/>
                             </xsl:attribute>
                         </reference>
                     </resource>

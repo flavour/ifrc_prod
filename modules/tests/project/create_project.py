@@ -51,7 +51,10 @@ class CreateProject(SeleniumUnitTest):
         self.login(account="admin", nexturl="project/project/create")
         
         self.create("project_project", 
-                    [( "name",
+                    [("organisation_id", 
+                      "International Federation of Red Cross and Red Crescent Societies (IFRC)", 
+                      "option"),
+                     ( "name",
                        "Community Strengthening through Dance" ),
                      ( "comments",
                        "Host National Society")
@@ -80,34 +83,32 @@ class CreateProject(SeleniumUnitTest):
         self.browser.find_element_by_id("rheader_tab_location").click()
 
         self.create("project_location", 
-                    [( "L0",
-                       "Timor-Leste",
-                       "gis_location" ),
-                     ( "L1",
-                       "Aileu",
-                       "gis_location"),
-                     ( "L2",
+                    [( "location_id",
                        "Aileu Vila",
-                       "gis_location"),
-                     ( "L3",
-                       "Saboria", #"Aisirimou"
-                       "gis_location"),
-                     ( "L4",
-                       "Aileu",
-                       "gis_location"),
-                     ( "lat",
-                       "0",
-                       "gis_location"),
-                     ( "lon",
-                       "0",
-                       "gis_location"),
+                       "autocomplete"),
+                     # If using LocationSelector:
+                     #( "L0",
+                     #  "Timor-Leste",
+                     #  "gis_location" ),
+                     #( "L1",
+                     #  "Aileu",
+                     #  "gis_location"),
+                     #( "L2",
+                     #  "Aileu Vila",
+                     #  "gis_location"),
+                     #( "L3",
+                     #  "Saboria", #"Aisirimou"
+                     #  "gis_location"),
+                     #( "L4",
+                     #  "Aileu",
+                     #  "gis_location"),
+                     #( "lat",
+                     #  "0",
+                     #  "gis_location"),
+                     #( "lon",
+                     #  "0",
+                     #  "gis_location")
                      # @ToDo: Activities - Community Organisation, Contingency Planning, Logistics
-                     ( "population",
-                       "1000"),
-                     ( "number_families",
-                       "200"),
-                     ( "comments",
-                       "First Community")
                      ]
                      )
 

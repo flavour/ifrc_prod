@@ -49,8 +49,8 @@ ASSET_TYPE_OTHER     = 4   # => No extra Tabs
 # To pass to global scope
 asset_types = {
                 "VEHICLE"    : ASSET_TYPE_VEHICLE,
-                "RADIO"     : ASSET_TYPE_RADIO,
-                "TELEPHONE" : ASSET_TYPE_TELEPHONE,
+                "RADIO"      : ASSET_TYPE_RADIO,
+                "TELEPHONE"  : ASSET_TYPE_TELEPHONE,
                 "OTHER"      : ASSET_TYPE_OTHER,
                }
 
@@ -104,7 +104,9 @@ class S3AssetModel(S3Model):
 
         UNKNOWN_OPT = current.messages.UNKNOWN_OPT
 
-        vehicle = current.deployment_settings.has_module("vehicle")
+        settings = current.deployment_settings
+        org_site_label = settings.get_org_site_label()
+        vehicle = settings.has_module("vehicle")
 
         # Shortcuts
         add_component = self.add_component
@@ -123,8 +125,8 @@ class S3AssetModel(S3Model):
                             ASSET_TYPE_OTHER      : T("Other")
                            }
 
-        asset_item_represent = lambda id: self.supply_item_represent(id,
-                                                                     show_um = False)
+        asset_item_represent = lambda id: \
+            self.supply_item_represent(id, show_um = False)
 
         ctable = self.supply_item_category
         itable = self.supply_item
@@ -155,7 +157,8 @@ class S3AssetModel(S3Model):
                                                  widget = None,
                                                  script = None, # No Item Pack Filter
                                                  ),
-                             organisation_id(script = SCRIPT('''
+                             organisation_id(required = True,
+                                             script = SCRIPT('''
 $(document).ready(function(){
  S3FilterFieldChange({
   'FilterField':'organisation_id',
@@ -168,7 +171,7 @@ $(document).ready(function(){
                              # This is a component, so needs to be a super_link
                              # - can't override field name, ondelete or requires
                              super_link("site_id", "org_site",
-                                        label = T("Office/Warehouse/Facility"),
+                                        label = org_site_label,
                                         default = auth.user.site_id if auth.is_logged_in() else None,
                                         readable = True,
                                         writable = True,
@@ -197,7 +200,8 @@ $(document).ready(function(){
                                      ),
                              Field("purchase_price", "double",
                                    #default=0.00,
-                                   represent=lambda v, row=None: IS_FLOAT_AMOUNT.represent(v, precision=2)),
+                                   represent=lambda v, row=None: \
+                                    IS_FLOAT_AMOUNT.represent(v, precision=2)),
                              s3_currency("purchase_currency"),
                              # Base Location, which should always be a Site & set via Log
                              location_id(readable=False,
@@ -239,7 +243,7 @@ $(document).ready(function(){
                                    represent = self.asset_represent,
                                    label = T("Asset"),
                                    comment = S3AddResourceLink(c="asset", f="asset",
-                                                tooltip=T("If you don't see the asset in the list, you can add a new one by clicking link 'Add Asset'.")),
+                                    tooltip=T("If you don't see the asset in the list, you can add a new one by clicking link 'Add Asset'.")),
                                    ondelete = "CASCADE")
 
         table.virtualfields.append(AssetVirtualFields())
@@ -287,7 +291,7 @@ $(document).ready(function(){
                          "number",
                          (T("Category"), "item_id$item_category_id"),
                          (T("Item"), "item_id"),
-                         (T("Office/Warehouse/Facility"), "site"),
+                         (org_site_label, "site"),
                          "L1",
                          "L2",
                          ]
@@ -295,6 +299,7 @@ $(document).ready(function(){
         # Resource Configuration
         configure(tablename,
                   super_entity = ("supply_item_entity", "sit_trackable"),
+                  mark_required = ["organisation_id"],
                   create_next = URL(c="asset", f="asset",
                                     args=["[id]"]),
                   onaccept=self.asset_onaccept,
@@ -365,7 +370,7 @@ $(document).ready(function(){
         # Asset Log
         #
 
-        asset_log_status_opts = {ASSET_LOG_SET_BASE : T("Base Office/Warehouse/Facility Set"),
+        asset_log_status_opts = {ASSET_LOG_SET_BASE : T("Base %(facility)s Set") % dict(facility = org_site_label),
                                  ASSET_LOG_ASSIGN   : T("Assigned"),
                                  ASSET_LOG_RETURN   : T("Returned"),
                                  ASSET_LOG_CHECK    : T("Checked"),
@@ -430,7 +435,7 @@ $(document).ready(function(){
                              # This is a component, so needs to be a super_link
                              # - can't override field name, ondelete or requires
                              super_link("site_id", "org_site",
-                                        label = T("Warehouse/Facility/Office"),
+                                        label = org_site_label,
                                         #filterby = "site_id",
                                         #filter_opts = auth.permitted_facilities(redirect_on_error=False),
                                         instance_types = auth.org_site_types,
@@ -657,10 +662,10 @@ $(document).ready(function(){
                 if type == "person":#
                     if vars.check_in_to_person:
                         asset_tracker.check_in(s3db.pr_person, vars.person_id,
-                                               timestmp = thistime)
+                                               timestmp = request.utcnow)
                     else:
                         asset_tracker.set_location(vars.person_id,
-                                                   timestmp = thistime)
+                                                   timestmp = request.utcnow)
                     # Update main record for component
                     db(atable.id == asset_id).update(
                                                 assigned_to_id=vars.person_id
@@ -668,19 +673,19 @@ $(document).ready(function(){
 
                 elif type == "site":
                     asset_tracker.check_in(s3db.org_site, vars.site_id,
-                                           timestmp = thistime)
+                                           timestmp = request.utcnow)
                 elif type == "organisation":
                     #if vars.site_or_location == SITE:
                     asset_tracker.check_in(s3db.org_site, vars.site_id,
-                                           timestmp = thistime)
+                                           timestmp = request.utcnow)
                     #if vars.site_or_location == LOCATION:
                     #    asset_tracker.set_location(vars.location_id,
-                    #                               timestmp = thistime)
+                    #                               timestmp = request.utcnow)
 
             elif status == ASSET_LOG_RETURN:
                 # Set location to base location
                 asset_tracker.set_location(asset_tracker,
-                                           timestmp = thistime)
+                                           timestmp = request.utcnow)
         return
 
     # -------------------------------------------------------------------------
@@ -891,54 +896,54 @@ def asset_rheader(r):
             current_log = asset_get_current_log(record.id)
             status = current_log.status
 
-            if record.location_id:
-                # A Base Site has been set
-                # Return functionality removed  - as it doesn't set site_id & organisation_id in the logs
-                #if status == ASSET_LOG_ASSIGN:
-                #    asset_action_btns += [ A( T("Return"),
-                #                              _href = URL(f=func,
-                #                                          args = [record.id, "log", "create"],
-                #                                          vars = dict(status = ASSET_LOG_RETURN)
-                #                                        ),
-                #                              _class = "action-btn"
-                #                            )
-                #                           ]
-                if status < ASSET_LOG_DONATED:
-                    # @ToDo: deployment setting to prevent assigning assets before returning them
-                    # The Asset is available for assignment (not disposed)
-                    asset_action_btns += [ A( T("Assign to Person"),
-                                              _href = URL(f=func,
-                                                          args = [record.id, "log", "create"],
-                                                          vars = dict(status = ASSET_LOG_ASSIGN,
-                                                                      type = "person")
-                                                        ),
-                                              _class = "action-btn"
-                                            ),
-                                          A( T("Assign to Facility/Site"),
-                                              _href = URL(f=func,
-                                                          args = [record.id, "log", "create"],
-                                                          vars = dict(status = ASSET_LOG_ASSIGN,
-                                                                      type = "site")
-                                                        ),
-                                              _class = "action-btn"
-                                            ),
-                                          A( T("Assign to Organization"),
-                                             _href = URL(f=func,
-                                                         args = [record.id, "log", "create"],
-                                                         vars = dict(status = ASSET_LOG_ASSIGN,
-                                                                     type = "organisation")
-                                                        ),
-                                             _class = "action-btn"
-                                           ),
-                                        ]
-                asset_action_btns += [  A( T("Update Status"),
-                                           _href = URL(f=func,
-                                                       args = [record.id, "log", "create"],
-                                                       vars = None
+            #if record.location_id:
+            # A Base Site has been set
+            # Return functionality removed  - as it doesn't set site_id & organisation_id in the logs
+            #if status == ASSET_LOG_ASSIGN:
+            #    asset_action_btns += [ A( T("Return"),
+            #                              _href = URL(f=func,
+            #                                          args = [record.id, "log", "create"],
+            #                                          vars = dict(status = ASSET_LOG_RETURN)
+            #                                        ),
+            #                              _class = "action-btn"
+            #                            )
+            #                           ]
+            if status < ASSET_LOG_DONATED:
+                # @ToDo: deployment setting to prevent assigning assets before returning them
+                # The Asset is available for assignment (not disposed)
+                asset_action_btns += [ A( T("Assign to Person"),
+                                          _href = URL(f=func,
+                                                      args = [record.id, "log", "create"],
+                                                      vars = dict(status = ASSET_LOG_ASSIGN,
+                                                                  type = "person")
                                                     ),
-                                           _class = "action-btn"
-                                         ),
-                                      ]
+                                          _class = "action-btn"
+                                        ),
+                                      A( T("Assign to Facility/Site"),
+                                          _href = URL(f=func,
+                                                      args = [record.id, "log", "create"],
+                                                      vars = dict(status = ASSET_LOG_ASSIGN,
+                                                                  type = "site")
+                                                    ),
+                                          _class = "action-btn"
+                                        ),
+                                      A( T("Assign to Organization"),
+                                         _href = URL(f=func,
+                                                     args = [record.id, "log", "create"],
+                                                     vars = dict(status = ASSET_LOG_ASSIGN,
+                                                                 type = "organisation")
+                                                    ),
+                                         _class = "action-btn"
+                                       ),
+                                    ]
+            asset_action_btns += [  A( T("Update Status"),
+                                       _href = URL(f=func,
+                                                   args = [record.id, "log", "create"],
+                                                   vars = None
+                                                ),
+                                       _class = "action-btn"
+                                     ),
+                                  ]
 
             table = r.table
             ltable = s3db.asset_log
@@ -956,15 +961,12 @@ def asset_rheader(r):
                                     ltable.person_id.represent(current_log.person_id),
                                     TH("%s: " % ltable.site_id.label),
                                     ltable.site_id.represent(current_log.site_id),
-                                   #TH("%s: " %  ltable.location_id.label),
-                                   # ltable.location_id.represent(current_log.location_id),
                                   ),
                                ),
                           DIV(_style = "margin-top:5px;",
                               *asset_action_btns
                               ),
-                          rheader_tabs
-                         )
+                          rheader_tabs)
             return rheader
     return None
 

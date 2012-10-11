@@ -30,16 +30,6 @@ settings.auth.registration_roles = {"site_id": ["asset_reader",
                                                 "survey_reader",
                                                 "vulnerability_reader",
                                                 ],
-                                    "organisation_id": ["asset_reader",
-                                                        "inv_reader",
-                                                        "irs_reader",
-                                                        "member_reader",
-                                                        "project_reader",
-                                                        "staff_reader",
-                                                        "vol_reader",
-                                                        "survey_reader",
-                                                        "vulnerability_reader",
-                                                        ]
                                     }
 
 # -----------------------------------------------------------------------------
@@ -48,7 +38,7 @@ settings.security.policy = 8 # Delegations
 settings.security.map = True
 
 # Owner Entity
-settings.auth.person_realm_human_resource_org = True
+settings.auth.person_realm_human_resource_site = True
 settings.auth.person_realm_member_org = True
 
 def ifrc_realm_entity(table, row):
@@ -82,6 +72,7 @@ def ifrc_realm_entity(table, row):
                             pr_identity = "person_id",
                             pr_education = "person_id",
                             pr_note = "person_id",
+                            hrm_human_resource = "site_id",
                             inv_recv = "site_id",
                             inv_recv_item = "req_id",
                             inv_track_item = "track_org_id",
@@ -228,6 +219,8 @@ settings.save_search.widget = False
 # Organisation Management
 # Set the length of the auto-generated org/site code the default is 10
 settings.org.site_code_len = 3
+# Set the label for Sites
+settings.org.site_label = "Office/Warehouse/Facility"
 
 # -----------------------------------------------------------------------------
 # Human Resource Management
@@ -246,7 +239,7 @@ settings.hrm.use_skills = False
 # Uncomment to disable the use of HR Teams
 #settings.hrm.use_teams = False
 # Custom label for Organisations in HR module
-settings.hrm.organisation_label = T("National Society / Branch")
+settings.hrm.organisation_label = "National Society / Branch"
 
 # -----------------------------------------------------------------------------
 # Projects

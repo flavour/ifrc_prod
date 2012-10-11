@@ -453,7 +453,8 @@ class TestS3CheckboxesWidget(unittest.TestCase):
                                                _value="2"),
                                          LABEL("Two",
                                                _for="id-f-1"))),
-                                   _class="s3-checkboxes-widget")))
+                                   _class="s3-checkboxes-widget",
+                                   _name="f_widget")))
 
         widget = s3_checkboxes_widget(field,
                                       [1,])
@@ -471,7 +472,8 @@ class TestS3CheckboxesWidget(unittest.TestCase):
                                                _value="2"),
                                          LABEL("Two",
                                                _for="id-f-1"))),
-                                   _class="s3-checkboxes-widget")))
+                                   _class="s3-checkboxes-widget",
+                                   _name="f_widget")))
 
         widget = s3_checkboxes_widget(field,
                                       [1,],
@@ -492,7 +494,8 @@ class TestS3CheckboxesWidget(unittest.TestCase):
                                                _value="2"),
                                          LABEL("Two",
                                                _for="id-f-6"))),
-                                   _class="myclass")))
+                                   _class="myclass",
+                                   _name="f_widget")))
 
 
 # =============================================================================
@@ -531,17 +534,18 @@ class TestS3GroupedCheckboxesWidget(unittest.TestCase):
                                            multiple=True))
         self.assertEqual(str(widget),
                          str(TAG[""](DIV(DIV("A - O",
-                                             _class="s3-grouped-checkboxes-widget-label",
+                                             _class="s3-grouped-checkboxes-widget-label expanded",
                                              _id="f-group-label-0"),
                                          s3_checkboxes_widget(f1,
                                                               []),
                                          DIV("T - Z",
-                                             _class="s3-grouped-checkboxes-widget-label",
+                                             _class="s3-grouped-checkboxes-widget-label expanded",
                                              _id="f-group-label-1"),
                                          s3_checkboxes_widget(f2,
                                                               [],
                                                               start_at_id=1),
-                                         _class="s3-grouped-checkboxes-widget"))))
+                                         _class="s3-grouped-checkboxes-widget",
+                                         _name="f_widget"))))
 
 # =============================================================================
 def run_suite(*test_classes):
