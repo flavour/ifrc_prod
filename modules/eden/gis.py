@@ -420,7 +420,7 @@ class S3LocationModel(S3Model):
         # 000_config or the ancestor country's gis_config has.
         if not MAP_ADMIN:
             if level and (level == "L0" or (level in gis.location_hierarchy_keys and \
-               not gis.get_edit_level(level, id))):
+                                            not gis.get_edit_level(level, id))):
                 response.error = record_error
                 form.errors["level"] = T("This level is not open for editing.")
                 return
@@ -472,7 +472,7 @@ class S3LocationModel(S3Model):
         # (avoid incorrect data entry)
         # Points only for now
         if not "gis_feature_type" in vars or (vars.gis_feature_type == "1"):
-            # Skip if no Lat/Lon provided
+            #if lat not in (None, "") and lon not in (None, ""):
             if lat and lon:
                 name = vars.name
                 if parent:
