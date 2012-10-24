@@ -827,9 +827,10 @@ $(document).ready(function(){
         """
 
         db = current.db
+        s3db = current.s3db
         auth = current.auth
         ptable = db.project_project
-        otable = db.project_organisation
+        otable = s3db.project_organisation
         vars = form.vars
 
         lead_role = current.deployment_settings.get_project_organisation_lead_role()
@@ -3313,7 +3314,12 @@ class S3ProjectTaskModel(S3Model):
         tablename = "project_task_project"
         table = define_table(tablename,
                              task_id(),
-                             project_id(),
+                             project_id(
+                                # Override requires so that update access to the projects isn't required
+                                requires = IS_ONE_OF(db, "project_project.id",
+                                                     project_project_represent_no_link
+                                                     )
+                                ),
                              *s3_meta_fields())
 
         # ---------------------------------------------------------------------

@@ -52,6 +52,7 @@ class S3StatsModel(S3Model):
              "stats_param_id",
              "stats_rebuild_aggregates",
              "stats_update_time_aggregate",
+             "stats_update_aggregate_location",
              ]
 
     def model(self):
@@ -188,6 +189,9 @@ class S3StatsModel(S3Model):
                              Field("mad", "double",
                                    label = T("Median Absolute Deviation"),
                                    default = 0.0,
+                                   ),
+                             Field("sum", "double",
+                                   label = T("Sum"),
                                    ),
                              #Field("mean_ad", "double",
                              #      label = T("Mean Absolute Deviation"),
@@ -440,7 +444,7 @@ class S3StatsModel(S3Model):
                         if (dt not in data) and last_type_agg:
                             continue
                         # If there is data in the data dictionary for this period
-                        # then then aggregate record needs to be changed
+                        # then aggregate record needs to be changed
                         if dt in data:
                             value = data[dt]["value"]
                             last_data_value = value
@@ -451,6 +455,7 @@ class S3StatsModel(S3Model):
                                              max = value,
                                              mean = value,
                                              median = value,
+                                             sum = value,
                                              end_date = end_date,
                                              )
                             changed_periods.append((start_date, end_date))
@@ -464,6 +469,7 @@ class S3StatsModel(S3Model):
                                              max = value,
                                              mean = value,
                                              median = value,
+                                             sum = value,
                                              end_date = end_date,
                                              )
                             changed_periods.append((start_date, end_date))
@@ -480,6 +486,7 @@ class S3StatsModel(S3Model):
                                                  max = value,
                                                  mean = value,
                                                  median = value,
+                                                 sum = value,
                                                  end_date = end_date,
                                                  )
                                 changed_periods.append((start_date, end_date))
@@ -494,6 +501,7 @@ class S3StatsModel(S3Model):
                                              max = value,
                                              mean = value,
                                              median = value,
+                                             sum = value,
                                              end_date = end_date,
                                              )
                             changed_periods.append((start_date, end_date))
@@ -516,6 +524,7 @@ class S3StatsModel(S3Model):
                                   max = value,
                                   mean = value,
                                   median = value,
+                                  sum = value,
                                   date = start_date,
                                   end_date = end_date,
                                   )
@@ -585,28 +594,6 @@ class S3StatsModel(S3Model):
                                                                   ]
                                                       }
 
-
-        # OPTIMISATION step 2
-        # The following code will get all the locations for which the
-        # resilence indicator needs to be recalculated. Without this
-        # the calculations will be triggered for each parameter and for each
-        # location unnecessarily.
-        # For example an import of 12 communes in the same district with data
-        # for the 10 parameters that make up the resilence calculation will trigger
-        # 480 updates, rather than the optimal 15, for each time period.
-        resilence_parents = {}
-        for (loc_id, periods) in location_dict.items():
-            resilence_parents[loc_id] = (periods, loc_level_list[loc_id], True)
-            for p_loc_row in parents[loc_id]:
-                p_loc_id = p_loc_row.id
-                if p_loc_id in resilence_parents:
-                    # store the older of the changed periods (the end will always be None)
-                    # Only need to check the start date of the first period
-                    if periods[0][0] < resilence_parents[p_loc_id][0][0][0]:
-                        resilence_parents[p_loc_id][0] = periods
-                else:
-                    resilence_parents[p_loc_id] = [periods, loc_level_list[loc_id], False]
-
         # Now that the time aggregate types have been set up correctly,
         # fire off requests for the location aggregates to be calculated
         async = current.s3task.async
@@ -618,7 +605,29 @@ class S3StatsModel(S3Model):
                           args = [loc_level, loc_id, param_id, s, e],
                           timeout = 1800 # 30m
                           )
+
         if vulnerability:
+            # OPTIMISATION step 2
+            # The following code will get all the locations for which the
+            # resilence indicator needs to be recalculated. Without this
+            # the calculations will be triggered for each parameter and for each
+            # location unnecessarily.
+            # For example an import of 12 communes in the same district with data
+            # for the 10 parameters that make up the resilence calculation will trigger
+            # 480 updates, rather than the optimal 15, for each time period.
+            resilence_parents = {}
+            for (loc_id, periods) in location_dict.items():
+                resilence_parents[loc_id] = (periods, loc_level_list[loc_id], True)
+                for p_loc_row in parents[loc_id]:
+                    p_loc_id = p_loc_row.id
+                    if p_loc_id in resilence_parents:
+                        # store the older of the changed periods (the end will always be None)
+                        # Only need to check the start date of the first period
+                        if periods[0][0] < resilence_parents[p_loc_id][0][0][0]:
+                            resilence_parents[p_loc_id][0] = periods
+                    else:
+                        resilence_parents[p_loc_id] = [periods, loc_level_list[loc_id], False]
+
             # Now calculate the resilence indicators
             vulnerability_resilience = s3db.vulnerability_resilience
             resilience_pid = s3db.vulnerability_resilience_id()
@@ -651,8 +660,6 @@ class S3StatsModel(S3Model):
         """
 
         db = current.db
-        #s3db = current.s3db
-
         dtable = db.stats_data
         atable = db.stats_aggregate
 
@@ -729,7 +736,8 @@ class S3StatsModel(S3Model):
                              max = values_max,
                              mean = values_avg,
                              median = values_med,
-                             mad = values_mad
+                             mad = values_mad,
+                             sum = values_sum,
                              )
         else:
             # Insert new
@@ -744,7 +752,8 @@ class S3StatsModel(S3Model):
                           max = values_max,
                           mean = values_avg,
                           median = values_med,
-                          mad = values_mad
+                          mad = values_mad,
+                          sum = values_sum,
                           )
 
         return
@@ -1151,6 +1160,8 @@ class S3StatsGroupModel(S3Model):
                 (gtable.dirty == True) & \
                 (gtable.approved_by != None)
         db(query).update(dirty=False)
+        # Explicitly commit when running async
+        db.commit()
 
     # -------------------------------------------------------------------------
     @staticmethod

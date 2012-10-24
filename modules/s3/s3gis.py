@@ -2380,15 +2380,17 @@ class GIS(object):
                            levels=["L0", "L1", "L2", "L3"],
                            format="geojson",
                            simplify=0.01,
+                           decimals=4,
                            ):
         """
             Export admin areas to /static/cache for use by interactive web-mapping services
             - designed for use by the Vulnerability Mapping
 
-            simplify = False to disable simplification
-
-            Only L0 supported for now
-            Only GeoJSON supported for now (may add KML &/or OSM later)
+            @param countries: list of ISO2 country codes
+            @param levels: list of which Lx levels to export
+            @param format: Only GeoJSON supported for now (may add KML &/or OSM later)
+            @param simplify: tolerance for the simplification algorithm. False to disable simplification
+            @param decimals: number of decimal points to include in the coordinates
         """
 
         db = current.db
@@ -2407,12 +2409,13 @@ class GIS(object):
 
         if current.deployment_settings.get_gis_spatialdb():
             spatial = True
+            _field = table.the_geom
             if simplify:
                 # Do the Simplify & GeoJSON direct from the DB
-                field = table.the_geom.st_simplify(simplify).st_asgeojson(precision=4).with_alias("geojson")
+                field = _field.st_simplify(simplify).st_asgeojson(precision=decimals).with_alias("geojson")
             else:
                 # Do the GeoJSON direct from the DB
-                field = table.the_geom.st_asgeojson(precision=4).with_alias("geojson")
+                field = _field.st_asgeojson(precision=decimals).with_alias("geojson")
         else:
             spatial = False
             field = table.wkt
@@ -2428,6 +2431,14 @@ class GIS(object):
         append = features.append
 
         if "L0" in levels:
+            # Reduce the decimals in output by 1
+            _decimals = decimals -1
+            if spatial:
+                if simplify:
+                    field = _field.st_simplify(simplify).st_asgeojson(precision=_decimals).with_alias("geojson")
+                else:
+                    field = _field.st_asgeojson(precision=_decimals).with_alias("geojson")
+
             countries = db(cquery).select(ifield,
                                           field,
                                           )
@@ -2440,6 +2451,7 @@ class GIS(object):
                     wkt = row.wkt
                     if wkt:
                         geojson = _simplify(wkt, tolerance=simplify,
+                                            decimals=_decimals,
                                             output="geojson")
                     else:
                         name = db(table.id == id).select(table.name,
@@ -2478,9 +2490,15 @@ class GIS(object):
              (table.deleted != True)
         q4 = (table.level == "L4") & \
              (table.deleted != True)
+
         if "L1" in levels:
             if "L0" not in levels:
                 countries = db(cquery).select(ifield)
+            if simplify:
+                # We want greater precision when zoomed-in more
+                simplify = simplify / 2 # 0.005 with default setting
+                if spatial:
+                    field = _field.st_simplify(simplify).st_asgeojson(precision=decimals).with_alias("geojson")
             for country in countries:
                 if not spatial or "L0" not in levels:
                     _id = country.id
@@ -2500,6 +2518,7 @@ class GIS(object):
                         wkt = row.wkt
                         if wkt:
                             geojson = _simplify(wkt, tolerance=simplify,
+                                                decimals=decimals,
                                                 output="geojson")
                         else:
                             name = db(table.id == id).select(table.name,
@@ -2535,6 +2554,11 @@ class GIS(object):
         if "L2" in levels:
             if "L0" not in levels and "L1" not in levels:
                 countries = db(cquery).select(ifield)
+            if simplify:
+                # We want greater precision when zoomed-in more
+                simplify = simplify / 4 # 0.00125 with default setting
+                if spatial:
+                    field = _field.st_simplify(simplify).st_asgeojson(precision=decimals).with_alias("geojson")
             for country in countries:
                 if not spatial or "L0" not in levels:
                     id = country.id
@@ -2557,6 +2581,7 @@ class GIS(object):
                             wkt = row.wkt
                             if wkt:
                                 geojson = _simplify(wkt, tolerance=simplify,
+                                                    decimals=decimals,
                                                     output="geojson")
                             else:
                                 name = db(table.id == id).select(table.name,
@@ -2592,6 +2617,11 @@ class GIS(object):
         if "L3" in levels:
             if "L0" not in levels and "L1" not in levels and "L2" not in levels:
                 countries = db(cquery).select(ifield)
+            if simplify:
+                # We want greater precision when zoomed-in more
+                simplify = simplify / 2 # 0.000625 with default setting
+                if spatial:
+                    field = _field.st_simplify(simplify).st_asgeojson(precision=decimals).with_alias("geojson")
             for country in countries:
                 if not spatial or "L0" not in levels:
                     id = country.id
@@ -2617,6 +2647,7 @@ class GIS(object):
                                 wkt = row.wkt
                                 if wkt:
                                     geojson = _simplify(wkt, tolerance=simplify,
+                                                        decimals=decimals,
                                                         output="geojson")
                                 else:
                                     name = db(table.id == id).select(table.name,
@@ -2652,6 +2683,11 @@ class GIS(object):
         if "L4" in levels:
             if "L0" not in levels and "L1" not in levels and "L2" not in levels and "L3" not in levels:
                 countries = db(cquery).select(ifield)
+            if simplify:
+                # We want greater precision when zoomed-in more
+                simplify = simplify / 2 # 0.0003125 with default setting
+                if spatial:
+                    field = _field.st_simplify(simplify).st_asgeojson(precision=decimals).with_alias("geojson")
             for country in countries:
                 if not spatial or "L0" not in levels:
                     id = country.id
@@ -2680,6 +2716,7 @@ class GIS(object):
                                     wkt = row.wkt
                                     if wkt:
                                         geojson = _simplify(wkt, tolerance=simplify,
+                                                            decimals=decimals,
                                                             output="geojson")
                                     else:
                                         name = db(table.id == id).select(table.name,
