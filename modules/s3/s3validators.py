@@ -203,18 +203,9 @@ class IS_INT_AMOUNT(IS_INT_IN_RANGE):
         except:
             intnumber = number
 
-        T = current.T
         settings = current.deployment_settings
-
-        # We need to check that we actually get the separators
-        # otherwise we use the ISO defaults
-        THOUSAND_SEPARATOR = T("THOUSAND_SEPARATOR")
-        if THOUSAND_SEPARATOR == "THOUSAND_SEPARATOR":
-            THOUSAND_SEPARATOR = settings.L10n.get("thousands_separator", u"\u00A0")
-
-        NUMBER_GROUPING = T("NUMBER_GROUPING")
-        if NUMBER_GROUPING == "NUMBER_GROUPING":
-            NUMBER_GROUPING = settings.L10n.get("thousands_grouping", 3)
+        THOUSAND_SEPARATOR = settings.get_L10n_thousands_separator()
+        NUMBER_GROUPING = settings.get_L10n_thousands_grouping()
 
         # The negative/positive sign for the number
         if float(number) < 0:
@@ -285,11 +276,7 @@ class IS_FLOAT_AMOUNT(IS_FLOAT_IN_RANGE):
         if number is None:
             return ""
 
-        # We need to check that we actually get the separators
-        # otherwise we use the ISO defaults
-        DECIMAL_SEPARATOR = current.T("DECIMAL_SEPARATOR")
-        if DECIMAL_SEPARATOR == "DECIMAL_SEPARATOR":
-            DECIMAL_SEPARATOR = current.deployment_settings.L10n.get("decimal_separator", ",")
+        DECIMAL_SEPARATOR = current.deployment_settings.get_L10n_decimal_separator()
 
         str_number = unicode(number)
 
@@ -672,7 +659,7 @@ class IS_ONE_OF_EMPTY(Validator):
 
             if self.multiple:
                 if isinstance(value, list):
-                    values = value
+                    values = [str(v) for v in value]
                 elif isinstance(value, basestring) and \
                      value[0] == "|" and value[-1] == "|":
                     values = value[1:-1].split("|")
@@ -688,6 +675,7 @@ class IS_ONE_OF_EMPTY(Validator):
                         return (value, self.error_message)
                 else:
                     field = table[self.kfield]
+                    query = None
                     for v in values:
                         q = (field == v)
                         query = query is not None and query | q or q
@@ -969,9 +957,11 @@ class IS_LOCATION_SELECTOR(Validator):
         table = db.gis_location
         # Are we allowed to create Locations?
         auth = current.auth
-        if not auth.s3_has_permission("create", table):
-            self.errors["location_id"] = auth.messages.access_denied
-            return None
+        def permitted_to_create():
+            if not auth.s3_has_permission("create", table):
+                self.errors["location_id"] = auth.messages.access_denied
+                return False
+            return True
         # What level of hierarchy are we allowed to edit?
         s3db = current.s3db
         if auth.s3_has_role(current.session.s3.system_roles.MAP_ADMIN):
@@ -1046,21 +1036,24 @@ class IS_LOCATION_SELECTOR(Validator):
                     # Use Existing record
                     L1 = location.id
                 elif L1_allowed:
-                    if L0:
-                        f = dict(name = L1,
-                                 level = "L1",
-                                 parent = L0,
-                                 )
-                        L1 = table.insert(**f)
-                        f["id"] = L1
-                        onaccept(f)
+                    if permitted_to_create():
+                        if L0:
+                            f = dict(name = L1,
+                                    level = "L1",
+                                    parent = L0,
+                                    )
+                            L1 = table.insert(**f)
+                            f["id"] = L1
+                            onaccept(f)
+                        else:
+                            f = dict(name=L1,
+                                    level="L1",
+                                    )
+                            L1 = table.insert(**f)
+                            f["id"] = L1
+                            onaccept(f)
                     else:
-                        f = dict(name=L1,
-                                 level="L1",
-                                 )
-                        L1 = table.insert(**f)
-                        f["id"] = L1
-                        onaccept(f)
+                        return None
                 else:
                     L1 = None
         # L2
@@ -1091,29 +1084,32 @@ class IS_LOCATION_SELECTOR(Validator):
                     # Use Existing record
                     L2 = location.id
                 elif L2_allowed:
-                    if L1:
-                        f = dict(name=L2,
-                                 level="L2",
-                                 parent=L1,
-                                 )
-                        L2 = table.insert(**f)
-                        f["id"] = L2
-                        onaccept(f)
-                    elif L0:
-                        f = dict(name=L2,
-                                 level="L2",
-                                 parent=L0,
-                                 )
-                        L2 = table.insert(**f)
-                        f["id"] = L2
-                        onaccept(f)
+                    if permitted_to_create():
+                        if L1:
+                            f = dict(name=L2,
+                                    level="L2",
+                                    parent=L1,
+                                    )
+                            L2 = table.insert(**f)
+                            f["id"] = L2
+                            onaccept(f)
+                        elif L0:
+                            f = dict(name=L2,
+                                    level="L2",
+                                    parent=L0,
+                                    )
+                            L2 = table.insert(**f)
+                            f["id"] = L2
+                            onaccept(f)
+                        else:
+                            f = dict(name=L2,
+                                    level="L2",
+                                    )
+                            L2 = table.insert(**f)
+                            f["id"] = L2
+                            onaccept(f)
                     else:
-                        f = dict(name=L2,
-                                 level="L2",
-                                 )
-                        L2 = table.insert(**f)
-                        f["id"] = L2
-                        onaccept(f)
+                        return None
                 else:
                     L2 = None
         # L3
@@ -1144,37 +1140,40 @@ class IS_LOCATION_SELECTOR(Validator):
                     # Use Existing record
                     L3 = location.id
                 elif L3_allowed:
-                    if L2:
-                        f = dict(name=L3,
-                                 level="L3",
-                                 parent=L2,
-                                 )
-                        L3 = table.insert(**f)
-                        f["id"] = L3
-                        onaccept(f)
-                    elif L1:
-                        f = dict(name=L3,
-                                 level="L3",
-                                 parent=L1,
-                                 )
-                        L3 = table.insert(**f)
-                        f["id"] = L3
-                        onaccept(f)
-                    elif L0:
-                        f = dict(name=L3,
-                                 level="L3",
-                                 parent=L0,
-                                 )
-                        L3 = table.insert(**f)
-                        f["id"] = L3
-                        onaccept(f)
+                    if permitted_to_create():
+                        if L2:
+                            f = dict(name=L3,
+                                    level="L3",
+                                    parent=L2,
+                                    )
+                            L3 = table.insert(**f)
+                            f["id"] = L3
+                            onaccept(f)
+                        elif L1:
+                            f = dict(name=L3,
+                                    level="L3",
+                                    parent=L1,
+                                    )
+                            L3 = table.insert(**f)
+                            f["id"] = L3
+                            onaccept(f)
+                        elif L0:
+                            f = dict(name=L3,
+                                    level="L3",
+                                    parent=L0,
+                                    )
+                            L3 = table.insert(**f)
+                            f["id"] = L3
+                            onaccept(f)
+                        else:
+                            f = dict(name=L3,
+                                    level="L3",
+                                    )
+                            L3 = table.insert(**f)
+                            f["id"] = L3
+                            onaccept(f)
                     else:
-                        f = dict(name=L3,
-                                 level="L3",
-                                 )
-                        L3 = table.insert(**f)
-                        f["id"] = L3
-                        onaccept(f)
+                        return None
                 else:
                     L3 = None
         # L4
@@ -1205,45 +1204,48 @@ class IS_LOCATION_SELECTOR(Validator):
                     # Use Existing record
                     L4 = location.id
                 elif L4_allowed:
-                    if L3:
-                        f = dict(name=L4,
-                                 level="L4",
-                                 parent=L3,
-                                 )
-                        L4 = table.insert(**f)
-                        f["id"] = L4
-                        onaccept(f)
-                    elif L2:
-                        f = dict(name=L4,
-                                 level="L4",
-                                 parent=L2,
-                                 )
-                        L4 = table.insert(**f)
-                        f["id"] = L4
-                        onaccept(f)
-                    elif L1:
-                        f = dict(name=L4,
-                                 level="L4",
-                                 parent=L1,
-                                 )
-                        L4 = table.insert(**f)
-                        f["id"] = L4
-                        onaccept(f)
-                    elif L0:
-                        f = dict(name=L4,
-                                 level="L4",
-                                 parent=L0,
-                                 )
-                        L4 = table.insert(**f)
-                        f["id"] = L4
-                        onaccept(f)
+                    if permitted_to_create():
+                        if L3:
+                            f = dict(name=L4,
+                                    level="L4",
+                                    parent=L3,
+                                    )
+                            L4 = table.insert(**f)
+                            f["id"] = L4
+                            onaccept(f)
+                        elif L2:
+                            f = dict(name=L4,
+                                    level="L4",
+                                    parent=L2,
+                                    )
+                            L4 = table.insert(**f)
+                            f["id"] = L4
+                            onaccept(f)
+                        elif L1:
+                            f = dict(name=L4,
+                                    level="L4",
+                                    parent=L1,
+                                    )
+                            L4 = table.insert(**f)
+                            f["id"] = L4
+                            onaccept(f)
+                        elif L0:
+                            f = dict(name=L4,
+                                    level="L4",
+                                    parent=L0,
+                                    )
+                            L4 = table.insert(**f)
+                            f["id"] = L4
+                            onaccept(f)
+                        else:
+                            f = dict(name=L4,
+                                    level="L4",
+                                    )
+                            L4 = table.insert(**f)
+                            f["id"] = L4
+                            onaccept(f)
                     else:
-                        f = dict(name=L4,
-                                 level="L4",
-                                 )
-                        L4 = table.insert(**f)
-                        f["id"] = L4
-                        onaccept(f)
+                        return None
                 else:
                     L4 = None
         # L5
@@ -1274,53 +1276,56 @@ class IS_LOCATION_SELECTOR(Validator):
                     # Use Existing record
                     L5 = location.id
                 elif L5_allowed:
-                    if L4:
-                        f = dict(name=L5,
-                                 level="L5",
-                                 parent=L4,
-                                 )
-                        L5 = table.insert(**f)
-                        f["id"] = L5
-                        onaccept(f)
-                    elif L3:
-                        f = dict(name=L5,
-                                 level="L5",
-                                 parent=L3,
-                                 )
-                        L5 = table.insert(**f)
-                        f["id"] = L5
-                        onaccept(f)
-                    elif L2:
-                        f = dict(name=L5,
-                                 level="L5",
-                                 parent=L2,
-                                 )
-                        L5 = table.insert(**f)
-                        f["id"] = L5
-                        onaccept(f)
-                    elif L1:
-                        f = dict(name=L5,
-                                 level="L5",
-                                 parent=L1,
-                                 )
-                        L5 = table.insert(**f)
-                        f["id"] = L5
-                        onaccept(f)
-                    elif L0:
-                        f = dict(name=L5,
-                                 level="L5",
-                                 parent=L1,
-                                 )
-                        L5 = table.insert(**f)
-                        f["id"] = L5
-                        onaccept(f)
+                    if permitted_to_create():
+                        if L4:
+                            f = dict(name=L5,
+                                    level="L5",
+                                    parent=L4,
+                                    )
+                            L5 = table.insert(**f)
+                            f["id"] = L5
+                            onaccept(f)
+                        elif L3:
+                            f = dict(name=L5,
+                                    level="L5",
+                                    parent=L3,
+                                    )
+                            L5 = table.insert(**f)
+                            f["id"] = L5
+                            onaccept(f)
+                        elif L2:
+                            f = dict(name=L5,
+                                    level="L5",
+                                    parent=L2,
+                                    )
+                            L5 = table.insert(**f)
+                            f["id"] = L5
+                            onaccept(f)
+                        elif L1:
+                            f = dict(name=L5,
+                                    level="L5",
+                                    parent=L1,
+                                    )
+                            L5 = table.insert(**f)
+                            f["id"] = L5
+                            onaccept(f)
+                        elif L0:
+                            f = dict(name=L5,
+                                    level="L5",
+                                    parent=L1,
+                                    )
+                            L5 = table.insert(**f)
+                            f["id"] = L5
+                            onaccept(f)
+                        else:
+                            f = dict(name=L5,
+                                    level="L5",
+                                    )
+                            L5 = table.insert(**f)
+                            f["id"] = L5
+                            onaccept(f)
                     else:
-                        f = dict(name=L5,
-                                 level="L5",
-                                 )
-                        L5 = table.insert(**f)
-                        f["id"] = L5
-                        onaccept(f)
+                        return None
                 else:
                     L5 = None
 

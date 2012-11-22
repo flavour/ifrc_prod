@@ -3,7 +3,7 @@
 <head>
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
 <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
-<title>{{try:}}{{=title}}{{except:}}{{=response.title or settings.get_system_name_short()}}{{pass}}</title>
+<title>{{=settings.get_system_name()}} - {{try:}}{{=title}}{{except:}}{{=response.title}}{{pass}}</title>
 {{if response.refresh:}}{{=XML(response.refresh)}}{{pass}}
 <meta name="application-name" content="{{=appname}}" />
 <meta name="viewport" content="width=device-width; initial-scale=1.0; maximum-scale=1.0;" />
@@ -21,11 +21,8 @@
 {{pass}}
 </style>
 {{if s3.debug:}}
- <link href="/{{=appname}}/static/scripts/ext/resources/css/ext-all.css" rel="stylesheet" type="text/css" />
- <link href="/{{=appname}}/static/scripts/ext/resources/css/xtheme-gray.css" rel="stylesheet" type="text/css" />	
  {{=s3base.s3_include_debug_css()}}
 {{else:}}
- <link href="/{{=appname}}/static/scripts/ext/resources/css/ext-theme.min.css" rel="stylesheet" type="text/css" />
  {{# Built by /static/scripts/tools/build.sahana.py }}
  <link href="/{{=appname}}/static/themes/DRRPP/eden.min.css" rel="stylesheet" type="text/css" />
 {{pass}}

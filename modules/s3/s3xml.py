@@ -59,6 +59,8 @@ except ImportError:
     print >> sys.stderr, "ERROR: lxml module needed for XML handling"
     raise
 
+ogetattr = object.__getattribute__
+
 # =============================================================================
 class S3XML(S3Codec):
     """
@@ -86,35 +88,39 @@ class S3XML(S3Codec):
     WKT = "wkt"
 
     IGNORE_FIELDS = [
-            "id",
-            "deleted_fk",
-            "approved_by",
-            "realm_entity"] # @todo: export the realm entity
+        "id",
+        "deleted_fk",
+        "approved_by",
+        # @todo: export the realm entity
+        "realm_entity",
+        ]
 
     FIELDS_TO_ATTRIBUTES = [
-            "id",
-            "admin",
-            CUSER,
-            MUSER,
-            OGROUP,
-            OUSER,
-            CTIME,
-            MTIME,
-            UID,
-            MCI,
-            DELETED]
+        "id",
+        "admin",
+        CUSER,
+        MUSER,
+        OGROUP,
+        OUSER,
+        CTIME,
+        MTIME,
+        UID,
+        MCI,
+        DELETED,
+        ]
 
     ATTRIBUTES_TO_FIELDS = [
-            "admin",
-            CUSER,
-            MUSER,
-            OGROUP,
-            OUSER,
-            CTIME,
-            MTIME,
-            MCI,
-            DELETED,
-            APPROVED]
+        "admin",
+        CUSER,
+        MUSER,
+        OGROUP,
+        OUSER,
+        CTIME,
+        MTIME,
+        MCI,
+        DELETED,
+        APPROVED,
+        ]
 
     TAG = Storage(
         root="s3xml",
@@ -134,7 +140,8 @@ class S3XML(S3Codec):
         fields="fields",
         table="table",
         row="row",
-        col="col")
+        col="col",
+        )
 
     ATTRIBUTE = Storage(
         id="id",
@@ -160,9 +167,13 @@ class S3XML(S3Codec):
         lonmin="lonmin",
         lonmax="lonmax",
         marker="marker",
-        popup="popup",         # for GIS Feature Layers/Queries
-        popup_url="popup_url", # for map popups
-        sym="sym",             # for GPS
+        marker_url="marker_url",
+        marker_height="marker_height",
+        marker_width="marker_width",
+        popup="popup",          # for GIS Feature Layers/Queries
+        popup_url="popup_url",  # for map popups
+        sym="sym",              # for GPS
+        attributes="attributes",# For GeoJSON exports
         type="type",
         readable="readable",
         writable="writable",
@@ -170,20 +181,23 @@ class S3XML(S3Codec):
         has_options="has_options",
         tuid="tuid",
         label="label",
-        comment="comment")
+        comment="comment",
+        )
 
     ACTION = Storage(
         create="create",
         read="read",
         update="update",
-        delete="delete")
+        delete="delete",
+        )
 
     PREFIX = Storage(
         resource="$",
         options="$o",
         reference="$k",
         attribute="@",
-        text="$")
+        text="$",
+        )
 
     # -------------------------------------------------------------------------
     def __init__(self):
@@ -482,8 +496,14 @@ class S3XML(S3Codec):
             @param fields: list of reference field names in this table
         """
 
-        db = current.db
         reference_map = []
+
+        fields = [f for f in fields if f in record and record[f]]
+        if not fields:
+            return reference_map
+
+        db = current.db
+        show_ids = current.manager.show_ids
 
         UID = self.UID
         MCI = self.MCI
@@ -495,54 +515,78 @@ class S3XML(S3Codec):
         filter_mci = self.filter_mci
         tablename = table._tablename
         gtablename = current.auth.settings.table_group_name
+        load_table = current.s3db.table
 
         for f in fields:
-            if f not in record:
+            try:
+                dbfield = ogetattr(table, f)
+            except:
                 continue
-            val = ids = record[f]
-            if type(ids) is not list:
-                ids = [ids]
-            ktablename, pkey, multiple = s3_get_foreign_key(table[f])
+            #if f not in record or not record[f]:
+                #continue
+            ktablename, pkey, multiple = s3_get_foreign_key(dbfield)
             if not ktablename:
                 continue
-            ktable = db[ktablename]
+            val = ids = ogetattr(record, f)
+
+            try:
+                ktable = db.get(ktablename) #db[ktablename]
+            except:
+                continue
+
             ktable_fields = ktable.fields
             k_id = ktable._id
+
             if pkey is None:
                 pkey = k_id.name
-
             if multiple:
                 query = k_id.belongs(ids)
                 limitby = None
             else:
-                query = k_id == ids[0]
+                query = k_id == ids
                 limitby = (0, 1)
 
             uid = None
             uids = None
-            supertable = None
+
             if pkey != "id" and "instance_type" in ktable_fields:
+
                 if multiple:
+                    # @todo: can't currently resolve multi-references
+                    # to super-entities
                     continue
-                krecord = db(query).select(ktable[UID],
+
+                srecord = db(query).select(ogetattr(ktable, UID),
                                            ktable.instance_type,
                                            limitby=(0, 1)).first()
+                if not srecord:
+                    continue
+                ktablename = srecord.instance_type
+                uid = ogetattr(srecord, UID)
+                if ktablename == tablename and \
+                   UID in record and ogetattr(record, UID) == uid and \
+                   not show_ids:
+                    continue
+                ktable = load_table(ktablename)
+                if not ktable:
+                    continue
+                krecord = db(ktable[UID] == uid).select(ktable._id,
+                                                        limitby=(0, 1)).first()
                 if not krecord:
                     continue
-                ktablename = krecord.instance_type
-                uid = krecord[UID]
-                if ktablename == tablename and \
-                   UID in record and record[UID] == uid and \
-                   not current.manager.show_ids:
-                    continue
-                uids = [uid]
+                ids = [krecord[ktable._id]]
+                uids = [export_uid(uid)]
+
             else:
                 if DELETED in ktable_fields:
                     query = (ktable.deleted != True) & query
+
                 if filter_mci and MCI in ktable_fields:
                     query = (ktable.mci >= 0) & query
+
                 if UID in ktable_fields:
-                    krecords = db(query).select(ktable[UID], limitby=limitby)
+                    krecords = db(query).select(ogetattr(ktable, UID),
+                                                limitby=limitby)
                     if krecords:
                         uids = [r[UID] for r in krecords if r[UID]]
                         if ktablename != gtablename:
@@ -553,19 +597,22 @@ class S3XML(S3Codec):
                     krecord = db(query).select(k_id, limitby=(0, 1)).first()
                     if not krecord:
                         continue
-            value = s3_unicode(table[f].formatter(val))
-            if table[f].represent:
+
+            value = s3_unicode(dbfield.formatter(val))
+            if dbfield.represent:
                 text = represent(table, f, val)
             else:
                 text = xml_encode(value)
+
             entry = {"field":f,
                      "table":ktablename,
                      "multiple":multiple,
-                     "id":ids,
+                     "id":ids if type(ids) is list else [ids],
                      "uid":uids,
                      "text":text,
                      "value":value}
             reference_map.append(Storage(entry))
+
         return reference_map
 
     # -------------------------------------------------------------------------
@@ -637,11 +684,12 @@ class S3XML(S3Codec):
 
         db = current.db
         gis = current.gis
+        auth = current.auth
         s3db = current.s3db
         request = current.request
         settings = current.deployment_settings
 
-        format = current.auth.permission.format
+        format = auth.permission.format
 
         LATFIELD = self.Lat
         LONFIELD = self.Lon
@@ -649,19 +697,25 @@ class S3XML(S3Codec):
 
         ATTRIBUTE = self.ATTRIBUTE
 
-        latlons = None
-        geojsons = None
-        wkts = None
-        popup_url = None
-        tooltips = None
         marker_url = None
         symbol = None
+        # Retrieve data prepared earlier in gis.get_locations_and_popups()
         if locations:
             latlons = locations.get("latlons", None)
             geojsons = locations.get("geojsons", None)
             wkts = locations.get("wkts", None)
             popup_url = locations.get("popup_url", None)
+            markers = locations.get("markers", None)
             tooltips = locations.get("tooltips", None)
+            attributes = locations.get("attributes", None)
+        else:
+            latlons = None
+            geojsons = None
+            wkts = None
+            popup_url = None
+            markers = None
+            tooltips = None
+            attributes = None
         if marker and format == "kml":
             _marker = marker.get("image", None)
             if _marker:
@@ -702,15 +756,27 @@ class S3XML(S3Codec):
 
             LatLon = None
             polygon = False
-            # Use the value calculated in gis.get_geojson_and_popup/get_geojson_theme if we can
+            # Use the value calculated earlier if we can
+            id = record[pkey]
+            if not master and \
+               tablename in auth.org_site_types:
+                # Lookup the right pre-prepared data
+                root = element.getparent()
+                if root.tag == self.TAG.root:
+                    master = root[0]
+                    master_id = master.get(ATTRIBUTE.id, None)
+                    if master_id:
+                        id = int(master_id)
+                        tablename = master.get(ATTRIBUTE.name, None)
+                        master = True
             if latlons and tablename in latlons:
-                LatLon = latlons[tablename].get(record[pkey], None)
+                LatLon = latlons[tablename].get(id, None)
                 if LatLon:
                     lat = LatLon[0]
                     lon = LatLon[1]
             elif geojsons and tablename in geojsons:
                 polygon = True
-                geojson = geojsons[tablename].get(record[pkey], None)
+                geojson = geojsons[tablename].get(id, None)
                 if geojson:
                     # Output the GeoJSON directly into the XML, so that XSLT can simply drop in
                     geometry = etree.SubElement(element, "geometry")
@@ -719,7 +785,7 @@ class S3XML(S3Codec):
                 # Nothing gets here currently
                 # tbc: KML Polygons (or we should also do these outside XSLT)
                 polygon = True
-                wkt = wkts[tablename][record[pkey]]
+                wkt = wkts[tablename][id]
                 # Convert the WKT in XSLT
                 attr[ATTRIBUTE.wkt] = wkt
             elif "polygons" in request.get_vars:
@@ -798,18 +864,26 @@ class S3XML(S3Codec):
                     if format == "geojson":
                         # Assume being used within the Sahana Mapping client
                         # so use local URLs to keep filesize down
-                        url = "%s/%i.plain" % (url, record[pkey])
+                        url = "%s/%i.plain" % (url, id)
                     else:
                         # Assume being used outside the Sahana Mapping client
                         # so use public URLs
                         url = "%s%s/%i" % (settings.get_base_public_url(),
-                                           url, record[pkey])
+                                           url, id)
                     attr[ATTRIBUTE.popup_url] = url
+
+                if markers and tablename in markers:
+                    marker = markers[tablename][id]
+                    attr[ATTRIBUTE.marker_url] = URL(c="static", f="img",
+                                                     args=["markers",
+                                                           marker["image"]])
+                    attr[ATTRIBUTE.marker_height] = str(marker["height"])
+                    attr[ATTRIBUTE.marker_width] = str(marker["width"])
 
                 if tooltips and tablename in tooltips:
                     # Feature Layer / Resource
                     # Retrieve the HTML for the onHover Tooltip
-                    tooltip = tooltips[tablename][record[pkey]]
+                    tooltip = tooltips[tablename][id]
                     try:
                         # encode suitable for use as XML attribute
                         tooltip = self.xml_encode(tooltip).decode("utf-8")
@@ -817,6 +891,17 @@ class S3XML(S3Codec):
                         pass
                     else:
                         attr[ATTRIBUTE.popup] = tooltip
+
+                if attributes and tablename in attributes:
+                    _attr = ""
+                    attrs = attributes[tablename][id]
+                    for a in attrs:
+                        if _attr:
+                            _attr = "%s,[%s]=[%s]" % (_attr, a, attrs[a])
+                        else:
+                            _attr = "[%s]=[%s]" % (a, attrs[a])
+                    if _attr:
+                        attr[ATTRIBUTE.attributes] = _attr
 
     # -------------------------------------------------------------------------
     def resource(self,
@@ -847,15 +932,15 @@ class S3XML(S3Codec):
         DELETED = self.DELETED
 
         TAG = self.TAG
-        RESOURCE = TAG.resource
-        DATA = TAG.data
+        RESOURCE = TAG["resource"]
+        DATA = TAG["data"]
 
         ATTRIBUTE = self.ATTRIBUTE
-        NAME = ATTRIBUTE.name
-        ALIAS = ATTRIBUTE.alias
-        FIELD = ATTRIBUTE.field
-        VALUE = ATTRIBUTE.value
-        URL = ATTRIBUTE.url
+        NAME = ATTRIBUTE["name"]
+        ALIAS = ATTRIBUTE["alias"]
+        FIELD = ATTRIBUTE["field"]
+        VALUE = ATTRIBUTE["value"]
+        URL = ATTRIBUTE["url"]
 
         tablename = table._tablename
         deleted = False
@@ -911,22 +996,20 @@ class S3XML(S3Codec):
         table_fields = table.fields
 
         _repr = self.represent
+        to_json = json.dumps
         for f in fields:
             if f == DELETED:
                 continue
-            if f in record:
-                v = record[f]
-            else:
-                v = None
+            v = record.get(f, None)
             if f == MCI:
                 if v is None:
                     v = 0
                 attrib[MCI] = str(int(v) + 1)
                 continue
-            if v is None or f not in table_fields:
+            if v is None or not hasattr(table, f):
                 continue
-            dbfield = table[f]
-            fieldtype = str(table[f].type)
+            dbfield = ogetattr(table, f)
+            fieldtype = str(dbfield.type)
             formatter = dbfield.formatter
             represent = dbfield.represent
             is_attr = f in FIELDS_TO_ATTRIBUTES
@@ -966,22 +1049,23 @@ class S3XML(S3Codec):
                 attr[FIELD] = f
                 if represent or fieldtype not in ("string", "text"):
                     if value is None:
-                        value = json.dumps(v).decode("utf-8")
+                        value = to_json(v).decode("utf-8")
                     attr[VALUE] = value
                 data.text = text
         if url and not deleted:
             attrib[URL] = url
 
-        postp = None
-        if postprocess is not None:
-            if isinstance(postprocess, dict):
-                postp = postprocess.get(str(table), None)
-            else:
-                postp = postprocess
-        if postp and callable(postp):
-            result = postp(table, record, elem)
-            if isinstance(result, etree._Element):
-                elem = result
+        # @todo: currently unused => remove?
+        #postp = None
+        #if postprocess is not None:
+            #if isinstance(postprocess, dict):
+                #postp = postprocess.get(str(table), None)
+            #else:
+                #postp = postprocess
+        #if postp and callable(postp):
+            #result = postp(table, record, elem)
+            #if isinstance(result, etree._Element):
+                #elem = result
 
         return elem
 
@@ -1053,7 +1137,8 @@ class S3XML(S3Codec):
         return (value, error)
 
     # -------------------------------------------------------------------------
-    def record(self, table, element,
+    @classmethod
+    def record(cls, table, element,
                original=None,
                files=[],
                preprocess=None,
@@ -1092,22 +1177,34 @@ class S3XML(S3Codec):
             element = prepare(table, element)
 
         # Extract the UUID
-        if self.UID in table.fields and self.UID not in skip:
-            uid = self.import_uid(element.get(self.UID, None))
+        UID = cls.UID
+        if UID in table.fields and UID not in skip:
+            uid = current.xml.import_uid(element.get(UID, None))
             if uid:
-                record[self.UID] = uid
+                record[UID] = uid
+
+        # Attribute names
+        FIELD = cls.ATTRIBUTE["field"]
+        VALUE = cls.ATTRIBUTE["value"]
+        ERROR = cls.ATTRIBUTE["error"]
+
+        DELETED = cls.DELETED
+        APPROVED = cls.APPROVED
+        IGNORE_FIELDS = cls.IGNORE_FIELDS
+        OGROUP = cls.OGROUP
+        USER_FIELDS = (cls.CUSER, cls.MUSER, cls.OUSER)
 
         # Attributes
         deleted = False
-        for f in self.ATTRIBUTES_TO_FIELDS:
-            if f == self.DELETED:
+        for f in cls.ATTRIBUTES_TO_FIELDS:
+            if f == DELETED:
                 if f in table and \
                    element.get(f, "false").lower() == "true":
                     record[f] = deleted = True
                     break
                 else:
                     continue
-            if f == self.APPROVED:
+            if f == APPROVED:
                 # Override default-approver:
                 if "approved_by" in table:
                     if element.get(f, "true").lower() == "false":
@@ -1116,9 +1213,9 @@ class S3XML(S3Codec):
                         if table["approved_by"].default == None:
                             auth.permission.set_default_approver(table)
                 continue
-            if f in self.IGNORE_FIELDS or f in skip:
+            if f in IGNORE_FIELDS or f in skip:
                 continue
-            elif f in (self.CUSER, self.MUSER, self.OUSER):
+            elif f in USER_FIELDS:
                 v = element.get(f, None)
                 if v and utable and "email" in utable:
                     query = utable.email == v
@@ -1126,7 +1223,7 @@ class S3XML(S3Codec):
                     if user:
                         record[f] = user.id
                 continue
-            elif f == self.OGROUP:
+            elif f == OGROUP:
                 v = element.get(f, None)
                 if v and gtable and "role" in gtable:
                     query = gtable.role == v
@@ -1134,13 +1231,13 @@ class S3XML(S3Codec):
                     if role:
                         record[f] = role.id
                 continue
-            if f in table.fields:
+            if hasattr(table, f): #f in table.fields:
                 v = value = element.get(f, None)
                 if value is not None:
                     field_type = str(table[f].type)
                     if field_type in ("datetime", "date", "time"):
-                        (value, error) = self._dtparse(v,
-                                                       field_type=field_type)
+                        (value, error) = cls._dtparse(v,
+                                                      field_type=field_type)
                     elif validate is not None:
                         try:
                             (value, error) = validate(table, original, f, v)
@@ -1148,8 +1245,7 @@ class S3XML(S3Codec):
                             # No such field
                             continue
                     if error:
-                        element.set(self.ATTRIBUTE.error,
-                                    "%s: %s" % (f, error))
+                        element.set(ERROR, "%s: %s" % (f, error))
                         valid = False
                         continue
                     record[f] = value
@@ -1158,18 +1254,19 @@ class S3XML(S3Codec):
             return record
 
         # Fields
+        xml_decode = cls.xml_decode
         for child in element.findall("data"):
-            f = child.get(self.ATTRIBUTE.field, None)
-            if not f or f not in table.fields:
+            f = child.get(FIELD, None)
+            if not f or not hasattr(table, f): #f not in table.fields:
                 continue
-            if f in self.IGNORE_FIELDS or f in skip:
+            if f in IGNORE_FIELDS or f in skip:
                 continue
             field_type = str(table[f].type)
             if field_type in ("id", "blob"):
                 continue
             elif field_type == "upload":
-                download_url = child.get(self.ATTRIBUTE.url, None)
-                filename = child.get(self.ATTRIBUTE.filename, None)
+                download_url = child.get(cls.ATTRIBUTE["url"], None)
+                filename = child.get(cls.ATTRIBUTE["filename"], None)
                 upload = None
                 if filename and filename in files:
                     # We already have the file cached
@@ -1205,7 +1302,7 @@ class S3XML(S3Codec):
                 elif download_url != "local":
                     continue
             else:
-                value = child.get(self.ATTRIBUTE.value, None)
+                value = child.get(VALUE, None)
 
             error = None
             skip_validation = False
@@ -1217,7 +1314,7 @@ class S3XML(S3Codec):
                     # comes encrypted:
                     skip_validation = True
                 else:
-                    value = self.xml_decode(child.text)
+                    value = xml_decode(child.text)
 
             if value is None and field_type in ("string", "text"):
                 value = ""
@@ -1226,8 +1323,8 @@ class S3XML(S3Codec):
 
             if value is not None:
                 if field_type in ("datetime", "date", "time"):
-                    (value, error) = self._dtparse(value,
-                                                   field_type=field_type)
+                    (value, error) = cls._dtparse(value,
+                                                  field_type=field_type)
                     skip_validation = True
                     v = value
                 elif isinstance(value, basestring) and len(value):
@@ -1262,9 +1359,9 @@ class S3XML(S3Codec):
                     except:
                         error = sys.exc_info()[1]
 
-                child.set(self.ATTRIBUTE.value, s3_unicode(v))
+                child.set(VALUE, s3_unicode(v))
                 if error:
-                    child.set(self.ATTRIBUTE.error, "%s: %s" % (f, error))
+                    child.set(ERROR, "%s: %s" % (f, error))
                     valid = False
                     continue
 
@@ -1849,11 +1946,9 @@ class S3XML(S3Codec):
             col = etree.SubElement(row, cls.TAG.col)
             col.set(cls.ATTRIBUTE.field, str(key))
             if value:
-                text = s3_unicode(value)
-                #text = str(value)
+                text = s3_unicode(value).strip()
                 if text.lower() not in ("null", "<null>"):
                     text = cls.xml_encode(text)
-                    #text = cls.xml_encode(unicode(text.decode("utf-8")))
                     col.text = text
             else:
                 col.text = ""

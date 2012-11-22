@@ -78,6 +78,11 @@ class S3DocumentLibrary(S3Model):
                                project_activity=T("Project Activity"),
                                project_task=T("Task"),
                                hms_hospital=T("Hospital"),
+                               org_office=T("Office"),
+                               org_facility=T("Facility"),
+                               cr_shelter=T("Shelter"),
+                               inv_adj=T("Stock Adjustment"),
+                               inv_warehouse=T("Warehouse"),
                                )
 
         tablename = "doc_entity"
@@ -288,7 +293,7 @@ class S3DocumentLibrary(S3Model):
 
         vars = form.vars
         doc = vars.file
-        if isinstance(doc, NoneType):
+        if doc is None:
             # This is a prepop, so file not in form
             return
 

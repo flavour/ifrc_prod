@@ -20,7 +20,9 @@ def gis_download_kml(record_id, filename, user_id=None):
         # Authenticate
         auth.s3_impersonate(user_id)
     # Run the Task & return the result
-    return gis.download_kml(record_id, filename)
+    result = gis.download_kml(record_id, filename)
+    db.commit()
+    return result
 
 tasks["gis_download_kml"] = gis_download_kml
 
@@ -38,7 +40,9 @@ def gis_update_location_tree(feature, user_id=None):
         auth.s3_impersonate(user_id)
     # Run the Task & return the result
     feature = json.loads(feature)
-    return gis.update_location_tree(feature)
+    path = gis.update_location_tree(feature)
+    db.commit()
+    return path
 
 tasks["gis_update_location_tree"] = gis_update_location_tree
 
@@ -99,6 +103,7 @@ def maintenance(period="daily"):
     else:
         result = "NotImplementedError"
 
+    db.commit()
     return result
 
 tasks["maintenance"] = maintenance
@@ -120,7 +125,9 @@ if settings.has_module("msg"):
             # Authenticate
             auth.s3_impersonate(user_id)
         # Run the Task & return the result
-        return msg.process_outbox(contact_method)
+        result = msg.process_outbox(contact_method)
+        db.commit()
+        return result
 
     tasks["msg_process_outbox"] = msg_process_outbox
 
@@ -133,12 +140,29 @@ if settings.has_module("msg"):
             This uniquely identifies one inbound email task.
         """
         # Run the Task & return the result
-        return msg.fetch_inbound_email(username)
+        result = msg.fetch_inbound_email(username)
+        db.commit()
+        return result
 
     tasks["msg_process_inbound_email"] = msg_process_inbound_email
 
     # -------------------------------------------------------------------------
-    def msg_twilio_inbound_sms(account, user_id):
+    def msg_mcommons_inbound_sms(campaign_id, user_id=None):
+        """
+            Poll an inbound SMS(Mobile Commons) source.
+
+            @param campaign_id: account name for the SMS source to read from.
+            This uniquely identifies one inbound SMS task.
+        """
+        # Run the Task & return the result
+        result = msg.mcommons_inbound_sms(campaign_id)
+        db.commit()
+        return result
+
+    tasks["msg_mcommons_inbound_sms"] = msg_mcommons_inbound_sms
+
+    # -------------------------------------------------------------------------
+    def msg_twilio_inbound_sms(account, user_id=None):
         """
             Poll an inbound SMS(Twilio) source.
 
@@ -146,7 +170,9 @@ if settings.has_module("msg"):
             This uniquely identifies one inbound SMS task.
         """
         # Run the Task & return the result
-        return msg.twilio_inbound_sms(account)
+        result = msg.twilio_inbound_sms(account)
+        db.commit()
+        return result
 
     tasks["msg_twilio_inbound_sms"] = msg_twilio_inbound_sms
 
@@ -156,7 +182,9 @@ if settings.has_module("msg"):
             Processes the msg_log for unparsed messages.
         """
         # Run the Task & return the result
-        return msg.parse_import(workflow, source)
+        result = msg.parse_import(workflow, source)
+        db.commit()
+        return result
 
     tasks["msg_parse_workflow"] = msg_parse_workflow
 
@@ -166,9 +194,28 @@ if settings.has_module("msg"):
             Search Subscriptions & send Notifications.
         """
         # Run the Task & return the result
-        return s3db.msg_search_subscription_notifications(frequency=frequency)
+        result = s3db.msg_search_subscription_notifications(frequency=frequency)
+        db.commit()
+        return result
 
     tasks["msg_search_subscription_notifications"] = msg_search_subscription_notifications
+
+# -----------------------------------------------------------------------------
+if settings.has_module("req"):
+
+    def req_add_from_template(req_id, user_id=None):
+        """
+            Add a Request from template
+        """
+        if user_id:
+            # Authenticate
+            auth.s3_impersonate(user_id)
+        # Run the Task & return the result
+        result = s3db.req_add_from_template(req_id)
+        db.commit()
+        return result
+
+    tasks["req_add_from_template"] = req_add_from_template
 
 # -----------------------------------------------------------------------------
 if settings.has_module("stats"):
@@ -182,7 +229,9 @@ if settings.has_module("stats"):
             # Authenticate
             auth.s3_impersonate(user_id)
         # Run the Task & return the result
-        return s3db.stats_group_clean()
+        result = s3db.stats_group_clean()
+        db.commit()
+        return result
 
     tasks["stats_group_clean"] = stats_group_clean
 
@@ -197,7 +246,9 @@ if settings.has_module("stats"):
             # Authenticate
             auth.s3_impersonate(user_id)
         # Run the Task & return the result
-        return s3db.stats_update_time_aggregate(data_id)
+        result = s3db.stats_update_time_aggregate(data_id)
+        db.commit()
+        return result
 
     tasks["stats_update_time_aggregate"] = stats_update_time_aggregate
 
@@ -221,12 +272,14 @@ if settings.has_module("stats"):
             # Authenticate
             auth.s3_impersonate(user_id)
         # Run the Task & return the result
-        return s3db.stats_update_aggregate_location(location_level,
-                                                    root_location_id,
-                                                    parameter_id,
-                                                    start_date,
-                                                    end_date,
-                                                    )
+        result = s3db.stats_update_aggregate_location(location_level,
+                                                      root_location_id,
+                                                      parameter_id,
+                                                      start_date,
+                                                      end_date,
+                                                      )
+        db.commit()
+        return result
 
     tasks["stats_update_aggregate_location"] = stats_update_aggregate_location
 

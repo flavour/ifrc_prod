@@ -66,6 +66,7 @@ s3mgr.LABEL["READ"] = READ
 s3mgr.LABEL["UPDATE"] = UPDATE
 s3mgr.LABEL["DELETE"] = DELETE
 s3mgr.LABEL["COPY"] = COPY
+s3mgr.LABEL["NONE"] = NONE
 
 # To get included in <HEAD>
 s3.stylesheets = []
@@ -196,12 +197,13 @@ _messages.registration_pending = settings.get_auth_registration_pending()
 _messages["approve_user"] = \
 """Your action is required to approve a New User for %(system_name)s:
 %(name_format)s
-Please go to %(base_url)s/admin/user to approve this user.""" \
+Please go to %(base_url)s/admin/user/%(id)s to approve this user.""" \
 % dict(system_name = settings.get_system_name(),
        name_format = \
 """%(first_name)s %(last_name)s
 %(email)s""",
-       base_url = s3.base_url)
+       base_url = s3.base_url,
+       id = "%(id)s")
 
 _messages["new_user"] = \
 """A New User has registered for %(system_name)s:
@@ -298,11 +300,11 @@ if s3.debug:
 # -----------------------------------------------------------------------------
 # CRUD
 
-formstyle = settings.get_ui_formstyle()
-s3_formstyle_mobile = formstyle
+s3_formstyle = settings.get_ui_formstyle()
+s3_formstyle_mobile = s3_formstyle
 submit_button = T("Save")
 _crud = s3.crud
-_crud.formstyle = formstyle
+_crud.formstyle = s3_formstyle
 _crud.submit_button = submit_button
 # Optional class for Submit buttons
 #_crud.submit_style = "submit-button"
@@ -314,7 +316,7 @@ _crud.navigate_away_confirm = settings.get_ui_navigate_away_confirm()
 # Breaks refresh of List after Create: http://groups.google.com/group/web2py/browse_thread/thread/d5083ed08c685e34
 #crud.settings.keepvalues = True
 crud.messages.submit_button = submit_button
-crud.settings.formstyle = formstyle
+crud.settings.formstyle = s3_formstyle
 
 s3mgr.crud = s3base.S3CRUD
 s3mgr.search = s3base.S3Search

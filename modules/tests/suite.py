@@ -16,7 +16,6 @@ current.data = Storage()
 # (means removing the *)
 from selenium import webdriver
 from tests.asset import *
-from tests.hrm import *
 from tests.inv import *
 from tests.member import *
 from tests.org import *
@@ -71,8 +70,6 @@ def loadAllTests():
 
     # Assign Staff to Warehouse
     addTests(loadTests(AddStaffToWarehouse))
-    # Delete a prepop organisation
-    #addTests(loadTests(DeleteOrganisation))
 
     # Create a Warehouse
     addTests(loadTests(CreateWarehouse))
@@ -89,8 +86,6 @@ def loadAllTests():
     # Create Members
     addTests(loadTests(CreateMember))
 
-    # Search Staff (Simple & Advanced)
-    #addTests(loadTests(SearchStaff))
     return suite
 
 # Set up the command line arguments
@@ -146,6 +141,16 @@ parser.add_argument("--link-depth",
                     type = int,
                     default = 16,
                     help = "The recursive depth when looking for links")
+desc = """This will record the timings in a spreadsheet file. The data
+will be accumulated over time holding a maximum of 100 results, The file will
+automatically rotated. This will hold details for another program to analyse.
+The file will be written to the same location as the HTML report.
+"""
+parser.add_argument("-r",
+                    "--record-timings",
+                    action='store_const',
+                    const=True,
+                    help = desc)
 
 up_desc = """The user name and password, separated by a /. Multiple user name
 and passwords can be added by separating them with a comma. If multiple user
@@ -164,7 +169,7 @@ desc = """Run the smoke tests even if debug is set to true.
 
 With debug on it can add up to a second per link and given that a full run
 of the smoke tests will include thousands of links the difference of having
-this setting one can be measured in hours.
+this setting on can be measured in hours.
 """
 parser.add_argument("--force-debug",
                     action='store_const',
@@ -203,6 +208,11 @@ if args["suite"] == "smoke" or args["suite"] == "complete":
     if settings.get_base_debug() and not args["force_debug"]:
         print "settings.base.debug is set to True in 000_config.py, either set it to False or use the --force-debug switch"
         exit()
+    config.record_timings = args["record_timings"]
+    if config.record_timings:
+        path = args["html_path"]
+        config.record_timings_filename = os.path.join(path, "Sahana-Eden-record-timings.xls")
+        config.record_summary_filename = os.path.join(path, "Sahana-Eden-record-summary.xls")
 
 config.verbose = args["verbose"]
 browser_open = False
@@ -229,7 +239,7 @@ elif args["suite"] == "smoke":
         from tests.smoke import *
         broken_links = BrokenLinkTest()
         broken_links.setDepth(args["link_depth"])
-        broken_links.threshold = args["threshold"]
+        broken_links.setThreshold(args["threshold"])
         broken_links.setUser(args["user_password"])
         suite = unittest.TestSuite()
         suite.addTest(broken_links)
@@ -248,13 +258,13 @@ elif args["suite"] == "roles":
     #test_role.set(org = "Org-A",
     #              user = "asset_reader@Org-A.com",
     #              row_num = 0,
-    #                     method = "create",
-    #                     table = "org_organisation",
-    #                     c = None,
-    #                     f = None,
-    #                     record_id = 42,
-    #                     uuid = "uuid",
-    #                     permission = True)
+    #              method = "create",
+    #              table = "org_organisation",
+    #              c = None,
+    #              f = None,
+    #              record_id = 42,
+    #              uuid = "uuid",
+    #              permission = True)
     #suite.addTest(test_role)
     #suite = unittest.TestLoader().loadTestsFromTestCase(globals()[args["auth"]])
 
@@ -267,7 +277,7 @@ elif args["suite"] == "complete":
         from tests.smoke import *
         broken_links = BrokenLinkTest()
         broken_links.setDepth(args["link_depth"])
-        broken_links.threshold = args["threshold"]
+        broken_links.setThreshold(args["threshold"])
         broken_links.setUser(args["user_password"])
         suite.addTest(broken_links)
     except NameError as msg:

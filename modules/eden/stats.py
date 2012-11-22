@@ -64,7 +64,7 @@ class S3StatsModel(S3Model):
         location_id = self.gis_location_id
         super_entity = self.super_entity
 
-        UNKNOWN_OPT = current.messages.UNKNOWN_OPT
+        UNKNOWN_OPT = current.messages["UNKNOWN_OPT"]
 
         #----------------------------------------------------------------------
         # Super entity: stats_parameter
@@ -112,14 +112,13 @@ class S3StatsModel(S3Model):
                            )
 
         tablename = "stats_data"
-        table = super_entity(tablename,
-                             "data_id",
+        table = super_entity(tablename, "data_id",
                              sd_types,
                              param_id(),
                              location_id(
-                                    widget = S3LocationAutocompleteWidget(),
-                                    requires = IS_LOCATION()
-                                ),
+                                widget = S3LocationAutocompleteWidget(),
+                                requires = IS_LOCATION()
+                             ),
                              Field("value", "double",
                                    label = T("Value")),
                              s3_date(),
@@ -149,17 +148,19 @@ class S3StatsModel(S3Model):
                           2 : T("Location"),
                           3 : T("Copy"),
                           4 : T("Indicator"),
-                         }
+                          }
 
         tablename = "stats_aggregate"
         table = define_table(tablename,
                              param_id(),
-                             location_id(widget = S3LocationAutocompleteWidget(),
-                                        requires = IS_LOCATION()),
+                             location_id(
+                                widget = S3LocationAutocompleteWidget(),
+                                requires = IS_LOCATION()
+                             ),
                              Field("agg_type", "integer",
                                    requires = IS_IN_SET(aggregate_type),
                                    represent = lambda opt: \
-                                            aggregate_type.get(opt, UNKNOWN_OPT),
+                                        aggregate_type.get(opt, UNKNOWN_OPT),
                                    default = 1,
                                    ),
                              Field("reported_count", "integer",
@@ -221,8 +222,7 @@ class S3StatsModel(S3Model):
         """ Safe defaults if the module is disabled """
 
         param_id = S3ReusableField("parameter_id", "integer",
-                                   readable=False,
-                                   writable=False
+                                   readable=False, writable=False
                                    )
         def rebuild_aggregates():
             return
@@ -269,8 +269,9 @@ class S3StatsModel(S3Model):
         current.db(s3db.stats_group.deleted != True).update(dirty=True)
 
         # Delete the existing data
-        resource = s3db.resource("stats_aggregate")
-        resource.delete()
+        #resource = s3db.resource("stats_aggregate")
+        #resource.delete()
+        s3db.stats_aggregate.truncate()
 
         # Fire off a rebuild task
         current.s3task.async("stats_group_clean",
@@ -307,7 +308,7 @@ class S3StatsModel(S3Model):
         s3db = current.s3db
         dtable = db.stats_data
         atable = db.stats_aggregate
-        gis_table = db.gis_location
+        gtable = db.gis_location
 
         stats_aggregated_period = cls.stats_aggregated_period
 
@@ -394,8 +395,7 @@ class S3StatsModel(S3Model):
 
             # Get all the aggregate records for this parameter and location
             query = (atable.location_id == location_id) & \
-                    (atable.parameter_id == parameter_id) & \
-                    (atable.deleted != True)
+                    (atable.parameter_id == parameter_id)
             aggr_rows = db(query).select(atable.id,
                                          atable.agg_type,
                                          atable.date,
@@ -534,9 +534,10 @@ class S3StatsModel(S3Model):
             if changed_periods == []:
                 continue
             # The following structures are used in the OPTIMISATION steps later
-            loc_level_list[location_id] = db(gis_table.id == location_id).select(gis_table.level,
-                                                                                 limitby=(0, 1)
-                                                                                 ).first().level
+            location = db(gtable.id == location_id).select(gtable.level,
+                                                           limitby=(0, 1)
+                                                           ).first()
+            loc_level_list[location_id] = location.level
             if parameter_id not in param_location_dict:
                 param_location_dict[parameter_id] = {location_id : changed_periods}
             elif location_id not in param_location_dict[parameter_id]:
@@ -639,7 +640,8 @@ class S3StatsModel(S3Model):
                                              vulnerability_id_list,
                                              start_date,
                                              end_date,
-                                             use_location)
+                                             use_location,
+                                             )
 
     # ---------------------------------------------------------------------
     @staticmethod
@@ -723,8 +725,7 @@ class S3StatsModel(S3Model):
         query = (atable.location_id == location_id) & \
                 (atable.parameter_id == parameter_id) & \
                 (atable.date == start_date) & \
-                (atable.end_date == end_date) & \
-                (atable.deleted != True)
+                (atable.end_date == end_date)
         exists = db(query).select(atable.id, limitby=(0, 1)).first()
 
         if exists:
@@ -755,10 +756,6 @@ class S3StatsModel(S3Model):
                           mad = values_mad,
                           sum = values_sum,
                           )
-
-        # Explicitly commit when running async
-        db.commit()
-
         return
 
     # ---------------------------------------------------------------------
@@ -951,12 +948,13 @@ class S3StatsGroupModel(S3Model):
                                         label=T("Name")),
                                   )
         # Reusable Field
+        represent = s3_represent_id(table)
         source_id = S3ReusableField("source_id", table,
                                     requires = IS_NULL_OR(
                                                 IS_ONE_OF(db,
                                                           "stats_source.source_id",
-                                                          stats_source_represent)),
-                                    represent = stats_source_represent,
+                                                          represent)),
+                                    represent = represent,
                                     label = T("Source"),
                                     ondelete = "CASCADE")
 
@@ -1015,12 +1013,13 @@ class S3StatsGroupModel(S3Model):
                              *s3_meta_fields()
                              )
         # Reusable Field
+        represent = s3_represent_id(table)
         group_type_id = S3ReusableField("group_type_id", table,
                             requires = IS_NULL_OR(
                                         IS_ONE_OF(db,
                                                   "stats_group_type.id",
-                                                  stats_group_type_represent)),
-                            represent = stats_group_type_represent,
+                                                  represent)),
+                            represent = represent,
                             label = T("Source Type"),
                             ondelete = "CASCADE")
         # Resource Configuration
@@ -1163,8 +1162,6 @@ class S3StatsGroupModel(S3Model):
                 (gtable.dirty == True) & \
                 (gtable.approved_by != None)
         db(query).update(dirty=False)
-        # Explicitly commit when running async
-        db.commit()
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -1255,31 +1252,11 @@ def stats_demographic_data_controller():
     return output
 
 # =============================================================================
-def stats_group_type_represent(id, row=None):
-    """ FK representation """
-
-    if row:
-        return row.display
-    elif not id:
-        return current.messages.NONE
-    elif isinstance(id, Row):
-        return id.display
-
-    db = current.db
-    table = db.stats_group_type
-    r = db(table._id == id).select(table.display,
-                                   limitby=(0, 1)).first()
-    try:
-        return r.display
-    except:
-        return current.messages.UNKNOWN_OPT
-
-# =============================================================================
 def stats_group_represent(id, row=None):
     """ FK representation """
 
     if row:
-        return stats_source_represent(row.source_id)
+        return represent(s3db.stats_source)(row.source_id)
     elif not id:
         return current.messages.NONE
 
@@ -1290,25 +1267,6 @@ def stats_group_represent(id, row=None):
             (stable._id == table.source_id)
     r = current.db(query).select(stable.name,
                                  limitby=(0, 1)).first()
-    try:
-        return r.name
-    except:
-        return current.messages.UNKNOWN_OPT
-
-# =============================================================================
-def stats_source_represent(id, row=None):
-    """ FK representation """
-
-    if row:
-        return row.name
-    elif not id:
-        return current.messages.NONE
-    elif isinstance(id, Row):
-        return id.name
-
-    table = current.s3db.stats_source
-    r = current.db(table._id == id).select(table.name,
-                                           limitby=(0, 1)).first()
     try:
         return r.name
     except:

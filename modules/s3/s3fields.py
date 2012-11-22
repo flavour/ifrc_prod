@@ -346,7 +346,7 @@ def s3_ownerstamp():
                                                         else None,
                                             represent=lambda id: \
                                                 id and s3_auth_user_represent(id) or \
-                                                       current.messages.UNKNOWN_OPT,
+                                                       current.messages["UNKNOWN_OPT"],
                                             ondelete="RESTRICT")
 
     # Role of users who collectively own the record
@@ -481,6 +481,9 @@ def s3_roles_permitted(name="roles_permitted", **attr):
 # Labels that vary by country are set by gis.update_table_hierarchy_labels()
 #
 
+address_L5 = S3ReusableField("L5",
+                             readable=False,
+                             writable=False)
 address_L4 = S3ReusableField("L4",
                              readable=False,
                              writable=False)
@@ -503,6 +506,7 @@ def s3_lx_fields():
     """
 
     fields = (
+            address_L5(),
             address_L4(),
             address_L3(),
             address_L2(),
@@ -757,7 +761,7 @@ def s3_comments(name="comments", **attr):
     if "label" not in attr:
         attr["label"] = T("Comments")
     if "represent" not in attr:
-        attr["represent"] = lambda comments: comments or current.messages.NONE
+        attr["represent"] = lambda comments: comments or current.messages["NONE"]
     if "widget" not in attr:
         attr["widget"] = s3_comments_widget
     if "comment" not in attr:
@@ -806,7 +810,7 @@ def s3_date(name="date", **attr):
     """
         Return a standard Date field
 
-        Additional options to normal S3ResuableField:
+        Additional options to normal S3ReusableField:
             default == "now" (in addition to usual meanings)
             past = x months
             future = x months
@@ -923,7 +927,7 @@ def s3_datetime(name="date", **attr):
     """
         Return a standard Datetime field
 
-        Additional options to normal S3ResuableField:
+        Additional options to normal S3ReusableField:
             default = "now" (in addition to usual meanings)
             represent = "date" (in addition to usual meanings)
             widget = "date" (in addition to usual meanings)

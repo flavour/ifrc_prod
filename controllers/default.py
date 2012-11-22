@@ -50,12 +50,12 @@ def register_validation(form):
 
     return
 
-# -----------------------------------------------------------------------------
-auth.settings.register_onvalidation = register_validation
-
 # =============================================================================
 def index():
     """ Main Home Page """
+
+    auth.settings.register_onvalidation = register_validation
+    auth.configure_user_fields()
 
     page = request.args(0)
     if page:
@@ -75,8 +75,11 @@ def index():
             if page in custom.__dict__:
                 exec ("output = custom.%s()()" % page)
                 return output
-            else:
+            elif page != "login":
                 raise(HTTP(404, "Function not found: %s()" % page))
+            else:
+                output = custom.index()()
+                return output
     elif settings.get_template() != "default":
         # Try a Custom Homepage
         controller = "applications.%s.private.templates.%s.controllers" % \
@@ -176,8 +179,6 @@ def index():
                           )
                         )
 
-    datatable_ajax_source = ""
-
     # Check logged in AND permissions
     roles = session.s3.roles
     if AUTHENTICATED in roles and \
@@ -232,6 +233,7 @@ def index():
                       _class = "menu_box fleft"
                       )
     else:
+        datatable_ajax_source = ""
         manage_facility_box = ""
         org_box = ""
 
@@ -448,6 +450,7 @@ def user():
     auth.settings.on_failed_authorization = URL(f="error")
 
     auth.configure_user_fields()
+    auth.settings.register_onvalidation = register_validation
 
     _table_user = auth.settings.table_user
 
@@ -482,10 +485,7 @@ def user():
     elif arg == "change_password":
         form = auth()
     elif arg == "profile":
-        # @ToDo: move this code to /modules/s3/s3aaa.py:def profile?
         form = auth.profile()
-        # add an opt in clause to receive emails depending on the deployment settings
-
     else:
         # Retrieve Password / Logout
         form = auth()
@@ -500,7 +500,6 @@ def user():
                 login_form=login_form,
                 register_form=register_form,
                 self_registration=self_registration)
-
 
 # -----------------------------------------------------------------------------
 def person():
@@ -818,6 +817,25 @@ def privacy():
     return dict()
 
 # -----------------------------------------------------------------------------
+def tos():
+    """ Custom View """
+
+    if settings.get_template() != "default":
+        # Try a Custom View
+        view = os.path.join(request.folder, "private", "templates",
+                            settings.get_template(), "views", "tos.html")
+        if os.path.exists(view):
+            try:
+                # Pass view as file not str to work in compiled mode
+                response.view = open(view, "rb")
+            except IOError:
+                from gluon.http import HTTP
+                raise HTTP("404", "Unable to open Custom View: %s" % view)
+
+    response.title = T("Terms of Service")
+    return dict()
+
+# -----------------------------------------------------------------------------
 def contact():
     """
         Give the user options to contact the site admins.
@@ -853,19 +871,34 @@ def contact():
 
         output = s3_rest_controller(prefix, resourcename)
         return output
-    elif settings.get_template() != "default":
-        # Try a Custom View
-        view = os.path.join(request.folder, "private", "templates",
-                            settings.get_template(), "views", "contact.html")
-        if os.path.exists(view):
-            try:
-                # Pass view as file not str to work in compiled mode
-                response.view = open(view, "rb")
-            except IOError:
-                from gluon.http import HTTP
-                raise HTTP("404", "Unable to open Custom View: %s" % view)
 
-    response.title = T("Contact us")
+    else:
+        template = settings.get_template()
+        if template != "default":
+            # Try a Custom Page
+            controller = "applications.%s.private.templates.%s.controllers" % \
+                                (appname, template)
+            try:
+                exec("import %s as custom" % controller) in globals(), locals()
+            except ImportError, e:
+                # No Custom Page available, try a custom view
+                pass
+            else:
+                if "contact" in custom.__dict__:
+                    output = custom.contact()()
+                    return output
+
+            view = os.path.join(request.folder, "private", "templates",
+                                template, "views", "contact.html")
+            if os.path.exists(view):
+                try:
+                    # Pass view as file not str to work in compiled mode
+                    response.view = open(view, "rb")
+                except IOError:
+                    from gluon.http import HTTP
+                    raise HTTP("404", "Unable to open Custom View: %s" % view)
+
+                response.title = T("Contact us")
     return dict()
 
 # END =========================================================================
