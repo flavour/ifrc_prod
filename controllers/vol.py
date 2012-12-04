@@ -139,19 +139,19 @@ def volunteer():
         # Remove deprecated Active/Obsolete
         human_resource_search.advanced.pop(1)
         table.status.readable = table.status.writable = False
-        if enable_active_field:
-            widget = s3base.S3SearchOptionsWidget(
-                                name="human_resource_search_active",
-                                label=T("Active?"),
-                                field="active",
-                                cols = 2,
-                                options = {
-                                        T("Yes"): T("Yes"),
-                                        T("No"): T("No")
-                                    }
-                              ),
-            search_widget = ("human_resource_search_active", widget[0])
-            human_resource_search.advanced.insert(1, search_widget)
+        #if enable_active_field:
+        #    widget = s3base.S3SearchOptionsWidget(
+        #                        name="human_resource_search_active",
+        #                        label=T("Active?"),
+        #                        field="active",
+        #                        cols = 2,
+        #                        options = {
+        #                                T("Yes"): T("Yes"),
+        #                                T("No"): T("No")
+        #                            }
+        #                      ),
+        #    search_widget = ("human_resource_search_active", widget[0])
+        #    human_resource_search.advanced.insert(1, search_widget)
 
         def hrm_programme_opts():
             """
@@ -173,15 +173,15 @@ def volunteer():
                 _dict[opt.id] = opt.name
             return _dict
 
-        widget = s3base.S3SearchOptionsWidget(
-                            name="human_resource_search_programme",
-                            label=T("Programme"),
-                            field="programme",
-                            cols = 2,
-                            options = hrm_programme_opts
-                          ),
-        search_widget = ("human_resource_search_programme", widget[0])
-        human_resource_search.advanced.insert(3, search_widget)
+        #widget = s3base.S3SearchOptionsWidget(
+        #                    name="human_resource_search_programme",
+        #                    label=T("Programme"),
+        #                    field="programme",
+        #                    cols = 2,
+        #                    options = hrm_programme_opts
+        #                  ),
+        #search_widget = ("human_resource_search_programme", widget[0])
+        #human_resource_search.advanced.insert(3, search_widget)
     else:
         list_fields.append("status")
     s3.crud_strings[tablename] = s3.crud_strings["hrm_volunteer"]
