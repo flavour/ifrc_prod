@@ -94,6 +94,7 @@ from gluon.storage import Storage
 from s3utils import *
 from s3validators import *
 
+ogetattr = object.__getattribute__
 repr_select = lambda l: len(l.name) > 48 and "%s..." % l.name[:44] or l.name
 
 # =============================================================================
@@ -1420,7 +1421,12 @@ class S3LocationDropdownWidget(FormWidget):
 
         s3db = current.s3db
         table = s3db.gis_location
-        query = (table.level == level)
+        if level:
+            query = (table.deleted != True) & \
+                    (table.level == level)
+        else:
+            # Workaround for merge form
+            query = (table.id == value)
         locations = current.db(query).select(table.name,
                                              table.id,
                                              cache=s3db.cache)
@@ -1430,9 +1436,10 @@ class S3LocationDropdownWidget(FormWidget):
             if not value and default and location.name == default:
                 value = location.id
         locations = locations.as_dict()
-        attr_dropdown = OptionsWidget._attributes(field,
-                                                  dict(_type = "int",
-                                                       value = value))
+        attr = dict(attributes)
+        attr["_type"] = "int"
+        attr["value"] = value
+        attr_dropdown = OptionsWidget._attributes(field, attr)
         requires = IS_IN_SET(locations)
         if empty:
             requires = IS_NULL_OR(requires)
@@ -1594,8 +1601,8 @@ class S3LocationSelectorWidget(FormWidget):
                                                 locations.name).first()
             if default_location.level:
                 # Add this one to the defaults too
-                defaults[default_location.level] = Storage(name = default_location.name,
-                                                           id = config.default_location_id)
+                defaults[default_location.level] = Storage(name=default_location.name,
+                                                           id=config.default_location_id)
             if "L0" in defaults:
                 default_L0 = defaults["L0"]
                 if default_L0:
@@ -1603,7 +1610,7 @@ class S3LocationSelectorWidget(FormWidget):
                     if id not in countries:
                         # Add the default country to the list of possibles
                         countries[id] = defaults["L0"].name
-                country_snippet = "S3.gis.country = '%s';\n" % \
+                country_snippet = '''S3.gis.country="%s"\n''' % \
                     gis.get_default_country(key_type="code")
         elif len(countries) == 1:
             default_L0.id = countries.keys()[0]
@@ -2596,14 +2603,15 @@ class S3ACLWidget(CheckboxesWidget):
 class CheckboxesWidgetS3(OptionsWidget):
     """
         S3 version of gluon.sqlhtml.CheckboxesWidget:
+        - configurable number of columns
         - supports also integer-type keys in option sets
-        - has an identifiable class
+        - has an identifiable class for styling
 
         Used in Sync, Projects
     """
 
-    @staticmethod
-    def widget(field, value, **attributes):
+    @classmethod
+    def widget(cls, field, value, **attributes):
         """
         generates a TABLE tag, including INPUT checkboxes (multiple allowed)
 
@@ -2664,6 +2672,8 @@ class CheckboxesWidgetS3(OptionsWidget):
                 tds.append(TD(INPUT(_type="checkbox",
                                     _name=field.name,
                                     _id=input_id,
+                                    # Hide checkboxes without a label
+                                    _class="" if v else "hide",
                                     requires=attr.get("requires", None),
                                     hideerror=True,
                                     _value=k,
@@ -2830,7 +2840,7 @@ class S3AddPersonWidget(FormWidget):
                      _class="box_bottom")
 
         # JS
-        s3.jquery_ready.append('''addPersonWidget()''');
+        s3.jquery_ready.append('''addPersonWidget()''')
 
         # Overall layout of components
         return TAG[""](select_row,
@@ -3668,52 +3678,31 @@ def s3_checkboxes_widget(field,
             raise SyntaxError, "widget cannot determine options of %s" % field
 
     help_text = Storage()
-
     if help_field:
-        ftype = str(field.type)
 
-        if ftype[:9] == "reference":
-            ktablename = ftype[10:]
-        elif ftype[:14] == "list:reference":
-            ktablename = ftype[15:]
-        else:
-            # not a reference - no expand
-            # option text = field representation
-            ktablename = None
+        ktablename, pkey, multiple = s3_get_foreign_key(field)
 
-        if isinstance(help_field,dict):
-            # Convert the keys to strings (That's what the options are)
+        if isinstance(help_field, dict):
+            # Convert the keys to strings (that's what the options are)
             for key in help_field.keys():
                 help_text[str(key)] = help_field[key]
 
-        if ktablename is not None:
-            if "." in ktablename:
-                ktablename, pkey = ktablename.split(".", 1)
-            else:
-                pkey = None
+        elif ktablename is not None:
 
             ktable = current.s3db[ktablename]
-
-            if pkey is None:
-                pkey = ktable._id.name
-
-            lookup_field = help_field
-
-            if lookup_field in ktable.fields:
-                query = ktable[pkey].belongs([k for k, v in options])
+            if hasattr(ktable, help_field):
+                keys = [k for k, v in options if str(k).isdigit()]
+                query = ktable[pkey].belongs(keys)
                 rows = current.db(query).select(ktable[pkey],
-                                                ktable[lookup_field]
-                                                )
-
+                                                ktable[help_field])
                 for row in rows:
-                    help_text[str(row[ktable[pkey]])] = row[ktable[lookup_field]]
+                    help_text[str(row[pkey])] = row[help_field]
             else:
                 # Error => no comments available
                 pass
         else:
             # No lookup table => no comments available
             pass
-
 
     options = [(k, v) for k, v in options if k != ""]
     options = sorted(options, key=lambda option: option[1])
@@ -3756,7 +3745,6 @@ def s3_checkboxes_widget(field,
         rows[-1][0][0]["hideerror"] = False
 
     return TABLE(*rows, **attributes)
-
 
 # =============================================================================
 class S3SliderWidget(FormWidget):
