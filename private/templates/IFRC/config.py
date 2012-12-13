@@ -83,6 +83,7 @@ def ifrc_realm_entity(table, row):
                             hrm_human_resource = SID,
                             inv_recv = SID,
                             inv_recv_item = "req_id",
+                            inv_send = SID,
                             inv_track_item = "track_org_id",
                             inv_adj_item = "adj_id",
                             req_req_item = "req_id"
@@ -234,8 +235,8 @@ settings.org.dependent_fields = \
      "pr_person_details.father_name"             : ["Bangladesh Red Crescent Society"],
      "pr_person_details.company"                 : ["Philippine Red Cross"],
      "pr_person_details.affiliations"            : ["Philippine Red Cross"],
-     "vol_volunteer.active"                      : ["Timor-Leste Red Cross Society"],
-     "vol_volunteer_cluster.vol_cluster_type_id"      : ["Philippine Red Cross"],
+     "vol_details.active"                        : ["Timor-Leste Red Cross Society"],
+     "vol_volunteer_cluster.vol_cluster_type_id"     : ["Philippine Red Cross"],
      "vol_volunteer_cluster.vol_cluster_id"          : ["Philippine Red Cross"],
      "vol_volunteer_cluster.vol_cluster_position_id" : ["Philippine Red Cross"],
      }
@@ -281,7 +282,14 @@ settings.project.organisation_roles = {
 }
 
 # -----------------------------------------------------------------------------
+# Inventory Management
+settings.inv.show_mode_of_transport = True
+settings.inv.send_show_time_in = True
+
+# -----------------------------------------------------------------------------
 # Request Management
+# Uncomment to disable Inline Forms in Requests module
+settings.req.inline_forms = False
 settings.req.req_type = ["Stock"]
 settings.req.use_commit = False
 #settings.inv.collapse_tabs = True

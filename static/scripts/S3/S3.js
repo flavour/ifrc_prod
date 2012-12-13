@@ -65,12 +65,21 @@ S3.Utf8 = {
 
 // Used by Scenario module currently, but may be deprecated as not great UI
 var popupWin = null;
-function openPopup(url) {
+// function openPopup(url) {
+    // if ( !popupWin || popupWin.closed ) {
+        // popupWin = window.open(url, 'popupWin', 'width=640, height=480');
+    // } else popupWin.focus();
+// }
+function openPopup(url, center) {
     if ( !popupWin || popupWin.closed ) {
-        popupWin = window.open(url, 'popupWin', 'width=640, height=480');
+        var params = 'width=640, height=480';
+        if (center == true) {
+            params += ',left=' + (screen.width - 640)/2 +
+                ',top=' + (screen.height - 480)/2;
+        }
+        popupWin = window.open(url, 'popupWin', params);
     } else popupWin.focus();
 }
-
 S3.addTooltips = function() {
     // Help Tooltips
     $.cluetip.defaults.cluezIndex = 9999; // Need to be able to show on top of Ext Windows
@@ -146,15 +155,19 @@ $(document).ready(function() {
                 return false;
             }
         });
+        $('input:text:visible:first').focus();
     }
 
-    // accept comma as thousands separator
+    // Accept comma as thousands separator
     $('input.int_amount').keyup(function(){this.value=this.value.reverse().replace(/[^0-9\-,]|\-(?=.)/g,'').reverse();});
     $('input.float_amount').keyup(function(){this.value=this.value.reverse().replace(/[^0-9\-\.,]|[\-](?=.)|[\.](?=[0-9]*[\.])/g,'').reverse();});
     // Auto-capitalize first names
     $('input[name="first_name"]').focusout(function() {this.value = this.value.charAt(0).toLocaleUpperCase() + this.value.substring(1);})
     // Hide password verification field in admin/user until changed
-    $('input[name="password"]').keyup(function() {$('.verify-password').removeClass('hide'); $('#password_two').removeAttr('disabled');});
+    $('input[name="password"]').keyup(function() {
+        $('.verify-password').removeClass('hide');
+        $('#password_two').removeAttr('disabled');
+    });
 
     // Resizable textareas
     $('textarea.resizable:not(.textarea-processed)').each(function() {
@@ -212,22 +225,27 @@ $(document).ready(function() {
     // Colorbox Popups
     $('a.colorbox').attr('href', function(index, attr) {
         // Add the caller to the URL vars so that the popup knows which field to refresh/set
-        var caller = '';
-        try {
-            caller = $(this).parents('tr').attr('id').replace(/__row/, '');
-        } catch(e) {
-            // Do nothing
-            if(caller == '') return attr;
+        var caller = $(this).parents('tr').attr('id');
+        if (!caller) {
+            // DIV-based formstyle
+            caller = $(this).parent().parent().attr('id');
         }
+        caller = caller.replace(/__row/, '');
         // Avoid Duplicate callers
         var url_out = attr;
-        if (attr.indexOf('&caller=') == -1){
+        if (attr.indexOf('caller=') == -1) {
             url_out = attr + '&caller=' + caller;
         }
         return url_out;
     });
-    $('.colorbox').click(function(){
-        $.fn.colorbox({iframe:true, width:'99%', height:'99%', href:this.href, title:this.title});
+    $('.colorbox').click(function() {
+        $.fn.colorbox({
+            iframe: true,
+            width: '99%',
+            height: '99%',
+            href: this.href,
+            title: this.title
+        });
         return false;
     });
 
@@ -259,6 +277,16 @@ $(document).ready(function() {
 function s3_tb_remove(){
     // Colorbox Popup
     $.fn.colorbox.close();
+}
+
+function s3_get_client_location(targetfield) {
+   // Geolocation
+   if (navigator.geolocation) {
+    	navigator.geolocation.getCurrentPosition(function(position) {
+			var clientlocation = position.coords.latitude + '|' + position.coords.longitude + '|' + position.coords.accuracy;
+			targetfield.val(clientlocation);
+    	});
+    }
 }
 
 // ============================================================================
@@ -614,19 +642,20 @@ function s3_viewMapMulti(module, resource, instance, jresource) {
 function s3_showMap(feature_id) {
     // Display a Feature on a BaseMap within an iframe
     var url = S3.Ap.concat('/gis/display_feature/') + feature_id;
-	new Ext.Window({
-		autoWidth: true,
-		floating: true,
-		items: [{
-			xtype: 'component',
-			autoEl: {
-				tag: 'iframe',
-				width: 650,
-				height: 490,
-				src: url
-			}
-		}]
-	}).show();
+	// new Ext.Window({
+		// autoWidth: true,
+		// floating: true,
+		// items: [{
+			// xtype: 'component',
+			// autoEl: {
+				// tag: 'iframe',
+				// width: 650,
+				// height: 490,
+				// src: url
+			// }
+		// }]
+	// }).show();
+    openPopup(url, true);
 }
 
 // ============================================================================
@@ -678,7 +707,10 @@ function S3FilterFieldChange(setting) {
         return
     }
 
-	var Field = setting.Field;
+    // Flag to know whether this is the first change
+	var first = true;
+
+    var Field = setting.Field;
     var selField = $('[name = "' + Field + '"]');
     //var selFieldRows = $('[id *= "' + Field + '__row"]');
 
@@ -799,7 +831,7 @@ function S3FilterFieldChange(setting) {
             //selFieldRows.show();
         //}
 
-        /* Show Throbber */
+        // Show Throbber
         selWidget.hide();
         if ($('#' + FieldResource + '_ajax_throbber').length == 0 ) {
             selWidget.after('<div id="' + FieldResource + '_ajax_throbber" class="ajax_throbber"/>')
@@ -815,7 +847,7 @@ function S3FilterFieldChange(setting) {
                 dataType: 'json',
                 context: setting,
                 success: function(data) {
-                    /* Create Select Element */
+                    // Create Select Element
                     var options = '';
                     var FilterField = this.FilterField;
                     var FieldResource = this.FieldResource;
@@ -846,7 +878,7 @@ function S3FilterFieldChange(setting) {
                             first_value = setting.FieldVal;
                         }
                     }
-                    /* Set field value */
+                    // Set field value
                     if (options != '') {
                         selField.html(options)
                                 .val(first_value)
@@ -857,14 +889,29 @@ function S3FilterFieldChange(setting) {
                         //selFieldRows.hide();
                         selField.attr('disabled', 'disabled');
                     }
-                    /* Show "Add" Button & modify link */
-                    var selFieldAdd = $('#' + FieldResource + '_add');
-                    var href = selFieldAdd.attr('href') + '&' + FilterField + '=' + selFilterField.val();
-                    selFieldAdd.attr('href', href)
-                               .show();
+                    try {
+                        // Show "Add" Button & modify link
+                        var selFieldAdd = $('#' + FieldResource + '_add');
+                        var href = selFieldAdd.attr('href');
+                        if (href.indexOf(FilterField) == -1) {
+                            // Add to URL
+                            href = href + '&' + FilterField + '=' + selFilterField.val();
+                        } else {
+                            // Update URL
+                            var re = new RegExp(FilterField + '=.*', 'g');
+                            href = href.replace(re, FilterField + '=' + selFilterField.val());
+                        }
+                        selFieldAdd.attr('href', href)
+                                   .show();
+                    } catch(err) {}
 
-                    /* Remove Throbber */
+                    // Remove Throbber
                     $('#' + FieldResource + '_ajax_throbber').remove();
+                    if (first) {
+                        // Don't include this change in the deliberate changes
+                        S3ClearNavigateAwayConfirm();
+                        first = false;
+                    }
                 }
             });
         } else {
@@ -873,10 +920,10 @@ function S3FilterFieldChange(setting) {
                 dataType: 'html',
                 context: setting,
                 success: function(data) {
-                    /* Replace widget with data */
+                    // Replace widget with data
                     var selField = $('[name = "' + this.Field + '"]');
 
-                    /* Set field widget */
+                    // Set field widget
                     if (data != '') {
                         selWidget.html(data)
                                  .change()
@@ -887,8 +934,13 @@ function S3FilterFieldChange(setting) {
                         selWidget.attr('disabled', 'disabled');
                     }
 
-                    /* Remove Throbber */
+                    // Remove Throbber
                     $('#' + FieldResource + '_ajax_throbber').remove();
+                    if (first) {
+                        // Don't include this change in the deliberate changes
+                        S3ClearNavigateAwayConfirm();
+                        first = false;
+                    }
                 }
             });
         }
@@ -896,9 +948,6 @@ function S3FilterFieldChange(setting) {
 
     // If the field value is empty - disable - but keep initial value
     selFilterField.change();
-    // Don't include this change in the deliberate changes
-    S3ClearNavigateAwayConfirm();
-    S3EnableNavigateAwayConfirm();
 };
 
 function S3OptionsFilter(settings) {
@@ -909,9 +958,8 @@ function S3OptionsFilter(settings) {
      * @todo: migrate all use-cases to this version
      *
      * Settings:
-     *
-     *          triggerName: the trigger field name (not the HTML element name!)
-     *          targetName: the target field name (not the HTML element name!)
+     *          triggerName: the trigger field name (not the HTML element name)
+     *          targetName: the target field name (not the HTML element name)
      *
      *          lookupPrefix: the lookup controller prefix
      *          lookupResource: the lookup resource (=function to call)
@@ -926,7 +974,7 @@ function S3OptionsFilter(settings) {
      *          msgNoRecords: internationalized message for "no records"
      *          targetWidget: the target widget (if different from target field)
      *          fncPrep: function to pre-process the target options
-     *          fncRepresent: function to represent of the target options
+     *          fncRepresent: function to represent the target options
      */
 
     var triggerName = settings.triggerName
@@ -943,6 +991,9 @@ function S3OptionsFilter(settings) {
         // Trigger field not present
         return;
     }
+
+    // Flag to show whether this is the first run
+    var first = true;
 
     triggerField.change(function() {
         var triggerField = $(this);
@@ -1011,9 +1062,16 @@ function S3OptionsFilter(settings) {
         }
 
         // Construct the URL for the Ajax request
+        var lookupResource = settings.lookupResource;
         if (settings.lookupURL) {
             var url = settings.lookupURL;
         } else {
+            var lookupPrefix = settings.lookupPrefix;
+            var url = S3.Ap.concat('/', lookupPrefix, '/', lookupResource, '.json');
+        }
+        var q;
+        // Append lookup key to the URL
+        if (lookupValue) {
             var lookupKey;
             if (typeof settings.lookupKey == 'undefined') {
                 // Same field name in both tables
@@ -1021,13 +1079,6 @@ function S3OptionsFilter(settings) {
             } else {
                 lookupKey = settings.lookupKey;
             }
-            var lookupPrefix = settings.lookupPrefix;
-            var lookupResource = settings.lookupResource;
-            var url = S3.Ap.concat('/', lookupPrefix, '/', lookupResource, '.json');
-        }
-        var q;
-        // Append lookup key to the URL
-        if (lookupValue) {
             q = lookupResource + '.' + lookupKey + '=' + lookupValue;
             if (url.indexOf('?') != -1) {
                 url = url.concat('&' + q);
@@ -1136,11 +1187,11 @@ function S3OptionsFilter(settings) {
                             if (i == 0) {
                                 var currentValue = data[i][lookupField];
                             }
-                            options += '<option value="' +  data[i][lookupField] + '">';
+                            options += '<option value="' + data[i][lookupField] + '">';
                             options += fncRepresent(data[i], prepResult);
                             options += '</option>';
                         }
-                        if (this.Optional) {
+                        if (this.optional) {
                             currentValue = 0;
                             options = '<option value=""></option>' + options;
                         }
@@ -1159,7 +1210,8 @@ function S3OptionsFilter(settings) {
                                    .show();
                     } else {
                         // No options available => disable the target field
-                        targetField.attr('disabled', 'disabled');
+                        targetField.attr('disabled', 'disabled')
+                                   .show();
                     }
 
                     // Modify URL for Add-link and show the Add-link
@@ -1168,12 +1220,25 @@ function S3OptionsFilter(settings) {
                     if (targetFieldAdd.length !== 0) {
                         var href = targetFieldAdd.attr('href');
                         var triggerField = $('[name = "' + this.triggerSelector + '"]');
-                        href += '&' + this.triggerName + '=' + triggerField.val();
+                        var triggerName = this.triggerName;
+                        if (href.indexOf(triggerName) == -1) {
+                            // Add to URL
+                            href += '&' + triggerName + '=' + triggerField.val();
+                        } else {
+                            // Update URL
+                            var re = new RegExp(triggerName + '=.*', 'g');
+                            href = href.replace(re, triggerName + '=' + triggerField.val());
+                        }
                         targetFieldAdd.attr('href', href).show();
                     }
 
                     // Remove the throbber
                     $('#' + lookupResource + '_ajax_throbber').remove();
+                    if (first) {
+                        // Don't include this change in the deliberate changes
+                        S3ClearNavigateAwayConfirm();
+                        first = false;
+                    }
                 }
             });
         } else {
@@ -1196,6 +1261,11 @@ function S3OptionsFilter(settings) {
                     }
                     // Remove Throbber
                     $('#' + this.lookupResource + '_ajax_throbber').remove();
+                    if (first) {
+                        // Don't include this change in the deliberate changes
+                        S3ClearNavigateAwayConfirm();
+                        first = false;
+                    }
                 }
             });
         }
@@ -1203,10 +1273,6 @@ function S3OptionsFilter(settings) {
 
     // If the field value is empty - disable - but keep initial value
     triggerField.change();
-
-    // Don't include this change in the deliberate changes
-    S3ClearNavigateAwayConfirm();
-    S3EnableNavigateAwayConfirm();
 };
 
 // ============================================================================

@@ -61,6 +61,7 @@ from gluon.contrib.simplejson.ordered_dict import OrderedDict
 from s3error import S3PermissionError
 from s3fields import s3_uid, s3_timestamp, s3_deletion_status, s3_comments
 from s3rest import S3Method
+from s3track import S3Tracker
 from s3utils import s3_mark_required
 
 DEFAULT = lambda: None
@@ -516,6 +517,7 @@ Thank you
         request = current.request
         response = current.response
         session = current.session
+        deployment_settings = current.deployment_settings
         passfield = self.settings.password_field
         try:
             utable[passfield].requires[-1].min_length = 0
@@ -560,6 +562,13 @@ Thank you
                                  )), "",
                        formstyle,
                        "auth_user_remember__row")
+
+            if deployment_settings.set_presence_on_login:
+                addrow(form, XML(""), INPUT(_id="auth_user_clientlocation",
+                                            _name="auth_user_clientlocation",
+                                            _style="display:none"),
+                       "display:none", "auth_user_client_location")
+                current.response.s3.jquery_ready.append('''s3_get_client_location($('#auth_user_clientlocation'))''')
 
             captcha = self.settings.login_captcha or \
                 (self.settings.login_captcha!=False and self.settings.captcha)
@@ -685,6 +694,8 @@ Thank you
             - common function called by login() & register()
         """
 
+        db = current.db
+        deployment_settings = current.deployment_settings
         request = current.request
         session = current.session
         settings = self.settings
@@ -706,6 +717,9 @@ Thank you
         self.user = user
         self.s3_set_roles()
 
+        # Set a Cookie to present user with login box by default
+        self.set_cookie()
+
         # Read their language from the Profile
         language = user.language
         current.T.force(language)
@@ -713,12 +727,55 @@ Thank you
 
         session.confirmation = self.messages.logged_in
 
-        # Set a Cookie to present user with login box by default
-        self.set_cookie()
-
         # Update the timestamp of the User so we know when they last logged-in
         utable = settings.table_user
-        current.db(utable.id == self.user.id).update(timestmp = request.utcnow)
+        db(utable.id == self.user.id).update(timestmp = request.utcnow)
+
+        # Set user's position
+        # @ToDo: Per-User settings
+        if deployment_settings.set_presence_on_login and \
+           vars.has_key("auth_user_clientlocation") and \
+           vars.get("auth_user_clientlocation"):
+            position = vars.get("auth_user_clientlocation").split("|", 3)
+            userlat = float(position[0])
+            userlon = float(position[1])
+            accuracy = float(position[2]) / 1000 # Ensures accuracy is in km
+            closestpoint = 0;
+            closestdistance = 0;
+            gis = current.gis
+            # @ToDo: Filter to just Sites & Home Addresses?
+            locations = gis.get_features_in_radius(userlat, userlon, accuracy)
+
+            ignore_levels_for_presence = deployment_settings.ignore_levels_for_presence
+            greatCircleDistance = gis.greatCircleDistance
+            for location in locations:
+                if location.level not in ignore_levels_for_presence: 
+                    if closestpoint != 0:
+                        currentdistance = greatCircleDistance(closestpoint.lat,
+                                                              closestpoint.lon,
+                                                              location.lat,
+                                                              location.lon)
+                        if currentdistance < closestdistance:
+                            closestpoint = location
+                            closestdistance = currentdistance
+                    else:
+                        closestpoint = location
+
+            s3tracker = S3Tracker()
+            if closestpoint == 0 and deployment_settings.create_unknown_locations: 
+                # There wasn't any near-by location, so create one
+                newpoint = {"lat": userlat,
+                            "lon": userlon,
+                            "name": "Waypoint"
+                            }
+                closestpoint = current.s3db.gis_location.insert(**newpoint)
+                s3tracker(db.pr_person,
+                          self.user.id).set_location(closestpoint,
+                                                     timestmp=request.utcnow)             
+            else:
+                s3tracker(db.pr_person,
+                          self.user.id).set_location(closestpoint.id,
+                                                     timestmp=request.utcnow)
 
     # -------------------------------------------------------------------------
     def register(self,
@@ -922,6 +979,9 @@ Thank you
                         form.vars.language = T.accepted_language
                     user = Storage(utable._filter_fields(form.vars, id=True))
                     self.login_user(user)
+
+            # Set a Cookie to present user with login box by default
+            self.set_cookie()
 
             if log:
                 self.log_event(log % form.vars)
@@ -1263,6 +1323,7 @@ Thank you
 '''S3FilterFieldChange({
  'FilterField':'organisation_id',
  'Field':'site_id',
+ 'FieldID':'site_id',
  'FieldResource':'site',
  'url':S3.Ap.concat('/org/sites_for_org/')
 })''')
@@ -1289,7 +1350,7 @@ Thank you
                                                   multiple = True
                                                   )
                 link_user_to.represent = lambda ids: \
-                    ids and ", ".join([str(link_user_to_opts[id]) for id in ids]) or cmessages.NONE
+                    ids and ", ".join([str(link_user_to_opts[id]) for id in ids]) or cmessages["NONE"]
                 link_user_to.widget = SQLFORM.widgets.checkboxes.widget
                 link_user_to.comment = DIV(_class="tooltip",
                                            _title="%s|%s" % (link_user_to.label,
@@ -2273,8 +2334,11 @@ Thank you
         session = current.session
         settings = current.deployment_settings
 
-        if "permissions" in current.response.s3:
-            del current.response.s3["permissions"]
+        s3 = current.response.s3
+        if "permissions" in s3:
+            del s3["permissions"]
+        if "restricted_tables" in s3:
+            del s3["restricted_tables"]
 
         system_roles = self.get_system_roles()
         ANONYMOUS = system_roles.ANONYMOUS
@@ -2306,7 +2370,8 @@ Thank you
             query = (mtable.deleted != True) & \
                     (mtable.user_id == user_id) & \
                     (mtable.group_id != None)
-            rows = db(query).select(mtable.group_id, mtable.pe_id)
+            rows = db(query).select(mtable.group_id, mtable.pe_id,
+                                    cacheable=True)
 
             # Add all group_ids to session.s3.roles
             session.s3.roles.extend(list(set([row.group_id for row in rows])))
@@ -2387,7 +2452,8 @@ Thank you
                                 (rtable.id == dtable.role_id)
                         rows = db(query).select(rtable.pe_id,
                                                 dtable.group_id,
-                                                atable.pe_id)
+                                                atable.pe_id,
+                                                cacheable=True)
 
                         extensions = []
                         partners = []
@@ -4282,8 +4348,11 @@ class S3Permission(object):
             # ACLs not relevant to this security policy
             return None
 
-        if "permissions" in current.response.s3:
-            del current.response.s3["permissions"]
+        s3 = current.response.s3
+        if "permissions" in s3:
+            del s3["permissions"]
+        if "restricted_tables" in s3:
+            del s3["restricted_tables"]
 
         if c is None and f is None and t is None:
             return None
@@ -5264,14 +5333,13 @@ class S3Permission(object):
                 q = q | tq
             else:
                 q = tq
-            any_acl = db((table.deleted != True) & tq).select(limitby=(0, 1))
-            table_restricted = len(any_acl) > 0
+            table_restricted = self.table_restricted(t)
 
         # Retrieve the ACLs
         if q:
             query &= q
             query &= (table.group_id == gtable.id)
-            rows = db(query).select(gtable.id, table.ALL)
+            rows = db(query).select(gtable.id, table.ALL, cacheable=True)
         else:
             rows = []
 
@@ -5489,6 +5557,28 @@ class S3Permission(object):
              c in modules and not modules[c].restricted:
             return False
         return True
+
+    # -------------------------------------------------------------------------
+    def table_restricted(self, t=None):
+        """
+            Check whether access to a table is restricted
+
+            @param t: the table name or Table
+        """
+
+        s3 = current.response.s3
+
+        if not "restricted_tables" in s3:
+
+            table = self.table
+            query = (table.deleted != True) & \
+                    (table.controller == None) & \
+                    (table.function == None)
+            rows = current.db(query).select(table.tablename,
+                                            groupby=table.tablename)
+            s3.restricted_tables = [row.tablename for row in rows]
+
+        return str(t) in s3.restricted_tables
 
     # -------------------------------------------------------------------------
     def hidden_modules(self):

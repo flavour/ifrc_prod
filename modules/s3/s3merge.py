@@ -38,6 +38,8 @@ from gluon.html import BUTTON
 from gluon.storage import Storage
 from s3rest import S3Method
 from s3resource import S3FieldSelector
+from s3widgets import *
+from s3validators import *
 from s3utils import S3DataTable, s3_unicode
 
 # =============================================================================
@@ -201,7 +203,7 @@ class S3Merge(S3Method):
                      _id="markDuplicateURL",
                      _class="hide"),
                    A(T("De-duplicate"),
-                     _href=r.url(method="deduplicate", id=0, vars={}),
+                     _href=r.url(method="deduplicate", target=0, vars={}),
                      _class=deduplicate),
                    _id="markDuplicate")
 
@@ -240,9 +242,7 @@ class S3Merge(S3Method):
         resource.add_filter(query)
 
         # List fields
-        list_fields = self._config("list_fields", None)
-        if not list_fields:
-            list_fields = [f.name for f in resource.readable_fields()]
+        list_fields = resource.list_fields()
 
         # Start/Limit
         vars = r.get_vars
@@ -323,7 +323,7 @@ class S3Merge(S3Method):
 
             output["items"] = items
             response.s3.actions = [{"label": str(current.T("View")),
-                                    "url": r.url(id="[id]", method="read"),
+                                    "url": r.url(target="[id]", method="read"),
                                     "_class": "action-btn"}]
 
             if len(record_ids) < 2:
@@ -693,7 +693,20 @@ class S3Merge(S3Method):
                 #inp = widgets.upload.widget(field, value,
                                             #download_url=download_url, **attr)
         elif field.widget:
-            inp = field.widget(field, value, **attr)
+            if isinstance(field.widget, S3LocationSelectorWidget):
+                # Workaround - location selector does not support
+                # renaming of the fields => switch to dropdown
+                level = None
+                if value:
+                    try:
+                        level = s3db.gis_location[value].level
+                    except:
+                        pass
+                widget = S3LocationDropdownWidget(level, value)
+                field.requires = IS_EMPTY_OR(IS_ONE_OF(current.db, "gis_location.id"))
+                inp = widget(field, value, **attr)
+            else:
+                inp = field.widget(field, value, **attr)
         elif ftype == "boolean":
             inp = widgets.boolean.widget(field, value, **attr)
         elif widgets.options.has_options(field):

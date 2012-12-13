@@ -29,32 +29,6 @@
     OTHER DEALINGS IN THE SOFTWARE.
 """
 
-__all__ = ["S3ReusableField",
-           "s3_uid",
-           "s3_meta_deletion_status",
-           "s3_meta_deletion_fk",
-           "s3_meta_deletion_rb",
-           "s3_deletion_status",
-           "s3_timestamp",
-           "s3_authorstamp",
-           "s3_ownerstamp",
-           "s3_meta_fields",
-           "s3_all_meta_field_names",   # Used by GIS
-           "s3_role_required",          # Used by GIS
-           "s3_roles_permitted",        # Used by CMS (in future)
-           "s3_lx_fields",
-           "s3_lx_onvalidation",
-           "s3_lx_update",
-           "s3_address_fields",
-           "s3_address_hide",
-           "s3_address_onvalidation",
-           "s3_address_update",
-           "s3_comments",
-           "s3_currency",
-           "s3_date",
-           "s3_datetime",
-           ]
-
 import datetime
 from uuid import uuid4
 
@@ -67,7 +41,8 @@ from gluon import *
 from gluon.dal import Query, SQLCustomType
 from gluon.storage import Storage
 
-from s3utils import S3DateTime, s3_auth_user_represent, s3_auth_group_represent
+from s3navigation import S3ScriptItem
+from s3utils import S3DateTime, s3_auth_user_represent, s3_auth_user_represent_name, s3_auth_group_represent, s3_unicode
 from s3validators import IS_ONE_OF, IS_UTC_DATETIME
 from s3widgets import S3AutocompleteWidget, S3DateWidget, S3DateTimeWidget
 
@@ -197,15 +172,276 @@ class S3ReusableField(object):
         if "script" in ia:
             if ia.script:
                 if ia.comment:
-                    ia.comment = TAG[""](ia.comment, ia.script)
+                    ia.comment = TAG[""](ia.comment,
+                                         S3ScriptItem(script=ia.script))
                 else:
-                    ia.comment = ia.script
+                    ia.comment = S3ScriptItem(script=ia.script)
             del ia["script"]
 
         if ia.sortby is not None:
             return FieldS3(name, self.__type, **ia)
         else:
             return Field(name, self.__type, **ia)
+
+# =============================================================================
+class S3Represent(object):
+    """
+        Scalable universal field representation for option fields and
+        foreign keys. Can be subclassed and tailored to the particular
+        model where necessary.
+    """
+
+    def __init__(self,
+                 lookup=None,
+                 key=None,
+                 fields=None,
+                 labels=None,
+                 options=None,
+                 translate=False,
+                 multiple=False,
+                 default=None,
+                 none=None):
+        """
+            Constructor
+
+            @param lookup: the name of the lookup table
+            @param key: the field name of the primary key of the lookup table
+            @param fields: the fields to extract from the lookup table
+            @param labels: string template or callable to represent
+                           rows from the lookup table
+            @param options: dictionary of options to lookup the representation
+                            of a value
+            @param multiple: list:type, values are expected to always be lists
+            @param translate: translate lookup results
+            @param default: default representation for unknown options
+            @param none: default representation for empty fields
+        """
+
+        self.tablename = lookup
+        self.table = None
+        self.key = key
+        self.fields = fields
+        self.labels = labels
+        self.options = options
+        self.list_type = multiple
+        self.translate = translate
+        self.default = default
+        self.none = none
+        self.setup = False
+        self.theset = None
+        self.queries = 0
+
+    # -------------------------------------------------------------------------
+    def lookup_rows(self, key, values, fields=[]):
+        """
+            Lookup all rows referenced by values.
+            (in foreign key representations)
+
+            @param key: the key Field
+            @param values: the values
+            @param fields: the fields to retrieve
+        """
+
+        fields.append(key)
+        if len(values) == 1:
+            query = (key == values[0])
+        else:
+            query = key.belongs(values)
+        rows = current.db(query).select(*fields)
+        self.queries += 1
+        return rows
+
+    # -------------------------------------------------------------------------
+    def represent_row(self, row):
+        """
+            Represent the referenced row.
+            (in foreign key representations)
+
+            @param row: the row
+        """
+
+        labels = self.labels
+        if self.slabels:
+            v = labels % row
+        elif self.clabels:
+            v = labels(row)
+        else:
+            values = [row[f] for f in self.fields]
+            if values:
+                try:
+                    v = " ".join([v for v in values if v])
+                except:
+                    v = " ".join([v for v in values if v])
+            else:
+                v = self.none
+        if self.translate:
+            return current.T(v)
+        else:
+            return v
+
+    # -------------------------------------------------------------------------
+    def __call__(self, value, row=None):
+        """
+            Represent a single value (standard entry point).
+
+            @param value: the value
+            @param row: the referenced row (if value is a foreign key)
+        """
+
+        if self.list_type:
+            return self.multiple(value, rows=row, list_type=False)
+        if value:
+            rows = [row] if row is not None else None
+            items = self._lookup([value], rows=rows)
+            return items.get(value, self.default)
+        return self.none
+
+    # -------------------------------------------------------------------------
+    def multiple(self, values, rows=None, list_type=True):
+        """
+            Represent multiple values as a comma-separated list.
+
+            @param values: list of values
+            @param rows: the referenced rows (if values are foreign keys)
+        """
+
+        if self.list_type and list_type:
+            from itertools import chain
+            try:
+                values = list(set(chain.from_iterable(values)))
+            except TypeError:
+                raise ValueError("List of lists expected, got %s" % values)
+        else:
+            values = [values] if type(values) is not list else values
+        if values:
+            items = self._lookup(values, rows=rows)
+            labels = [s3_unicode(items[v])
+                      if v in items else self.default for v in values]
+            if labels:
+                return ", ".join(labels)
+        return self.none
+
+    # -------------------------------------------------------------------------
+    def bulk(self, values, rows=None):
+        """
+            Represent multiple values as dict {value: representation}
+
+            @param values: list of values
+            @param rows: the referenced rows (if values are foreign keys)
+        """
+
+        if self.list_type:
+            from itertools import chain
+            try:
+                values = list(set(chain.from_iterable(values)))
+            except TypeError:
+                raise ValueError("List of lists expected, got %s" % values)
+        else:
+            values = [values] if type(values) is not list else values
+        if values:
+            labels = self._lookup(values, rows=rows)
+            for v in values:
+                if v not in labels:
+                    labels[v] = self.default
+        else:
+            labels = {}
+        labels[None] = self.none
+        return labels
+
+    # -------------------------------------------------------------------------
+    def _setup(self):
+        """ Lazy initialization of defaults """
+
+        if self.setup:
+            return
+
+        self.queries = 0
+
+        # Default representations
+        messages = current.messages
+        if self.default is None:
+            self.default = messages.UNKNOWN_OPT
+        if self.none is None:
+            self.none = messages["NONE"]
+
+        # Lookup table options
+        if self.options is not None:
+            self.theset = self.options
+        else:
+            self.theset = {}
+            
+        if self.table is None:
+            tablename = self.tablename
+            if tablename:
+                table = current.s3db.table(tablename)
+                if table is not None:
+                    if self.key is None:
+                        self.key = table._id.name
+                    if not self.fields:
+                        if "name" in table:
+                            self.fields = ["name"]
+                        else:
+                            self.fields = [self.key]
+                    self.table = table
+
+        labels = self.labels
+        self.slabels = isinstance(labels, basestring)
+        self.clabels = callable(labels)
+
+        self.setup = True
+        return
+
+    # -------------------------------------------------------------------------
+    def _lookup(self, values, rows=None):
+        """
+            Lazy lookup values.
+
+            @param values: list of values to lookup
+            @param rows: rows referenced by values (if values are foreign
+                         keys), optional
+        """
+
+        self._setup()
+        theset = self.theset
+
+        items = {}
+        lookup = {}
+        for v in values:
+            if v in theset:
+                items[v] = theset[v]
+            else:
+                lookup[v] = True
+        if self.table is None or not lookup:
+            return items
+
+        pkey = self.key
+        table = self.table
+        try:
+            key = object.__getattribute__(table, pkey)
+        except AttributeError:
+            return items
+
+        if rows:
+            represent_row = self.represent_row
+            for row in rows:
+                k = row[key]
+                if k not in theset:
+                    theset[k] = represent_row(row)
+                if lookup.pop(k, None):
+                    items[k] = theset[k]
+            if not lookup:
+                return items
+
+        lookup = lookup.keys()
+        fields = [object.__getattribute__(table, f)
+                  for f in self.fields if hasattr(table, f)]
+        rows = self.lookup_rows(key, lookup, fields=fields)
+
+        represent_row = self.represent_row
+        for row in rows:
+            k = row[key]
+            items[k] = theset[k] = represent_row(row)
+        return items
 
 # =============================================================================
 # Record identity meta-fields
@@ -278,19 +514,22 @@ def s3_deletion_status():
 s3_meta_created_on = S3ReusableField("created_on", "datetime",
                                      readable=False,
                                      writable=False,
-                                     default=lambda: datetime.datetime.utcnow())
+                                     default=lambda: \
+                                        datetime.datetime.utcnow())
 
 s3_meta_modified_on = S3ReusableField("modified_on", "datetime",
                                       readable=False,
                                       writable=False,
-                                      default=lambda: datetime.datetime.utcnow(),
-                                      update=lambda: datetime.datetime.utcnow())
+                                      default=lambda: \
+                                        datetime.datetime.utcnow(),
+                                      update=lambda: \
+                                        datetime.datetime.utcnow())
 
 def s3_timestamp():
     return (s3_meta_created_on(),
             s3_meta_modified_on())
 
-# =========================================================================
+# =============================================================================
 # Record authorship meta-fields
 def s3_authorstamp():
     """
@@ -305,13 +544,18 @@ def s3_authorstamp():
     else:
         current_user = None
 
+    if current.deployment_settings.get_ui_auth_user_represent() == "name":
+        represent = s3_auth_user_represent_name
+    else:
+        represent = s3_auth_user_represent
+
     # Author of a record
     s3_meta_created_by = S3ReusableField("created_by", utable,
                                          readable=False,
                                          writable=False,
                                          requires=None,
                                          default=current_user,
-                                         represent=s3_auth_user_represent,
+                                         represent=represent,
                                          ondelete="RESTRICT")
 
     # Last author of a record
@@ -321,13 +565,13 @@ def s3_authorstamp():
                                           requires=None,
                                           default=current_user,
                                           update=current_user,
-                                          represent=s3_auth_user_represent,
+                                          represent=represent,
                                           ondelete="RESTRICT")
 
     return (s3_meta_created_by(),
             s3_meta_modified_by())
 
-# =========================================================================
+# =============================================================================
 def s3_ownerstamp():
     """
         Record ownership meta-fields
@@ -346,7 +590,7 @@ def s3_ownerstamp():
                                                         else None,
                                             represent=lambda id: \
                                                 id and s3_auth_user_represent(id) or \
-                                                       current.messages["UNKNOWN_OPT"],
+                                                       current.messages.UNKNOWN_OPT,
                                             ondelete="RESTRICT")
 
     # Role of users who collectively own the record
@@ -366,12 +610,12 @@ def s3_ownerstamp():
                                               # use a lambda here as we don't
                                               # want the model to be loaded yet
                                               represent=lambda val: \
-                                                        current.s3db.pr_pentity_represent(val))
+                                                current.s3db.pr_pentity_represent(val))
     return (s3_meta_owned_by_user(),
             s3_meta_owned_by_group(),
             s3_meta_realm_entity())
 
-# =========================================================================
+# =============================================================================
 def s3_meta_fields():
     """
         Normal meta-fields added to every table
@@ -401,7 +645,7 @@ def s3_meta_fields():
 def s3_all_meta_field_names():
     return [field.name for field in s3_meta_fields()]
 
-# =========================================================================
+# =============================================================================
 # Reusable roles fields
 
 def s3_role_required():
@@ -430,7 +674,7 @@ def s3_role_required():
     return f()
 
 
-# -------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
 def s3_roles_permitted(name="roles_permitted", **attr):
     """
         List of Roles Permitted to access a resource
@@ -851,8 +1095,11 @@ def s3_date(name="date", **attr):
                     years = int(future_month/12)
                     future_year = current_year + years
                     future_month = future_month - (years * 12)
-                    max = now.replace(year=future_year,
-                                      month=future_month)
+                    if future_month:
+                        max = now.replace(year=future_year,
+                                          month=future_month)
+                    else:
+                        max = now.replace(year=future_year)
                 requires = IS_DATE_IN_RANGE(
                         format=current.deployment_settings.get_L10n_date_format(),
                         maximum=max,
@@ -865,8 +1112,12 @@ def s3_date(name="date", **attr):
                     current_year = now.year
                     past_years = int(past/12)
                     past_months = past - (past_years * 12)
-                    min = now.replace(year=current_year - past_years,
-                                      month=current_month - past_months)
+                    past_month = current_month - past_months
+                    if past_month:
+                        min = now.replace(year=current_year - past_years,
+                                          month=past_month)
+                    else:
+                        min = now.replace(year=current_year - past_years)
                 requires = IS_DATE_IN_RANGE(
                         format=current.deployment_settings.get_L10n_date_format(),
                         minimum=min,
@@ -874,23 +1125,30 @@ def s3_date(name="date", **attr):
                     )
             else:
                 future_month = now.month + future
-                if future_month < 13:
+                if future_month <= 12:
                     max = now.replace(month=future_month)
                 else:
                     current_year = now.year
                     years = int(future_month/12)
                     future_year = now.year + years
                     future_month = future_month - (years * 12)
-                    max = now.replace(year=future_year,
-                                      month=future_month)
+                    if future_month:
+                        max = now.replace(year=future_year,
+                                          month=future_month)
+                    else:
+                        max = now.replace(year=future_year)
                 if past < current_month:
                     min = now.replace(month=current_month - past)
                 else:
                     current_year = now.year
                     past_years = int(past/12)
                     past_months = past - (past_years * 12)
-                    min = now.replace(year=current_year - past_years,
-                                      month=current_month - past_months)
+                    past_month = current_month - past_months
+                    if past_month:
+                        min = now.replace(year=current_year - past_years,
+                                          month=past_month)
+                    else:
+                        min = now.replace(year=current_year - past_years)
                 requires = IS_DATE_IN_RANGE(
                         format=current.deployment_settings.get_L10n_date_format(),
                         maximum=max,
@@ -986,8 +1244,11 @@ def s3_datetime(name="date", **attr):
                     years = int(future_month/12)
                     future_year = current_year + years
                     future_month = future_month - (years * 12)
-                    max = now.replace(year=future_year,
-                                      month=future_month)
+                    if future_month:
+                        max = now.replace(year=future_year,
+                                          month=future_month)
+                    else:
+                        max = now.replace(year=future_year)
                 requires = IS_DATE_IN_RANGE(
                         format=current.deployment_settings.get_L10n_date_format(),
                         maximum=max,
@@ -1002,8 +1263,12 @@ def s3_datetime(name="date", **attr):
                     current_year = now.year
                     past_years = int(past/12)
                     past_months = past - (past_years * 12)
-                    min = now.replace(year=current_year - past_years,
-                                      month=current_month - past_months)
+                    past_month = current_month - past_months
+                    if past_month:
+                        min = now.replace(year=current_year - past_years,
+                                          month=past_month)
+                    else:
+                        min = now.replace(year=current_year - past_years)
                 requires = IS_DATE_IN_RANGE(
                         format=current.deployment_settings.get_L10n_date_format(),
                         minimum=min,
@@ -1014,23 +1279,30 @@ def s3_datetime(name="date", **attr):
                 past = int(round(past/744.0, 0))
                 attr["widget"] = S3DateWidget(past=past, future=future)
                 future_month = now.month + future
-                if future_month < 13:
+                if future_month <= 12:
                     max = now.replace(month=future_month)
                 else:
                     current_year = now.year
                     years = int(future_month/12)
                     future_year = now.year + years
                     future_month = future_month - (years * 12)
-                    max = now.replace(year=future_year,
-                                      month=future_month)
+                    if future_month:
+                        max = now.replace(year=future_year,
+                                          month=future_month)
+                    else:
+                        max = now.replace(year=future_year)
                 if past < current_month:
                     min = now.replace(month=current_month - past)
                 else:
                     current_year = now.year
                     past_years = int(past/12)
                     past_months = past - (past_years * 12)
-                    min = now.replace(year=current_year - past_years,
-                                      month=current_month - past_months)
+                    past_month = current_month - past_months
+                    if past_month:
+                        min = now.replace(year=current_year - past_years,
+                                          month=past_month)
+                    else:
+                        min = now.replace(year=current_year - past_years)
                 requires = IS_DATE_IN_RANGE(
                         format=current.deployment_settings.get_L10n_date_format(),
                         maximum=max,

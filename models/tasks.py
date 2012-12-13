@@ -7,20 +7,23 @@
 tasks = {}
 
 # -----------------------------------------------------------------------------
-def gis_download_kml(record_id, filename, user_id=None):
+def gis_download_kml(record_id, filename, session_id_name, session_id,
+                     user_id=None):
     """
         Download a KML file
             - will normally be done Asynchronously if there is a worker alive
 
         @param record_id: id of the record in db.gis_layer_kml
         @param filename: name to save the file as
+        @param session_id_name: name of the session
+        @param session_id: id of the session
         @param user_id: calling request's auth.user.id or None
     """
     if user_id:
         # Authenticate
         auth.s3_impersonate(user_id)
     # Run the Task & return the result
-    result = gis.download_kml(record_id, filename)
+    result = gis.download_kml(record_id, filename, session_id_name, session_id)
     db.commit()
     return result
 
@@ -45,6 +48,21 @@ def gis_update_location_tree(feature, user_id=None):
     return path
 
 tasks["gis_update_location_tree"] = gis_update_location_tree
+
+# -----------------------------------------------------------------------------
+def org_facility_geojson(user_id=None):
+    """
+        Export GeoJSON[P] Of Facility data
+
+        @param user_id: calling request's auth.user.id or None
+    """
+    if user_id:
+        # Authenticate
+        auth.s3_impersonate(user_id)
+    # Run the Task & return the result
+    s3db.org_facility_geojson()
+
+tasks["org_facility_geojson"] = org_facility_geojson
 
 # -----------------------------------------------------------------------------
 def sync_synchronize(repository_id, user_id=None, manual=False):

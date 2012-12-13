@@ -105,11 +105,13 @@ def volunteer():
                    "job_title_id",
                    "organisation_id",
                    (settings.get_ui_label_mobile_phone(), "phone"),
-                   "location_id",
-                   (T("Trainings"), "course"),
-                   (T("Certificates"), "certificate"),
                    (T("Email"), "email"),
-                  ]
+                   "location_id",
+                   ]
+    if settings.get_hrm_use_trainings():
+        list_fields.append("person_id$training.course_id")
+    if settings.get_hrm_use_certificates():
+        list_fields.append("person_id$certification.certificate_id")
     get_config = s3db.get_config
     report_options = get_config(tablename,
                                 "report_options")
@@ -119,35 +121,36 @@ def volunteer():
     # Remove Facility
     human_resource_search.advanced.pop(8)
     if settings.get_hrm_vol_experience() == "programme":
-        enable_active_field = settings.set_org_dependent_field("vol_volunteer", "active",
+        enable_active_field = settings.set_org_dependent_field("vol_details", "active",
                                                                enable_field = False)
-        # Add Programme Virtual Fields
-        table.virtualfields.append(s3db.hrm_programme_virtual_fields())
-        # Add VF to List Fields
+        # Add to List Fields
         if enable_active_field:
-            list_fields.insert(4, (T("Active?"), "active"))
-        list_fields.insert(6, (T("Programme"), "programme"))
-        # Add VF to Report Options
+            list_fields.insert(4, (T("Active?"), "details.active"))
+        list_fields.insert(7, "person_id$hours.programme_id")
+        # Add to Report Options
         report_fields = report_options.rows
-        report_fields.append((T("Programme"), "programme"))
+        report_fields.append("person_id$hours.programme_id")
         if enable_active_field:
-            report_fields.append((T("Active?"), "active"))
+            report_fields.append((T("Active?"), "details.active"))
         report_options.rows = report_fields
         report_options.cols = report_fields
         report_options.fact = report_fields
-        # Add VF to the Search Filters
         # Remove deprecated Active/Obsolete
         human_resource_search.advanced.pop(1)
         table.status.readable = table.status.writable = False
+        # Add to the Search Filters
         if enable_active_field:
+            YES = T("Yes")
+            NO = T("No")
             widget = s3base.S3SearchOptionsWidget(
                                 name="human_resource_search_active",
                                 label=T("Active?"),
-                                field="active",
+                                field="details.active",
                                 cols = 2,
+                                # T on both sides here to match the output of the represent
                                 options = {
-                                        T("Yes"): T("Yes"),
-                                        T("No"): T("No")
+                                        YES: YES,
+                                        NO: NO
                                     }
                               ),
             search_widget = ("human_resource_search_active", widget[0])
@@ -176,7 +179,7 @@ def volunteer():
         widget = s3base.S3SearchOptionsWidget(
                             name="human_resource_search_programme",
                             label=T("Programme"),
-                            field="programme",
+                            field="person_id$hours.programme_id",
                             cols = 2,
                             options = hrm_programme_opts
                           ),
@@ -186,9 +189,9 @@ def volunteer():
         list_fields.append("status")
     s3.crud_strings[tablename] = s3.crud_strings["hrm_volunteer"]
     s3db.configure(tablename,
-                    list_fields = list_fields,
-                    report_options = report_options,
-                    search_method = human_resource_search)
+                   list_fields = list_fields,
+                   report_options = report_options,
+                   search_method = human_resource_search)
 
     def prep(r):
         if r.interactive:
@@ -339,8 +342,6 @@ def person():
     # Configure person table
     tablename = "pr_person"
     table = s3db[tablename]
-    if settings.get_hrm_vol_experience() == "programme":
-        table.virtualfields.append(s3db.hrm_programme_person_virtual_fields())
     configure(tablename,
               deletable=False)
 
@@ -477,6 +478,7 @@ def person():
                     set_org_dependent_field("vol_volunteer_cluster", "vol_cluster_position_id")
 
                 elif r.component_name == "hours":
+                    # Exclude records which are just to link to Programme
                     filter = (r.component.table.hours != None)
                     r.resource.add_component_filter("hours", filter)
                 elif r.component_name == "physical_description":
@@ -785,6 +787,9 @@ def certificate_skill():
 def training():
     """ Training Controller - used for Searching for Participants """
 
+    table = s3db.hrm_human_resource
+    s3.filter = ((table.type == 2) & \
+                 (s3db.hrm_training.person_id == table.person_id))
     return s3db.hrm_training_controller()
 
 # -----------------------------------------------------------------------------

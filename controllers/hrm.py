@@ -111,11 +111,13 @@ def staff():
                    #"site_contact",
                    (T("Email"), "email"),
                    (settings.get_ui_label_mobile_phone(), "phone"),
-                   (T("Trainings"), "course"),
-                   (T("Certificates"), "certificate"),
-                   (T("Contract End Date"), "end_date"),
-                   "status",
                    ]
+    if settings.get_hrm_use_trainings():
+        list_fields.append("person_id$training.course_id")
+    if settings.get_hrm_use_certificates():
+        list_fields.append("person_id$certification.certificate_id")
+    list_fields.append((T("Contract End Date"), "end_date"))
+    list_fields.append("status")
     s3.crud_strings[tablename] = s3.crud_strings["hrm_staff"]
     if "expiring" in request.get_vars:
         s3.filter = s3.filter & \
@@ -138,10 +140,14 @@ def staff():
                not r.id and \
                r.method in [None, "create"]:
                 # Don't redirect
+                table = r.table
+                site_id = request.get_vars.get("site_id", None)
+                if site_id:
+                    table.site_id.default = site_id
+                    table.site_id.writable = False
                 # Assume staff only between 16-81
                 s3db.pr_person.date_of_birth.widget = S3DateWidget(past=972, future=-192)
 
-                table = r.table
                 table.site_id.comment = DIV(DIV(_class="tooltip",
                                                 _title="%s|%s|%s" % (settings.get_org_site_label(),
                                                                      T("The facility where this position is based."),
@@ -243,9 +249,6 @@ def person():
     # Configure person table
     tablename = "pr_person"
     table = s3db[tablename]
-    if (group == "staff" and settings.get_hrm_staff_experience() == "programme") or \
-       (group == "volunteer" and settings.get_hrm_vol_experience() == "programme"):
-        table.virtualfields.append(s3db.hrm_programme_person_virtual_fields())
     configure(tablename,
               deletable=False)
 
@@ -495,9 +498,6 @@ def profile():
     # Configure person table
     tablename = "pr_person"
     table = s3db[tablename]
-    if (group == "staff" and settings.get_hrm_staff_experience() == "programme") or \
-       (group == "volunteer" and settings.get_hrm_vol_experience() == "programme"):
-        table.virtualfields.append(s3db.hrm_programme_person_virtual_fields())
     s3db.configure(tablename,
                    deletable=False)
 
@@ -741,6 +741,9 @@ def certificate_skill():
 def training():
     """ Training Controller - used for Searching for Participants """
 
+    table = s3db.hrm_human_resource
+    s3.filter = ((table.type == 1) & \
+                 (s3db.hrm_training.person_id == table.person_id))
     return s3db.hrm_training_controller()
 
 # -----------------------------------------------------------------------------
@@ -777,7 +780,6 @@ def staff_org_site_json():
 
     table = s3db.hrm_human_resource
     otable = s3db.org_organisation
-    #db.req_commit.date.represent = lambda dt: dt[:10]
     query = (table.person_id == request.args[0]) & \
             (table.organisation_id == otable.id)
     records = db(query).select(table.site_id,
@@ -786,6 +788,43 @@ def staff_org_site_json():
 
     response.headers["Content-Type"] = "application/json"
     return records.json()
+
+# =============================================================================
+def staff_for_site():
+    """
+        Used by the Req/Req/Create page
+    """
+
+    try:
+        site_id = request.get_vars.get("staff.site_id")
+    except:
+        result = current.xml.json_message(False, 400, "No Site provided!")
+    else:
+        table = s3db.hrm_human_resource
+        ptable = db.pr_person
+        query = (table.site_id == site_id) & \
+                (table.deleted == False) & \
+                (table.status == 1) & \
+                ((table.end_date == None) | \
+                 (table.end_date > request.utcnow)) & \
+                (ptable.id == table.person_id)
+        rows = db(query).select(table.id,
+                                ptable.first_name,
+                                ptable.middle_name,
+                                ptable.last_name,
+                                orderby=ptable.first_name)
+        result = []
+        append = result.append
+        for row in rows:
+            id = row.hrm_human_resource.id
+            append({
+                    "id"   : id,
+                    "name" : s3_fullname(row.pr_person)
+                })
+        result = json.dumps(result)
+
+    response.headers["Content-Type"] = "application/json"
+    return result
 
 # =============================================================================
 # Messaging

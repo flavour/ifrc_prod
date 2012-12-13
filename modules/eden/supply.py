@@ -65,6 +65,7 @@ class S3SupplyModel(S3Model):
     names = ["supply_brand",
              "supply_catalog",
              "supply_item_category",
+             "supply_item_category_id",
              "supply_item",
              "supply_item_entity",
              "supply_catalog_item",
@@ -85,16 +86,17 @@ class S3SupplyModel(S3Model):
 
         T = current.T
         db = current.db
+        s3 = current.response.s3
         settings = current.deployment_settings
 
         # Shortcuts
         add_component = self.add_component
         configure = self.configure
-        crud_strings = current.response.s3.crud_strings
+        crud_strings = s3.crud_strings
         define_table = self.define_table
         super_link = self.super_link
 
-        NONE = current.messages.NONE
+        NONE = current.messages["NONE"]
 
         # =====================================================================
         # Brand
@@ -136,7 +138,8 @@ class S3SupplyModel(S3Model):
                                               label=ADD_BRAND,
                                               title=T("Brand"),
                                               tooltip=T("The list of Brands are maintained by the Administrators.")),
-                    ondelete = "RESTRICT")
+                    ondelete = "RESTRICT"
+                    )
 
         # =====================================================================
         # Catalog (of Items)
@@ -220,11 +223,13 @@ class S3SupplyModel(S3Model):
                                    default=True,
                                    readable=asset,
                                    writable=asset,
+                                   represent = s3_yes_no_represent,
                                    label=T("Items in Category can be Assets")),
                              Field("is_vehicle", "boolean",
                                    default=False,
                                    readable=vehicle,
                                    writable=vehicle,
+                                   represent = s3_yes_no_represent,
                                    label=T("Items in Category are Vehicles")),
                              s3_comments(),
                              *s3_meta_fields())
@@ -258,7 +263,8 @@ class S3SupplyModel(S3Model):
                                                   f="item_category",
                                                   label=ADD_ITEM_CATEGORY,
                                                   title=T("Item Category"),
-                                                  tooltip=ADD_ITEM_CATEGORY)
+                                                  tooltip=ADD_ITEM_CATEGORY
+                                                  )
 
         table.parent_item_category_id.requires = item_category_requires
 
@@ -268,16 +274,15 @@ class S3SupplyModel(S3Model):
                                            represent=self.item_category_represent,
                                            label = T("Category"),
                                            comment = item_category_comment,
-                                           ondelete = "RESTRICT")
-        item_category_id_script = SCRIPT(
-'''$(document).ready(function(){
+                                           ondelete = "RESTRICT"
+                                           )
+        item_category_script = '''
 S3FilterFieldChange({
  'FilterField':'catalog_id',
  'Field':'item_category_id',
  'FieldPrefix':'supply',
  'FieldResource':'item_category',
-})})''')
-
+})'''
 
         # Categories as component of Categories
         add_component("supply_item_category",
@@ -305,11 +310,14 @@ S3FilterFieldChange({
         table = define_table(tablename,
                              catalog_id(),
                              # Needed to auto-create a catalog_item
-                             item_category_id(script = item_category_id_script),
+                             item_category_id(
+                                script = item_category_script
+                                ),
                              Field("name", length=128, notnull=True,
                                    label = T("Name"),
                                    ),
                              Field("code", length=16,
+                                   represent = lambda v: v or NONE,
                                    label = T("Code"),
                                    ),
                              Field("um", length=128, notnull=True,
@@ -325,6 +333,7 @@ S3FilterFieldChange({
                                    label=T("Kit?")
                                    ),
                              Field("model", length=128,
+                                   represent = lambda v: v or NONE,
                                    label = T("Model/Type"),
                                    ),
                              Field("year", "integer",
@@ -473,7 +482,7 @@ S3FilterFieldChange({
         add_component("inv_inv_item", supply_item="item_id")
 
         # Order Items as component of Items
-        add_component("inv_recv_item", supply_item="item_id")
+        add_component("inv_track_item", supply_item="item_id")
 
         # Procurement Plan Items as component of Items
         add_component("proc_plan_item", supply_item="item_id")
@@ -498,11 +507,9 @@ S3FilterFieldChange({
         tablename = "supply_catalog_item"
         table = define_table(tablename,
                              catalog_id(),
-                             item_category_id("item_category_id",
-                                              #label = T("Group"),
-                                              # Filters item_category_id based on catalog_id
-                                              script = item_category_id_script,
-                                            ),
+                             item_category_id(
+                                script = item_category_script
+                                ),
                              supply_item_id(script = None), # No Item Pack Filter
                              s3_comments(), # These comments do *not* pull through to an Inventory's Items or a Request's Items
                              *s3_meta_fields())
@@ -660,7 +667,7 @@ S3FilterFieldChange({
                     #                          label=ADD_ITEM_PACK,
                     #                          title=T("Item Packs"),
                     #                          tooltip=T("The way in which an item is normally distributed")),
-                    script = SCRIPT('''
+                    script = '''
 S3OptionsFilter({
  'triggerName':'item_id',
  'targetName':'item_pack_id',
@@ -669,7 +676,7 @@ S3OptionsFilter({
  'msgNoRecords':i18n.no_packs,
  'fncPrep':fncPrepItem,
  'fncRepresent':fncRepresentItem
-})'''),
+})''',
                     ondelete = "RESTRICT")
 
         #def record_pack_quantity(r):
@@ -791,7 +798,7 @@ S3OptionsFilter({
         #
         item_types = Storage(
                             inv_inv_item = T("Warehouse Stock"),
-                            inv_recv_item = T("Order Item"),
+                            inv_track_item = T("Order Item"),
                             proc_plan_item = T("Planned Procurement Item"),
                             )
 
@@ -869,6 +876,7 @@ S3OptionsFilter({
         return Storage(
                 supply_item_id = supply_item_id,
                 supply_item_entity_id = item_id,
+                supply_item_category_id = item_category_id,
                 supply_item_pack_id = item_pack_id,
                 supply_item_represent = self.supply_item_represent,
                 supply_item_category_represent = self.item_category_represent,
@@ -932,7 +940,7 @@ S3OptionsFilter({
             # @ToDo: Optimise so we don't need to do the first query
             item_category_id = row.id
         elif not id:
-            return current.messages.NONE
+            return current.messages["NONE"]
         else:
             item_category_id = id
 
@@ -982,7 +990,7 @@ S3OptionsFilter({
         """
 
         if not id:
-            return current.messages.NONE
+            return current.messages["NONE"]
 
         db = current.db
 
@@ -1002,7 +1010,7 @@ S3OptionsFilter({
         T = current.T
         if instance_type == "inv_inv_item":
             item_str = T("In Stock")
-        elif instance_type == "inv_recv_item":
+        elif instance_type == "inv_track_item":
             s3db = current.s3db
             itable = s3db[instance_type]
             rtable = s3db.inv_recv
@@ -1030,7 +1038,7 @@ S3OptionsFilter({
             # @ToDo: Optimised query where we don't need to do the join
             id = row.id
         elif not id:
-            return current.messages.NONE
+            return current.messages["NONE"]
 
         db = current.db
         table = db.supply_item
@@ -1078,7 +1086,7 @@ S3OptionsFilter({
             # @ToDo: Optimised query where we don't need to do the join
             id = row.id
         elif not id:
-            return current.messages.NONE
+            return current.messages["NONE"]
 
         db = current.db
         table = db.supply_item_pack
@@ -1317,7 +1325,7 @@ def supply_item_rheader(r):
                                     table.brand_id.represent(item.brand_id),
                                   ),
                                 TR( TH("%s: " % table.model.label),
-                                    item.model or current.messages.NONE,
+                                    item.model or current.messages["NONE"],
                                   ),
                                ),
                           rheader_tabs
@@ -1333,17 +1341,16 @@ class SupplyItemPackVirtualFields(dict, object):
         self.tablename = tablename
 
     def pack_quantity(self):
+        tablename = self.tablename
         try:
-            if self.tablename == "inv_inv_item":
+            if tablename == "inv_inv_item":
                 item_pack = self.inv_inv_item.item_pack_id
-            elif self.tablename == "req_req_item":
+            elif tablename == "req_req_item":
                 item_pack = self.req_req_item.item_pack_id
-            elif self.tablename == "req_commit_item":
+            elif tablename == "req_commit_item":
                 item_pack = self.req_commit_item.item_pack_id
-            elif self.tablename == "inv_recv_item":
-                item_pack = self.inv_recv_item.item_pack_id
-            elif self.tablename == "inv_send_item":
-                item_pack = self.inv_send_item.item_pack_id
+            elif tablename == "inv_track_item":
+                item_pack = self.inv_track_item.item_pack_id
             else:
                 item_pack = None
         except AttributeError:
@@ -1377,7 +1384,7 @@ class item_entity_virtualfields:
         if record:
             return table.item_category_id.represent(record.item_category_id)
         else:
-            return current.messages.NONE
+            return current.messages["NONE"]
 
     # -------------------------------------------------------------------------
     def country(self):
@@ -1399,7 +1406,7 @@ class item_entity_virtualfields:
                                               limitby=(0, 1)).first()
             if record:
                 country = record.L0 or current.T("Unknown")
-        elif instance_type == "inv_recv_item":
+        elif instance_type == "inv_track_item":
             tablename = instance_type
             itable = s3db[instance_type]
             rtable = s3db.inv_recv
@@ -1433,8 +1440,8 @@ class item_entity_virtualfields:
                 country = record.L0 or current.T("Unknown")
         else:
             # @ToDo: Assets and req_items
-            return current.messages.NONE
-        return country or current.messages.NONE
+            return current.messages["NONE"]
+        return country or current.messages["NONE"]
 
     # -------------------------------------------------------------------------
     def organisation(self):
@@ -1474,7 +1481,7 @@ class item_entity_virtualfields:
             if record:
                 organisation = organisation_represent(record.organisation_id,
                                                       acronym=False)
-        elif instance_type == "inv_recv_item":
+        elif instance_type == "inv_track_item":
             tablename = instance_type
             itable = s3db[instance_type]
             rtable = s3db.inv_recv
@@ -1493,13 +1500,13 @@ class item_entity_virtualfields:
                                                       acronym=False)
         else:
             # @ToDo: Assets and req_items
-            return current.messages.NONE
-        return organisation or current.messages.NONE
+            return current.messages["NONE"]
+        return organisation or current.messages["NONE"]
 
     # -------------------------------------------------------------------------
     #def site(self):
     def contacts(self):
-        #site = current.messages.NONE
+        #site = current.messages["NONE"]
         s3db = current.s3db
         etable = s3db.supply_item_entity
         instance_type = self.supply_item_entity.instance_type
@@ -1513,7 +1520,7 @@ class item_entity_virtualfields:
                 return None
             record = current.db(query).select(itable.site_id,
                                               limitby=(0, 1)).first()
-        elif instance_type == "inv_recv_item":
+        elif instance_type == "inv_track_item":
             tablename = instance_type
             itable = s3db[instance_type]
             rtable = s3db.inv_recv
@@ -1539,7 +1546,7 @@ class item_entity_virtualfields:
                                       limitby=(0, 1)).first()
         else:
             # @ToDo: Assets and req_items
-            return current.messages.NONE
+            return current.messages["NONE"]
 
         #site = s3db.org_site_represent(record.site_id)
         #return site
@@ -1554,12 +1561,12 @@ class item_entity_virtualfields:
             if record.comments:
                 return record.comments
             else:
-                return current.messages.NONE
+                return current.messages["NONE"]
         elif record.comments:
             comments = s3_comments_represent(record.comments,
                                              show_link=False)
         else:
-            comments = current.messages.NONE
+            comments = current.messages["NONE"]
         return A(comments,
                  _href = URL(f="office",
                              args = [record.id]))
@@ -1624,8 +1631,8 @@ class item_entity_virtualfields:
                     status = T("On Order")
         else:
             # @ToDo: Assets and req_items
-            return current.messages.NONE
-        return status or current.messages.NONE
+            return current.messages["NONE"]
+        return status or current.messages["NONE"]
 
 # =============================================================================
 def supply_item_controller():

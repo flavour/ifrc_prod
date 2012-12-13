@@ -111,7 +111,7 @@ def sites_for_org():
     else:
         table = s3db.org_site
         query = (table.organisation_id == org)
-        records = db(query).select(table.id,
+        records = db(query).select(table.site_id,
                                    table.name,
                                    orderby=table.name)
         result = records.json()
@@ -139,6 +139,8 @@ def site_org_json():
 def facility_marker_fn(record):
     """
         Function to decide which Marker to use for Facilities Map
+        @ToDo: Legend
+        @ToDo: Move to Templates
         @ToDo: Use Symbology
     """
 
@@ -233,6 +235,19 @@ def facility():
                     field.comment = None
                     # Filter out people which are already staff for this office
                     s3base.s3_filter_staff(r)
+                    # Modify list_fields
+                    s3db.configure("hrm_human_resource",
+                                   list_fields=["person_id",
+                                                "phone",
+                                                "email",
+                                                "organisation_id",
+                                                "job_title_id",
+                                                "department_id",
+                                                "site_contact",
+                                                "status",
+                                                "comments",
+                                                ]
+                                   )
 
                 elif cname == "req" and r.method not in ("update", "read"):
                     # Hide fields which don't make sense in a Create form
@@ -533,5 +548,15 @@ def incoming():
     """
 
     return inv_incoming()
+
+# -----------------------------------------------------------------------------
+def facility_geojson():
+    """
+        Create GeoJSON[P] of Facilities for use by a high-traffic website
+        - controller just for testing
+        - function normally run on a schedule
+    """
+
+    s3db.org_facility_geojson()
 
 # END =========================================================================
