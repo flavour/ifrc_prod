@@ -70,6 +70,8 @@ settings.base.debug = False
 
 # This setting will be automatically changed _before_ registering the 1st user
 settings.auth.hmac_key = "akeytochange"
+# This setting is for Minimum Password Length
+#settings.auth.password_min_length = 8
 
 # Email settings
 # Outbound server
@@ -96,8 +98,7 @@ settings.frontpage.rss = [
     },
     {"title": "Twitter",
      # @SahanaFOSS
-     # Find ID via http://api.twitter.com/users/show/username.json
-     "url": "http://twitter.com/statuses/user_timeline/96591754.rss"
+     "url": "https://search.twitter.com/search.rss?q=from%3ASahanaFOSS"
      # Hashtag
      #url: "http://search.twitter.com/search.atom?q=%23eqnz"
     }

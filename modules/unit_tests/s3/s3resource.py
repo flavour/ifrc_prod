@@ -3,14 +3,14 @@
 # S3Resource Unit Tests
 #
 # To run this script use:
-# python web2py.py -S eden -M -R applications/eden/tests/unit_tests/modules/s3/s3resource.py
+# python web2py.py -S eden -M -R applications/eden/modules/unit_tests/s3/s3resource.py
 #
 import unittest
 import datetime
 from gluon import *
 from gluon.storage import Storage
 from gluon.dal import Row
-from s3.s3resource import S3FieldSelector, S3ResourceFilter, S3ResourceField
+from s3.s3resource import *
 
 # =============================================================================
 class ComponentJoinConstructionTests(unittest.TestCase):
@@ -514,135 +514,6 @@ class ResourceFilterQueryTests(unittest.TestCase):
         current.auth.override = False
 
 # =============================================================================
-class URLQueryParserTests(unittest.TestCase):
-    """ Test Parsing of URL queries """
-
-    # -------------------------------------------------------------------------
-    def setUp(self):
-
-        current.auth.override = True
-
-    # -------------------------------------------------------------------------
-    @unittest.skipIf(not current.deployment_settings.has_module("project"), "project module disabled")
-    def testParseURLQuery(self):
-        """ Test standard URL query parsing """
-
-        url_query = {"project.organisation_id$name__like": "*test*",
-                     "task.description__like!": "*test*"}
-
-        resource = current.s3db.resource("project_project", vars=url_query)
-        rfilter = resource.rfilter
-
-        # Check joins
-        joins = rfilter.get_left_joins()
-        self.assertNotEqual(joins, None)
-        self.assertTrue(isinstance(joins, list))
-        self.assertEqual(joins[0], "org_organisation ON "
-                                   "(project_project.organisation_id = org_organisation.id)")
-        self.assertEqual(joins[1], "project_task_project ON "
-                                   "((project_task_project.project_id = project_project.id) AND "
-                                   "(project_task_project.deleted <> 'T'))")
-        self.assertEqual(joins[2], "project_task ON "
-                                   "(project_task_project.task_id = project_task.id)")
-
-        # Check query
-        query = rfilter.get_query()
-        self.assertEqual(str(query), "((((project_project.deleted <> 'T') AND "
-                                     "(project_project.id > 0)) AND "
-                                     "(LOWER(org_organisation.name) LIKE '%test%')) AND "
-                                     "(NOT (LOWER(project_task.description) LIKE '%test%')))")
-
-    # -------------------------------------------------------------------------
-    @unittest.skipIf(not current.deployment_settings.has_module("project"), "project module disabled")
-    def testParseURLQueryWithAlternativeValues(self):
-        """ Test URL query parsing with alternative values (OR) """
-
-        url_query = {"project.organisation_id$name__like": "Test*,Other*"}
-
-        resource = current.s3db.resource("project_project", vars=url_query)
-        rfilter = resource.rfilter
-
-        # Check joins
-        joins = rfilter.get_left_joins()
-        self.assertTrue(isinstance(joins, list))
-        self.assertEqual(joins[0], "org_organisation ON "
-                                   "(project_project.organisation_id = org_organisation.id)")
-
-        # Check query
-        query = rfilter.get_query()
-        self.assertEqual(str(query), "(((project_project.deleted <> 'T') AND "
-                                     "(project_project.id > 0)) AND "
-                                     "((LOWER(org_organisation.name) LIKE 'test%') OR "
-                                     "(LOWER(org_organisation.name) LIKE 'other%')))")
-
-    # -------------------------------------------------------------------------
-    @unittest.skipIf(not current.deployment_settings.has_module("project"), "project module disabled")
-    def testParseURLQueryWithAlternativeSelectors(self):
-        """ Test alternative selectors (OR) in a URL query """
-
-        url_query = {"project.organisation_id$name|task.description__like": "Test*"}
-
-        resource = current.s3db.resource("project_project", vars=url_query)
-        rfilter = resource.rfilter
-
-        # Check joins
-        joins = rfilter.get_left_joins()
-        self.assertTrue(isinstance(joins, list))
-
-        self.assertEqual(joins[0], "org_organisation ON "
-                                   "(project_project.organisation_id = org_organisation.id)")
-        self.assertEqual(joins[1], "project_task_project ON "
-                                   "((project_task_project.project_id = project_project.id) AND "
-                                   "(project_task_project.deleted <> 'T'))")
-        self.assertEqual(joins[2], "project_task ON "
-                                   "(project_task_project.task_id = project_task.id)")
-
-        # Check the query
-        query = rfilter.get_query()
-        self.assertEqual(str(query), "(((project_project.deleted <> 'T') AND "
-                                     "(project_project.id > 0)) AND "
-                                     "((LOWER(org_organisation.name) LIKE 'test%') OR "
-                                     "(LOWER(project_task.description) LIKE 'test%')))")
-
-    # -------------------------------------------------------------------------
-    def testParseValue(self):
-        """ Test URL query value parser handling of NONE/None """
-
-        parse_value = S3ResourceFilter._parse_value
-
-        self.assertEqual(parse_value("NONE"), None)
-        self.assertEqual(parse_value('"NONE"'), "NONE")
-        self.assertEqual(parse_value("None"), None)
-        self.assertEqual(parse_value('"None"'), "None")
-        self.assertEqual(parse_value("NONE,1"), [None, "1"])
-        self.assertEqual(parse_value('"NONE",1'), ["NONE", "1"])
-        self.assertEqual(parse_value('"NONE,1"'), "NONE,1")
-
-    # -------------------------------------------------------------------------
-    def testBBOXFilter(self):
-        """ Test URL query with BBOX filter """
-
-        url_query = {"bbox": "119.80485082193,12.860457717185,122.27677462907,15.107136411359"}
-
-        resource = current.s3db.resource("org_office", vars=url_query)
-        rfilter = resource.rfilter
-
-        # Check the query
-        query = rfilter.get_query()
-        self.assertEqual(str(query), "(((org_office.deleted <> 'T') AND "
-                                     "(org_office.id > 0)) AND "
-                                     "((org_office.location_id = gis_location.id) AND "
-                                     "((((gis_location.lon > 119.80485082193) AND "
-                                     "(gis_location.lon < 122.27677462907)) AND "
-                                     "(gis_location.lat > 12.860457717185)) AND "
-                                     "(gis_location.lat < 15.107136411359))))")
-
-    # -------------------------------------------------------------------------
-    def tearDown(self):
-
-        current.auth.override = False
-
-# =============================================================================
 class URLQuerySerializerTests(unittest.TestCase):
     """ Test URL serialization of resource queries """
 
@@ -761,7 +632,9 @@ class URLQuerySerializerTests(unittest.TestCase):
 
         resource = current.s3db.resource("pr_person")
         u = q.serialize_url(resource=resource)
-        k = "person.first_name__like"
+        # Field selector does not use a prefix, but master resource
+        # is known, so should be using ~ wildcard here
+        k = "~.first_name__like"
         self.assertNotEqual(u, None)
         self.assertTrue(isinstance(u, Storage))
         self.assertTrue(k in u)
@@ -816,7 +689,9 @@ class URLFilterSerializerTests(unittest.TestCase):
         rfilter = resource.rfilter
         u = rfilter.serialize_url()
 
-        k = "person.first_name__like"
+        # Field selector does not use a prefix, but master resource
+        # is known (from rfilter), so should be using ~ wildcard here
+        k = "~.first_name__like"
         self.assertNotEqual(u, None)
         self.assertTrue(isinstance(u, Storage))
         self.assertTrue(k in u)
@@ -844,6 +719,31 @@ class ResourceFieldTests(unittest.TestCase):
         self.assertEqual(str(f.tname), "project_project")
         self.assertEqual(str(f.fname), "name")
         self.assertEqual(str(f.colname), "project_project.name")
+
+        # Check join (no join)
+        self.assertEqual(f.join, Storage())
+        self.assertEqual(f.left, Storage())
+
+        # Check distinct (no join - no distinct)
+        self.assertFalse(f.distinct)
+
+    # -------------------------------------------------------------------------
+    @unittest.skipIf(not current.deployment_settings.has_module("org"), "org module disabled")
+    def testResolveMasterWildcard(self):
+        """ Resolution of a selector with a master wildcard """
+
+        resource = current.s3db.resource("org_organisation")
+        selector = "~.name"
+
+        f = S3ResourceField(resource, selector)
+        self.assertNotEqual(f, None)
+
+        # Check field
+        self.assertEqual(f.selector, selector)
+        self.assertEqual(str(f.field), "org_organisation.name")
+        self.assertEqual(str(f.tname), "org_organisation")
+        self.assertEqual(str(f.fname), "name")
+        self.assertEqual(str(f.colname), "org_organisation.name")
 
         # Check join (no join)
         self.assertEqual(f.join, Storage())
@@ -1185,6 +1085,63 @@ class ResourceDataAccessTests(unittest.TestCase):
         current.auth.override = False
 
 # =============================================================================
+class ResourceDataTableFilterTests(unittest.TestCase):
+    """ Test datatable_filter """
+
+    # -------------------------------------------------------------------------
+    def testDataTableFilterStandard(self):
+        """ Test Standard Data Table """
+        resource = current.s3db.resource("hrm_certificate_skill")
+        vars = Storage({"bSortable_0": "false",
+                        "bSortable_1": "true",
+                        "bSortable_2": "true",
+                        "sSortDir_0": "asc",
+                        "iSortCol_0": "1",
+                        "iColumns": "3",
+                        "iSortingCols": "1"})
+        searchq, orderby, left = resource.datatable_filter(["id",
+                                                            "skill_id",
+                                                            "competency_id"],
+                                                            vars)
+        self.assertEqual(orderby, "hrm_skill.name asc")
+
+    # -------------------------------------------------------------------------
+    def testDataTableFilterWithBulkColumn(self):
+        """ Test De-Duplicator Data Table """
+        resource = current.s3db.resource("hrm_certificate_skill")
+        vars = Storage({"bSortable_0": "false",
+                        "bSortable_1": "false",
+                        "bSortable_2": "true",
+                        "bSortable_3": "true",
+                        "sSortDir_0": "desc",
+                        "iSortCol_0": "2",
+                        "iColumns": "4",
+                        "iSortingCols": "1"})
+        searchq, orderby, left = resource.datatable_filter(["id",
+                                                            "skill_id",
+                                                            "competency_id"],
+                                                            vars)
+        self.assertEqual(orderby, "hrm_skill.name desc")
+
+    # -------------------------------------------------------------------------
+    def testDataTableFilterOther(self):
+        """ Test Other Data Table """
+        resource = current.s3db.resource("hrm_certificate_skill")
+        vars = Storage({"bSortable_0": "false",
+                        "bSortable_1": "true",
+                        "bSortable_2": "false",
+                        "bSortable_3": "true",
+                        "sSortDir_0": "desc",
+                        "iSortCol_0": "3",
+                        "iColumns": "4",
+                        "iSortingCols": "1"})
+        searchq, orderby, left = resource.datatable_filter(["id",
+                                                            "skill_id",
+                                                            "competency_id"],
+                                                            vars)
+        self.assertEqual(orderby, "hrm_competency_rating.priority desc")
+        
+# =============================================================================
 class ResourceExportTests(unittest.TestCase):
     """ Test XML export of resources """
 
@@ -1215,6 +1172,7 @@ class ResourceExportTests(unittest.TestCase):
             attrib = child.attrib
             self.assertEqual(attrib["name"], "org_office")
             self.assertTrue("uuid" in attrib)
+
 
     # -------------------------------------------------------------------------
     def testExportTreeWithMaxBounds(self):
@@ -1426,7 +1384,7 @@ class ResourceImportTests(unittest.TestCase):
         current.auth.override = False
 
 # =============================================================================
-class ResourceDataObjectAPITests(unittest.TestCase):
+class ResourceDataObjectAPITests (unittest.TestCase):
     """ Test the S3Resource Data Object API """
 
     # -------------------------------------------------------------------------
@@ -1944,10 +1902,8 @@ class MergeLocationsTests(unittest.TestCase):
     def setUp(self):
         """ Set up location records """
 
-        db = current.db
         auth = current.auth
         s3db = current.s3db
-        deployment_settings = current.deployment_settings
 
         auth.override = True
 
@@ -1955,13 +1911,9 @@ class MergeLocationsTests(unittest.TestCase):
 
         location1 = Storage(name="TestLocation")
         location1_id = ltable.insert(**location1)
-        location1.update(id=location1_id)
-        s3db.update_super(ltable, location1)
 
         location2 = Storage(name="TestLocation")
         location2_id = ltable.insert(**location2)
-        location2.update(id=location2_id)
-        s3db.update_super(ltable, location2)
 
         self.id1 = location1_id
         self.id2 = location2_id
@@ -2263,6 +2215,503 @@ class ResourceLazyVirtualFieldsSupportTests(unittest.TestCase):
         current.auth.override = False
 
 # =============================================================================
+class URLQueryParserTests(unittest.TestCase):
+
+    # -------------------------------------------------------------------------
+    def setUp(self):
+
+        current.auth.override = True
+
+    # -------------------------------------------------------------------------
+    def testParseExpression(self):
+        """ Test URL Expression parsing """
+
+        parse = S3URLQuery.parse_expression
+
+        items = [
+            # Correct syntax
+            ("s", ["s"], "eq", False),
+            ("s!", ["s"], "eq", True),
+            ("s__op", ["s"], "op", False),
+            ("s__op!", ["s"], "op", True),
+            ("s1|s2|s3", ["s1", "s2", "s3"], "eq", False),
+            ("s1|s2|s3!", ["s1", "s2", "s3"], "eq", True),
+            ("s1|s2|s3__op", ["s1", "s2", "s3"], "op", False),
+            ("s1|s2|s3__op!", ["s1", "s2", "s3"], "op", True),
+            # Incorrect syntax
+            ("s__", ["s"], "eq", False),
+            ("s___", ["s"], "eq", False),
+            ("s_____ne", ["s"], "ne", False),
+            ("s__!", ["s"], "eq", True),
+            ("s!__op", ["s!"], "op", False),
+            ("s__!op", ["s"], "!op", False),
+            ("s1||s3", ["s1", "s3"], "eq", False),
+            ("s1|s2|s3__", ["s1", "s2", "s3"], "eq", False),
+            ("s1|s2|s3__!", ["s1", "s2", "s3"], "eq", True),
+            ("s1|s2|s3!__op", ["s1", "s2", "s3!"], "op", False),
+            ("s1|s2|s3__!op", ["s1", "s2", "s3"], "!op", False),
+        ]
+
+        for key, selectors, op, invert in items:
+            s, o, i = parse(key)
+            self.assertEqual((key, s, o, i), (key, selectors, op, invert))
+
+    # -------------------------------------------------------------------------
+    def testParseValue(self):
+        """ Test URL value parsing """
+
+        parse = S3URLQuery.parse_value
+
+        items = [
+            ("123", "123"),
+            ("1,2,3", ["1", "2", "3"]),
+            ('"1,2",3', ["1,2", "3"]),
+            (["1,2", "3"], ["1", "2", "3"]),
+            ("NONE", None),
+            ('"NONE"', "NONE"),
+            ("None", None),
+            ('"None"', "None"),
+            ("NONE,1", [None, "1"]),
+            ('"NONE",1', ["NONE", "1"]),
+            ('"NONE,1"', "NONE,1"),
+        ]
+        for v, r in items:
+            self.assertEqual((v, parse(v)), (v, r))
+
+    # -------------------------------------------------------------------------
+    def testParseURL(self):
+        """ Test URL get_vars parsing """
+
+        parse = S3URLQuery.parse_url
+
+        items = [
+            (None, Storage()),
+            ("", Storage()),
+            ("test", Storage()),
+            ("x/y/z?", Storage()),
+            ("x/z/z?a=b", Storage(a="b")),
+            ("?a=b", Storage(a="b")),
+            ("a=b", Storage(a="b")),
+            ("a=b&a=c", Storage(a=["b", "c"])),
+            ("a=b,c&a=d", Storage(a=["b,c", "d"])),
+        ]
+        for v, r in items:
+            self.assertEqual((v, parse(v)), (v, r))
+
+    # -------------------------------------------------------------------------
+    @unittest.skipIf(not current.deployment_settings.has_module("project"), "project module disabled")
+    def testParseURLQuery(self):
+        """ Test standard URL query parsing """
+
+        url_query = {"project.organisation_id$name__like": "*test*",
+                     "task.description__like!": "*test*"}
+
+        resource = current.s3db.resource("project_project", vars=url_query)
+        rfilter = resource.rfilter
+
+        # Check joins
+        joins = rfilter.get_left_joins()
+        self.assertNotEqual(joins, None)
+        self.assertTrue(isinstance(joins, list))
+        self.assertEqual(joins[0], "org_organisation ON "
+                                   "(project_project.organisation_id = org_organisation.id)")
+        self.assertEqual(joins[1], "project_task_project ON "
+                                   "((project_task_project.project_id = project_project.id) AND "
+                                   "(project_task_project.deleted <> 'T'))")
+        self.assertEqual(joins[2], "project_task ON "
+                                   "(project_task_project.task_id = project_task.id)")
+
+        # Check query
+        query = rfilter.get_query()
+        self.assertEqual(str(query), "((((project_project.deleted <> 'T') AND "
+                                     "(project_project.id > 0)) AND "
+                                     "(LOWER(org_organisation.name) LIKE '%test%')) AND "
+                                     "(NOT (LOWER(project_task.description) LIKE '%test%')))")
+
+    # -------------------------------------------------------------------------
+    @unittest.skipIf(not current.deployment_settings.has_module("project"), "project module disabled")
+    def testParseURLQueryWithAlternativeValues(self):
+        """ Test URL query parsing with alternative values (OR) """
+
+        url_query = {"project.organisation_id$name__like": "Test*,Other*"}
+
+        resource = current.s3db.resource("project_project", vars=url_query)
+        rfilter = resource.rfilter
+
+        # Check joins
+        joins = rfilter.get_left_joins()
+        self.assertTrue(isinstance(joins, list))
+        self.assertEqual(joins[0], "org_organisation ON "
+                                   "(project_project.organisation_id = org_organisation.id)")
+
+        # Check query
+        query = rfilter.get_query()
+        self.assertEqual(str(query), "(((project_project.deleted <> 'T') AND "
+                                     "(project_project.id > 0)) AND "
+                                     "((LOWER(org_organisation.name) LIKE 'test%') OR "
+                                     "(LOWER(org_organisation.name) LIKE 'other%')))")
+
+    # -------------------------------------------------------------------------
+    @unittest.skipIf(not current.deployment_settings.has_module("project"), "project module disabled")
+    def testParseURLQueryWithAlternativeSelectors(self):
+        """ Test alternative selectors (OR) in a URL query """
+
+        url_query = {"project.organisation_id$name|task.description__like": "Test*"}
+
+        resource = current.s3db.resource("project_project", vars=url_query)
+        rfilter = resource.rfilter
+
+        # Check joins
+        joins = rfilter.get_left_joins()
+        self.assertTrue(isinstance(joins, list))
+
+        self.assertEqual(joins[0], "org_organisation ON "
+                                   "(project_project.organisation_id = org_organisation.id)")
+        self.assertEqual(joins[1], "project_task_project ON "
+                                   "((project_task_project.project_id = project_project.id) AND "
+                                   "(project_task_project.deleted <> 'T'))")
+        self.assertEqual(joins[2], "project_task ON "
+                                   "(project_task_project.task_id = project_task.id)")
+
+        # Check the query
+        query = rfilter.get_query()
+        self.assertEqual(str(query), "(((project_project.deleted <> 'T') AND "
+                                     "(project_project.id > 0)) AND "
+                                     "((LOWER(org_organisation.name) LIKE 'test%') OR "
+                                     "(LOWER(project_task.description) LIKE 'test%')))")
+
+    # -------------------------------------------------------------------------
+    def testBBOXFilter(self):
+        """ Test URL query with BBOX filter """
+
+        url_query = {"bbox": "119.80485082193,12.860457717185,122.27677462907,15.107136411359"}
+
+        resource = current.s3db.resource("org_office", vars=url_query)
+        rfilter = resource.rfilter
+
+        # Check the query
+        query = rfilter.get_query()
+        self.assertEqual(str(query), "(((org_office.deleted <> 'T') AND "
+                                     "(org_office.id > 0)) AND "
+                                     "((org_office.location_id = gis_location.id) AND "
+                                     "((((gis_location.lon > 119.80485082193) AND "
+                                     "(gis_location.lon < 122.27677462907)) AND "
+                                     "(gis_location.lat > 12.860457717185)) AND "
+                                     "(gis_location.lat < 15.107136411359))))")
+
+    # -------------------------------------------------------------------------
+    def tearDown(self):
+
+        current.auth.override = False
+
+# =============================================================================
+class ResourceFilteredComponentTests(unittest.TestCase):
+    """ Test components from the same table but different aliases """
+
+    @unittest.skipIf(not current.deployment_settings.has_module("org"), "org module disabled")
+    def testAttachFilteredComponent(self):
+        """ Test instantiation of filtered component """
+
+        s3db = current.s3db
+
+        # Define a filtered component
+        s3db.add_component("org_office",
+                           org_organisation = dict(name="test",
+                                                   joinby="organisation_id",
+                                                   filterby="office_type_id",
+                                                   filterfor=5))
+
+        # Define the resource
+        resource = s3db.resource("org_organisation", components=["test"])
+
+        # Check the component
+        component = resource.components["test"]
+        self.assertEqual(component.tablename, "org_office")
+        self.assertEqual(component._alias, "org_test_office")
+        self.assertEqual(component.table._tablename, "org_test_office")
+        self.assertEqual(str(component.filter),
+                         "(org_test_office.office_type_id = 5)")
+
+        # Remove the component hook
+        del current.model.components["org_organisation"]["test"]
+
+    # -------------------------------------------------------------------------
+    @unittest.skipIf(not current.deployment_settings.has_module("org"), "org module disabled")
+    def testResolveSelectorWithFilteredComponent(self):
+        """ Test resolution of field selectors for filtered components """
+
+        s3db = current.s3db
+
+        # Define a filtered component
+        s3db.add_component("org_office",
+                           org_organisation = dict(name="test",
+                                                   joinby="organisation_id",
+                                                   filterby="office_type_id",
+                                                   filterfor=5))
+
+        # Define the resource
+        resource = s3db.resource("org_organisation")
+
+        # Make sure an S3ResourceField of the component is using the
+        # correct table alias (critical for data extraction from Rows)
+        rfield = S3ResourceField(resource, "test.name")
+        self.assertEqual(rfield.tname, "org_test_office")
+        self.assertEqual(rfield.colname, "org_test_office.name")
+
+        # Remove the component hook
+        del current.model.components["org_organisation"]["test"]
+
+    # -------------------------------------------------------------------------
+    @unittest.skipIf(not current.deployment_settings.has_module("org"), "org module disabled")
+    def testURLQueryWithFilteredComponent(self):
+        """ Test resolution of URL queries for fields in filtered components """
+
+        s3db = current.s3db
+        auth = current.auth
+
+        # Define a filtered component
+        s3db.add_component("org_office",
+                           org_organisation = dict(name="test",
+                                                   joinby="organisation_id",
+                                                   filterby="office_type_id",
+                                                   filterfor=5))
+
+        # Define the resource
+        resource = s3db.resource("org_organisation")
+
+        # Translate a URL query into a DAL query, check that
+        # the correct table alias is used
+        query = S3URLQuery.parse(resource, {"test.name__like": "xyz*"})
+        self.assertEqual(str(query.test[0].query(resource)),
+                         "(LOWER(org_test_office.name) LIKE 'xyz%')")
+
+        # Add the query to the resource
+        auth.override = True
+        resource.add_filter(query.test[0])
+        rfilter = resource.rfilter
+        
+        # Check that the aliased table is properly joined
+        self.assertEqual(str(rfilter.get_left_joins()[0]),
+                         "org_office AS org_test_office ON "
+                         "(((org_test_office.organisation_id = org_organisation.id) AND "
+                         "(org_test_office.deleted <> 'T')) AND "
+                         "(org_test_office.office_type_id = 5))")
+        # ...and the effective query of the master contains the filter
+        # and is using the correct alias
+        self.assertEqual(str(resource.get_query()),
+                         "(((org_organisation.deleted <> 'T') AND "
+                         "(org_organisation.id > 0)) AND "
+                         "(LOWER(org_test_office.name) LIKE 'xyz%'))")
+
+        # Check the query of the component
+        self.assertEqual(str(resource.components["test"].get_query()),
+                         "((((org_test_office.deleted <> 'T') AND "
+                         "(org_test_office.id > 0)) AND "
+                         "(((org_organisation.deleted <> 'T') AND "
+                         "(org_organisation.id > 0)) AND "
+                         "(LOWER(org_test_office.name) LIKE 'xyz%'))) AND "
+                         "(((org_test_office.organisation_id = org_organisation.id) AND "
+                         "(org_test_office.deleted <> 'T')) AND "
+                         "(org_test_office.office_type_id = 5)))")
+        
+        # Remove the component hook
+        del current.model.components["org_organisation"]["test"]
+
+        auth.override = False
+
+    # -------------------------------------------------------------------------
+    @unittest.skipIf(not current.deployment_settings.has_module("org"), "org module disabled")
+    def testDataTableFilterWithFilteredComponent(self):
+        """
+            Test translation of datatable filter/sorting for fields in
+            filtered components
+        """
+        
+        s3db = current.s3db
+
+        s3db.add_component("org_office",
+                           org_organisation = dict(name="test",
+                                                   joinby="organisation_id",
+                                                   filterby="office_type_id",
+                                                   filterfor=5))
+
+        resource = s3db.resource("org_organisation")
+        fields = ["id", "name", "test.name", "test.office_type_id$name"]
+        vars = Storage({"bSortable_0": "false", # action column
+                        "bSortable_1": "true",
+                        "bSortable_2": "true",
+                        "bSortable_3": "true",
+                        "sSortDir_0": "asc",
+                        "iSortCol_0": "2",
+                        "sSortDir_1": "desc",
+                        "iSortCol_1": "3",
+                        "iColumns": "4",
+                        "iSortingCols": "2",
+                        "sSearch": "test"})
+        searchq, orderby, left = resource.datatable_filter(fields, vars)
+        self.assertEqual(str(searchq),
+                         "(((LOWER(org_organisation.name) LIKE '%test%') OR "
+                         "(LOWER(org_test_office.name) LIKE '%test%')) OR "
+                         "(LOWER(org_office_type.name) LIKE '%test%'))")
+        self.assertEqual(orderby,
+                         "org_test_office.name asc, "
+                         "org_office_type.name desc")
+        
+        # Remove the component hook
+        del current.model.components["org_organisation"]["test"]
+
+    # -------------------------------------------------------------------------
+    @unittest.skipIf(not current.deployment_settings.has_module("org"), "org module disabled")
+    def testSelectWithFilteredComponent(self):
+        """ Test S3Resource.select/extract with fields in a filtered component """
+    
+        s3db = current.s3db
+        auth = current.auth
+        
+        xmlstr = """
+<s3xml>
+    <resource name="org_organisation" uuid="FCTESTORG">
+        <data field="name">FilteredComponentsTestOrg</data>
+        <resource name="org_office" uuid="FCTESTOFFICE">
+            <data field="name">FilteredComponentsTestOffice</data>
+            <reference field="office_type_id" resource="org_office_type">
+                <resource name="org_office_type" uuid="FCTESTTYPE">
+                    <data field="name">FilteredComponentsTestType</data>
+                </resource>
+            </reference>
+        </resource>
+    </resource>
+</s3xml>"""
+
+        from lxml import etree
+        xmltree = etree.ElementTree(etree.fromstring(xmlstr))
+
+        auth.override = True
+        
+        resource = s3db.resource("org_organisation")
+        resource.import_xml(xmltree)
+
+        resource = s3db.resource("org_office_type", uid="FCTESTTYPE")
+        row = resource.select(["id"])[0]
+        type_id = row.id
+
+        s3db.add_component("org_office",
+                           org_organisation = dict(name="test",
+                                                   joinby="organisation_id",
+                                                   filterby="office_type_id",
+                                                   filterfor=type_id))
+        
+        resource = current.s3db.resource("org_organisation", uid="FCTESTORG")
+        fields = ["id", "name", "test.name", "test.office_type_id$name"]
+        rows = resource.select(fields)
+
+        result = resource.extract(rows, fields)
+        self.assertEqual(len(result), 1)
+        result = result[0]
+        self.assertTrue("org_organisation.name" in result)
+        self.assertEqual(result["org_organisation.name"], "FilteredComponentsTestOrg")
+        self.assertTrue("org_test_office.name" in result)
+        self.assertEqual(result["org_test_office.name"], "FilteredComponentsTestOffice")
+        self.assertTrue("org_office_type.name" in result)
+        self.assertEqual(result["org_office_type.name"], "FilteredComponentsTestType")
+
+        # Remove the component hook
+        del current.model.components["org_organisation"]["test"]
+
+        current.db.rollback()
+        auth.override = False
+
+    # -------------------------------------------------------------------------
+    @unittest.skipIf(not current.deployment_settings.has_module("hrm"), "hrm module disabled")
+    def testGetJoinLinkTableComponentAlias(self):
+        """ Join for a link-table component with alias """
+
+        resource = current.s3db.resource("hrm_human_resource")
+
+        component = resource.components["email"]
+        join = component.get_join()
+        self.assertEqual(str(join), "(((pr_person.deleted <> 'T') AND "
+                         "((hrm_human_resource.person_id = pr_person.id) AND "
+                         "(pr_person.pe_id = pr_email_contact.pe_id))) AND "
+                         "(pr_email_contact.contact_method = 'EMAIL'))")
+
+        component = resource.components["phone"]
+        join = component.get_join()
+        self.assertEqual(str(join), "(((pr_person.deleted <> 'T') AND "
+                         "((hrm_human_resource.person_id = pr_person.id) AND "
+                         "(pr_person.pe_id = pr_phone_contact.pe_id))) AND "
+                         "(pr_phone_contact.contact_method = 'SMS'))")
+
+    # -------------------------------------------------------------------------
+    @unittest.skipIf(not current.deployment_settings.has_module("hrm"), "hrm module disabled")
+    def testGetLeftJoinLinkTableComponentAlias(self):
+        """ Left Join for a link-table component with alias """
+
+        resource = current.s3db.resource("hrm_human_resource")
+        
+        component = resource.components["email"]
+        ljoin = component.get_left_join()
+        self.assertTrue(isinstance(ljoin, list))
+        self.assertEqual(len(ljoin), 2)
+        self.assertEqual(str(ljoin[0]), "pr_person ON "
+                                        "((hrm_human_resource.person_id = pr_person.id) AND "
+                                        "(pr_person.deleted <> 'T'))")
+        self.assertEqual(str(ljoin[1]), "pr_contact AS pr_email_contact ON "
+                                        "((pr_person.pe_id = pr_email_contact.pe_id) AND "
+                                        "(pr_email_contact.contact_method = 'EMAIL'))")
+
+        component = resource.components["phone"]
+        ljoin = component.get_left_join()
+        self.assertTrue(isinstance(ljoin, list))
+        self.assertEqual(len(ljoin), 2)
+        self.assertEqual(str(ljoin[0]), "pr_person ON "
+                                        "((hrm_human_resource.person_id = pr_person.id) AND "
+                                        "(pr_person.deleted <> 'T'))")
+        self.assertEqual(str(ljoin[1]), "pr_contact AS pr_phone_contact ON "
+                                        "((pr_person.pe_id = pr_phone_contact.pe_id) AND "
+                                        "(pr_phone_contact.contact_method = 'SMS'))")
+
+    # -------------------------------------------------------------------------
+    # Disabled - @todo: must create test records (otherwise component can be
+    # empty regardless) - and check the actual office_type_ids (can not assume 4/5)
+    @unittest.skip("disabled until fixed")
+    @unittest.skipIf(not current.deployment_settings.has_module("org"), "org module disabled")
+    def testExportTreeWithComponentAlias(self):
+        """ Test export of a resource that has components from the same table but different aliases """
+
+        current.auth.override = True
+        s3db = current.s3db
+        s3db.add_component("org_office",
+                      org_organisation=dict(name="fieldoffice",
+                                            joinby="organisation_id",
+                                            filterby="office_type_id",
+                                            filterfor=5
+                                            )
+                      )
+        s3db.add_component("org_office",
+                      org_organisation=dict(name="hq",
+                                            joinby="organisation_id",
+                                            filterby="office_type_id",
+                                            filterfor=4
+                                            )
+                      )
+        resource = s3db.resource("org_organisation")
+        self.assertEqual(str(resource.components.fieldoffice.filter), \
+                         "(org_fieldoffice_office.office_type_id = 5)")
+        self.assertEqual(str(resource.components.hq.filter), \
+                         "(org_hq_office.office_type_id = 4)")
+        
+        tree = resource.export_tree(mcomponents=["fieldoffice","hq"])
+        self.assertTrue(resource.components.fieldoffice._length > 0)
+        self.assertTrue(resource.components.hq._length > 0)
+        self.assertTrue(resource.components.office._length is None)
+        
+        tree = resource.export_tree(mcomponents=["org_office","fieldoffice","hq"])
+        self.assertTrue(resource.components.office._length > 0)
+        self.assertTrue(resource.components.fieldoffice._length is None)
+        self.assertTrue(resource.components.hq._length is None)
+
+# =============================================================================
 def run_suite(*test_classes):
     """ Run the test suite """
 
@@ -2296,6 +2745,7 @@ if __name__ == "__main__":
         ResourceDataObjectAPITests,
 
         ResourceDataAccessTests,
+        ResourceDataTableFilterTests,
         ResourceGetTests,
         #ResourceInsertTest,
         #ResourceSelectTests,
@@ -2312,6 +2762,7 @@ if __name__ == "__main__":
 
         ResourceExportTests,
         ResourceImportTests,
+        ResourceFilteredComponentTests,
     )
 
 # END ========================================================================

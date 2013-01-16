@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-""" Sahana Eden Staff Search Module Automated Tests
+""" Sahana Eden Member Search Module Automated Tests
 
     @copyright: 2011-2012 (c) Sahana Software Foundation
     @license: MIT
@@ -26,105 +26,96 @@
     FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
     OTHER DEALINGS IN THE SOFTWARE.
 """
-
+import time
 from gluon import current
 from tests.web2unittest import SeleniumUnitTest
+import functools
 
-class Human Resources(SeleniumUnitTest):
-    def hrm002_staff_search(self):
-        """
-            @case: hrm002
-            @description: Search Staff
-            
-            * DOES NOT WORK
-        """
+def _kwsearch(instance, column, items, keyword):
+    for item in [instance.dt_data_item(i, column) for i in xrange(1, items + 1)]:
+        if not (keyword.strip().lower() in item.strip().lower()):
+            return False
+    return True
+
+class SearchStaff(SeleniumUnitTest):
+
+    def setUp(self):
+        super(SeleniumUnitTest, self).setUp()
         print "\n"
+        self.login(account="admin", nexturl="hrm/staff/search?clear_opts=1")
 
-        # Login, if not-already done so
-        self.login(account="normal", nexturl="hrm/staff/search")
-        
-        # HRM002-1
-		# Staff Simple Search
-		self.search("human_resource", 
-                    [( "search_simple",
-					   "mariana")]
-					 )
-				
-		# HRM002-2
-		# Staff Advanced Search
-		self.browser.find_element_by_class("action-lnk advanced-lnk").click()
-		
-		# Search by Organization
-		self.search( "human_resource",
-					[( "search_org",
-					   "Timor-Leste Red Cross Society",
-					   "checked")]
-					 )
-					 
-		# Search by State/Province
-		self.search( "human_resource",
-					[( "search_org",
-					   "Timor-Leste Red Cross Society",
-					   "unchecked"),
-					 ( self.browser.find_element_by_id("location_search_select_L1_label_A").click()),
-					 ( "search_L1",
-					   "Dili",
-					   "checked"),
-					 ( self.browser.find_element_by_id("location_search_select_L1_label_R").click()),
-					 ( "search_L1",
-					   "Viqueque",
-					   "checked")]
-					 )			   
-					 
-		# Search by County/District
-		self.search( "human_resource",
-					[( "search_L1",
-					   "Dili",
-					   "unchecked"),
-					 ( "search_L1",
-					   "Viqueque",
-					   "unchecked")
-					 ( self.browser.find_element_by_id("location_search_select_L2_label_A").click()),
-					 ( "search_L2",
-					   "Ainaro",
-					   "checked"),
-					 ( self.browser.find_element_by_id("location_search_select_L2_label_L").click()),
-					 # the label suffix (A, L etc)seems to change depending on nr of districts
-					 ( "search_L2",
-					   "Lospalos",
-					   "checked")]
-					 )
-					 
-		# Search by Facility
-		self.search( "human_resource",
-					[( "search_L2",
-					   "Ainaro",
-					   "unchecked"),
-					 ( "search_L2",
-					   "Lospalos",
-					   "unchecked"),
-					 ( "search_site",
-					   "Lospalos Branch Office",
-					   "checked")]
-					 )
-		
-		# Search by Training			 
-		self.search( "human_resource",
-					[( "search_site",
-					   "Lospalos Branch Office",
-					   "unchecked"),
-					 ( "search_training",
-					   "Basics of First Aid",
-					   "checked")]
-					 )
-					 				 
-		# Search by Facility and Training
-		self.search( "human_resource",
-					[( "search_site",
-					   "Lospalos Branch Office",
-					   "checked"),
-					 ( "search_training",
-					   "Basics of First Aid",
-					   "checked")]
-					 )
-					 
+
+    def test_hrm002_01_hrm_search_simple(self):
+        """
+            @case: hrm002-01
+            @description: Search Members - Simple Search
+        """
+        key="Mem"
+        self.search(self.search.simple_form,
+            True,
+            [],
+            {"tablename":"hrm_human_resource", "key":key, "filters":[("type",1)]},
+            manual_check=functools.partial(_kwsearch, keyword=key, items=1, column=2)
+        )
+
+
+    def test_hrm002_02_hrm_search_advance_by_Organization(self):
+        """
+            @case: hrm002-02
+            @description: Search Members - Advanced Search by Organization
+        """
+        key="Finnish Red Cross (FRC)"
+        self.search(self.search.advanced_form,
+            True,
+            ({
+                "name": "human_resource_search_org",
+                "label": key,
+                "value": True
+            },),
+            {"tablename":"hrm_human_resource", "filters":[("type",1)]},
+            manual_check=functools.partial(_kwsearch, keyword=key, items=1, column=4)
+        )
+
+
+    def test_hrm002_03_hrm_search_advance_by_Facility(self):
+        """
+            @case: hrm002-03
+            @description: Search Members - Advanced Search by Facility
+        """
+        self.search(self.search.advanced_form,
+            True,
+            (
+             {
+                "name": "human_resource_search_site",
+                "label": "AP Zone (Office)",
+                "value": True
+            },
+             {
+                "name": "human_resource_search_site",
+                "label": "Victoria Branch Office (Office)",
+                "value": True
+            },
+            ),
+            {"tablename":"hrm_human_resource", "filters":[("type",1)]},
+            manual_check=functools.partial(_kwsearch, keyword="(Office)", items=1, column=6)
+        )
+
+      
+    def test_hrm002_04_hrm_search_advance_by_Training(self):
+        """
+            @case: hrm002-04
+            @description: Search Members - Advanced Search by Training
+        """
+        key="Basics of First Aid"
+        self.search(self.search.advanced_form,
+            True,
+            ({
+                "name": "human_resource_search_training",
+                "label": key,
+                "value": True
+            },),
+            {"tablename":"hrm_human_resource", "filters":[("type",1)]},
+            manual_check=functools.partial(_kwsearch, keyword=key, items=1, column=9)
+        )
+
+           

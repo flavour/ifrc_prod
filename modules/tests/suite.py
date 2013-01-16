@@ -22,6 +22,7 @@ from tests.org import *
 from tests.project import *
 from tests.staff import *
 from tests.volunteer import *
+from tests.helpers import *
 
 def loadAllTests():
 
@@ -39,6 +40,8 @@ def loadAllTests():
     addTests(loadTests(CreateStaff))
     addTests(loadTests(CreateStaffJobRole))
     addTests(loadTests(CreateStaffCertificate))
+    addTests(loadTests(SearchStaff))
+    addTests(loadTests(StaffReport))
 
     # Setup Volunteer
     addTests(loadTests(CreateVolunteer))
@@ -46,6 +49,7 @@ def loadAllTests():
     addTests(loadTests(CreateVolunteerProgramme))
     addTests(loadTests(CreateVolunteerSkill))
     addTests(loadTests(CreateVolunteerCertificate))
+    addTests(loadTests(VolunteerSearch))
 
     # Create Staff & Volunteer Training
     addTests(loadTests(CreateStaffTraining))
@@ -61,6 +65,8 @@ def loadAllTests():
 
     # Asset Tests
     addTests(loadTests(CreateAsset))
+    addTests(loadTests(AssetSearch))
+    addTests(loadTests(AssetReport))
 
     # Assign Staff to Organisation
     addTests(loadTests(AddStaffToOrganisation))
@@ -71,8 +77,9 @@ def loadAllTests():
     # Assign Staff to Warehouse
     addTests(loadTests(AddStaffToWarehouse))
 
-    # Create a Warehouse
+    # Warehouse Tests
     addTests(loadTests(CreateWarehouse))
+    addTests(loadTests(SearchWarehouse))
 
     # Create an Item
     addTests(loadTests(CreateItem))
@@ -85,6 +92,12 @@ def loadAllTests():
 
     # Create Members
     addTests(loadTests(CreateMember))
+
+    # Search Members
+    addTests(loadTests(SearchMember))
+    
+    # Test helpers
+    addTests(loadTests(ReportTestHelper))
 
     return suite
 
@@ -108,7 +121,7 @@ parser.add_argument("-A",
                     help = "web2py default argument feed")
 parser.add_argument("-V", "--verbose",
                     type = int,
-                    default = 1,
+                    default = 2,
                     help = "The level of verbose reporting")
 parser.add_argument("--nohtml",
                     action='store_const',
@@ -131,7 +144,7 @@ The suite options can be described as follows:
 smoke: This will run the broken link test
 quick: This will run all the tests marked as essential
 complete: This will run all tests except those marked as long
-full: This will run all test
+full: This will run all tests
 """
 parser.add_argument("--suite",
                     help = suite_desc,
@@ -164,6 +177,10 @@ parser.add_argument("--keep-browser-open",
                     help = "Keep the browser open once the tests have finished running",
                     action='store_const',
                     const = True)
+parser.add_argument("--browser",
+                    help = "Set the browser to use (Firefox/Chrome)",
+                    action = "store",
+                    default = "Firefox")
 
 desc = """Run the smoke tests even if debug is set to true.
 
@@ -176,14 +193,23 @@ parser.add_argument("--force-debug",
                     const=True,
                     help = desc)
 desc = """Set a threshold in seconds.
-If takes longer than this to get the link then it will be reported.
+If in the smoke tests it takes longer than this to get the link then it will be reported.
 """
 parser.add_argument("--threshold",
                     type = int,
                     default = 10,
                     help = desc)
+desc = """Smoke test report only.
+Don't actually run the smoke tests but rebuild the smoke test report.
+"""
+parser.add_argument("--smoke-report",
+                    action='store_const',
+                    const=True,
+                    help = desc)
 argsObj = parser.parse_args()
 args = argsObj.__dict__
+active_driver = {'firefox': webdriver.Firefox,
+                 'chrome': webdriver.Chrome}[args['browser'].lower()]
 
 # Read Settings
 settings = current.deployment_settings
@@ -218,7 +244,7 @@ config.verbose = args["verbose"]
 browser_open = False
 # @todo test with invalid class and methods passed as CLA
 if args["method"]:
-    browser = config.browser = webdriver.Firefox()
+    browser = config.browser = active_driver()
     browser.implicitly_wait(config.timeout)
     browser_open = True
     if args["class"]:
@@ -229,15 +255,18 @@ if args["method"]:
                                                     globals()[args["class"]]
                                                     )
 elif args["class"]:
-    browser = config.browser = webdriver.Firefox()
+    # Run a single Selenium test
+    browser = config.browser = active_driver()
     browser.implicitly_wait(config.timeout)
     browser_open = True
     suite = unittest.TestLoader().loadTestsFromTestCase(globals()[args["class"]])
 
 elif args["suite"] == "smoke":
+    # Run Smoke tests
     try:
         from tests.smoke import *
         broken_links = BrokenLinkTest()
+        broken_links.setReportOnly( args["smoke_report"])
         broken_links.setDepth(args["link_depth"])
         broken_links.setThreshold(args["threshold"])
         broken_links.setUser(args["user_password"])
@@ -249,33 +278,20 @@ elif args["suite"] == "smoke":
         pass
 
 elif args["suite"] == "roles":
-
+    # Run Roles tests
     from tests.roles.test_roles import *
-    #suite = unittest.TestSuite()
     suite = test_roles()
 
-    #test_role = TestRole()
-    #test_role.set(org = "Org-A",
-    #              user = "asset_reader@Org-A.com",
-    #              row_num = 0,
-    #              method = "create",
-    #              table = "org_organisation",
-    #              c = None,
-    #              f = None,
-    #              record_id = 42,
-    #              uuid = "uuid",
-    #              permission = True)
-    #suite.addTest(test_role)
-    #suite = unittest.TestLoader().loadTestsFromTestCase(globals()[args["auth"]])
-
 elif args["suite"] == "complete":
-    browser = config.browser = webdriver.Firefox()
+    # Run all Selenium Tests & Smoke Tests
+    browser = config.browser = active_driver()
     browser.implicitly_wait(config.timeout)
     browser_open = True
     suite = loadAllTests()
     try:
         from tests.smoke import *
         broken_links = BrokenLinkTest()
+        broken_links.setReportOnly( args["smoke_report"])
         broken_links.setDepth(args["link_depth"])
         broken_links.setThreshold(args["threshold"])
         broken_links.setUser(args["user_password"])
@@ -286,8 +302,8 @@ elif args["suite"] == "complete":
         pass
 
 else:
-    # Run all Tests
-    browser = config.browser = webdriver.Firefox()
+    # Run all Selenium Tests
+    browser = config.browser = active_driver()
     browser.implicitly_wait(config.timeout)
     browser_open = True
     suite = loadAllTests()
@@ -304,7 +320,7 @@ else:
             filename = "Sahana-Eden-%s.html" % current.request.now
         # Windows compatibility
         filename = filename.replace(":", "-")
-        fullname = os.path.join(path,filename)
+        fullname = os.path.join(path, filename)
         fp = open(fullname, "wb")
 
         config.html = True

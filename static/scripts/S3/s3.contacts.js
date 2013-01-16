@@ -53,7 +53,7 @@ $('.address').each(function () {
 });
 */
 
-$('#contact-add').click(function () {
+$('#contact-add').click(function() {
     // Show a Spinner
     $('#contact-add_throbber').removeClass('hide').show();
     var button = $(this);
@@ -76,18 +76,18 @@ $('#contact-add').click(function () {
     });
 });
 
-$('.contact').each(function () {
+$('.contact').each(function() {
     var contact = $(this);
     var id = contact.attr('id').match(/\d+/);
 
-    contact.find('a.deleteBtn').click(function (e) {
+    contact.find('a.delete-btn-ajax').click(function (e) {
         if (confirm(i18n.delete_confirmation)) {
             $.post(S3.Ap.concat('/pr/contact/' + id[0] + '/delete'));
             contact.addClass('hide');
         }
     });
 
-    contact.find('a.editBtn').click(function (e) {
+    contact.find('a.editBtn').click(function(e) {
         var span = contact.find('span');
         var current = span.html();
 
@@ -96,7 +96,7 @@ $('.contact').each(function () {
         var form = $('<form>');
         formHolder.append(form);
 
-        var input = $('<input size=62>');
+        var input = $('<input id="pr_contact_value" size=62>');
         input.val(current);
         form.append(input);
 
@@ -107,24 +107,44 @@ $('.contact').each(function () {
         span.replaceWith(formHolder);
         contact.addClass('edit');
 
-        form.submit(function (e) {
+        form.submit(function(e) {
             e.preventDefault();
+            $('#pr_contact_value_error').remove();
             contact.removeClass('edit').addClass('saving');
-            form.append($('<img src="' + S3.Ap.concat('/static/img/jquery-ui/ui-anim_basic_16x16.gif') + '">').addClass('fright'));
+            form.append($('<img class="pr_contact_throbber" src="' + S3.Ap.concat('/static/img/jquery-ui/ui-anim_basic_16x16.gif') + '">').addClass('fright'));
             form.find('input[type=submit]').addClass('hide');
             $.post(S3.Ap.concat('/pr/contact/' + id[0] + '.s3json'),
-                   '{"$_pr_contact":' + JSON.stringify({'value': input.val()}) + '}',
-                   function () {
-                      contact.removeClass('saving');
-                      // @ToDo: Use returned value instead of submitted one
-                      var value = input.val();
-                      formHolder.replaceWith($('<span>').html(value));
-                   }, 'json');
+                '{"$_pr_contact":' + JSON.stringify({'value': input.val()}) + '}',
+                function(data) {
+                    if (data.status == 'failed') {
+                        try {
+                            error_message = data.tree.$_pr_contact[0].value['@error']
+                        } catch (e) {
+                            error_message = data.message;
+                        }
+                        $('#pr_contact_value').after(
+                            $('<div id="pr_contact_value_error" class="error">' + error_message + '</div>')
+                                .css({display: 'none'})
+                                .slideDown('slow')
+                                .click(function() { $(this).fadeOut('slow'); return false; })
+                        );
+                        contact.removeClass('saving').addClass('edit');
+                        form.find('input[type=submit]').removeClass('hide');
+                        $('.pr_contact_throbber').remove();
+                    } else {
+                        contact.removeClass('saving');
+                        // @ToDo: Use returned value instead of submitted one
+                        var value = input.val();
+                        formHolder.replaceWith($('<span>').html(value));
+                    }
+                },
+                'json'
+            );
         });
     });
 });
 
-$('#emergency-add').click(function () {
+$('#emergency-add').click(function() {
     // Show a Spinner
     $('#emergency-add_throbber').removeClass('hide').show();
     var button = $(this);
@@ -147,18 +167,18 @@ $('#emergency-add').click(function () {
     });
 });
 
-$('.emergency').each(function () {
+$('.emergency').each(function() {
     var emergency = $(this);
     var id = emergency.attr('id').match(/\d+/);
 
-    emergency.find('a.deleteBtn').click(function (e) {
+    emergency.find('a.delete-btn-ajax').click(function (e) {
         if (confirm(i18n.delete_confirmation)) {
             $.post(S3.Ap.concat('/pr/contact_emergency/' + id + '/delete'));
             emergency.addClass('hide');
         }
     });
 
-    emergency.find('a.editBtn').click(function () {
+    emergency.find('a.editBtn').click(function() {
         // Show a Spinner
         $('#emergency-add_throbber').removeClass('hide').show();
         // Download the form
@@ -173,7 +193,7 @@ $('.emergency').each(function () {
             // Load the Form into the iframe
             emergency.next().html(data);
             // Modify the submission URL
-            var url2 = S3.Ap.concat('/pr/contact_emergency/' + id + '/update?person=' + personId);
+            var url2 = S3.Ap.concat('/pr/contact_emergency/' + id + '/update?person=' + personId + '&controller=' + controller);
             $('#popup').find('form').attr('action', url2);
             // Hide the spinner
             $('#emergency-add_throbber').hide();

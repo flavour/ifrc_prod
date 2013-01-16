@@ -135,7 +135,9 @@ class S3MainMenu(object):
         for language in languages:
             menu_lang.append(MM(languages[language], r=request,
                                 translate=False,
-                                vars={"_language":language}))
+                                vars={"_language":language},
+                                ltr=True
+                                ))
         return menu_lang
 
     # -------------------------------------------------------------------------
@@ -183,8 +185,7 @@ class S3MainMenu(object):
                            **attr)(
                             MM("Logout", m="logout", _id="auth_menu_logout"),
                             MM("User Profile", m="profile"),
-                            MM("Personal Data", c="pr", f="person", m="update",
-                                vars={"person.pe_id" : auth.user.pe_id}),
+                            MM("Personal Data", c="default", f="person", m="update"),
                             MM("Contact Details", c="pr", f="person",
                                 args="contact",
                                 vars={"person.pe_id" : auth.user.pe_id}),
@@ -364,12 +365,13 @@ class S3OptionsMenu(object):
         # ATTN: Do not specify a controller for the main menu to allow
         #       re-use of this menu by other controllers
         return M(restrict=[ADMIN])(
-                    M("Settings", c="admin", f="settings")(
+                    M("Settings", c="admin", f="setting")(
                         settings_messaging,
                     ),
                     M("User Management", c="admin", f="user")(
                         M("New User", m="create"),
-                        M("List All Users", f="user"),
+                        M("List All Users"),
+                        M("Import Users", m="import"),
                         M("List All Roles", f="role"),
                         M("List All Organization Approvers & Whitelists", f="organisation"),
                         #M("Roles", f="group"),
@@ -407,25 +409,37 @@ class S3OptionsMenu(object):
         ADMIN = current.session.s3.system_roles.ADMIN
 
         return M(c="assess")(
-                    M("Rapid Assessments", f="rat")(
+                    M("Building Assessments", f="building")(
                         M("New", m="create"),
                         M("List All"),
-                        #M("Search", m="search"),
+                        M("Search", m="search"),
+                        M("Map", m="map"),
                     ),
-                    M("Impact Assessments", f="assess")(
-                        #M("New", m="create"),
-                        M("New", f="basic_assess", p="create"),
+                    M("Canvassing", f="canvass")(
+                        M("New", m="create"),
                         M("List All"),
-                        M("Mobile", f="mobile_basic_assess"),
-                        #M("Search", m="search"),
+                        M("Search", m="search"),
+                        M("Map", m="map"),
                     ),
-                    #M("Baseline Data")(
-                        #M("Population", f="population"),
+                    #M("Rapid Assessments", f="rat")(
+                    #    M("New", m="create"),
+                    #    M("List All"),
+                    #    #M("Search", m="search"),
                     #),
-                    M("Edit Options", restrict=ADMIN)(
-                        M("List / Add Baseline Types", f="baseline_type"),
-                        M("List / Add Impact Types", f="impact_type"),
-                    )
+                    #M("Impact Assessments", f="assess")(
+                    #    #M("New", m="create"),
+                    #    M("New", f="basic_assess", p="create"),
+                    #    M("List All"),
+                    #    M("Mobile", f="mobile_basic_assess"),
+                    #    #M("Search", m="search"),
+                    #),
+                    ##M("Baseline Data")(
+                    #    #M("Population", f="population"),
+                    ##),
+                    #M("Edit Options", restrict=ADMIN)(
+                    #    M("List / Add Baseline Types", f="baseline_type"),
+                    #    M("List / Add Impact Types", f="impact_type"),
+                    #)
                 )
 
 
@@ -1073,6 +1087,7 @@ class S3OptionsMenu(object):
                     M("Sent Shipments", c="inv", f="send")(
                         M("New", m="create"),
                         M("List All"),
+                        M("Search", m="search"),
                         M("Search Shipped Items", f="track_item", m="search"),
                     ),
                     M("Items", c="supply", f="item")(
@@ -1105,11 +1120,12 @@ class S3OptionsMenu(object):
                         M("Import", m="import", p="create"),
                     ),
                     M("Facilities", c="inv", f="facility")(
-                        M("New", m="create"),
+                        M("New", m="create", t="org_facility"),
                         M("List All"),
                         #M("Search", m="search"),
                     ),
-                    M("Facility Types", c="inv", f="facility_type")(
+                    M("Facility Types", c="inv", f="facility_type",
+                      restrict=[ADMIN])(
                         M("New", m="create"),
                         M("List All"),
                         #M("Search", m="search"),
@@ -1487,6 +1503,7 @@ class S3OptionsMenu(object):
                         M("Search", m="search"),
                      ),
                      M("Communities", f="location")(
+                        M("New", m="create"),
                         M("List All"),
                         M("Map", m="map"),
                         M("Search", m="search"),
@@ -1513,9 +1530,8 @@ class S3OptionsMenu(object):
                       ),
                     M("Funding", f="organisation", args="report"),
                  ),
-                 M("Import", f="index", p="create")(
-                    M("Import Projects", f="project",
-                      m="import", p="create"),
+                 M("Import", f="project", m="import", p="create")(
+                    M("Import Projects", m="import", p="create"),
                     M("Import Project Organizations", f="organisation",
                       m="import", p="create"),
                     M(IMPORT, f="location",
@@ -1612,7 +1628,6 @@ class S3OptionsMenu(object):
 
         settings = current.deployment_settings
         use_commit = lambda i: settings.get_req_use_commit()
-        use_summary = lambda i: "Summary" in settings.get_req_req_type()
         req_items = lambda i: "Stock" in settings.get_req_req_type()
         req_skills = lambda i: "People" in settings.get_req_req_type()
 
@@ -1631,10 +1646,6 @@ class S3OptionsMenu(object):
                     ),
                     M("Commitments", f="commit", check=use_commit)(
                         M("List All")
-                    ),
-                    M("Priority Items", f="summary_option", check=use_summary)(
-                        M("New", m="create"),
-                        M("List All"),
                     ),
                     M("Items", c="supply", f="item")(
                         M("New", m="create"),

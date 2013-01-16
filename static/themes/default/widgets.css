@@ -4,7 +4,6 @@
 form label {
     cursor: pointer;
 }
-
 p.legend {
     margin-bottom: 1em;
 }
@@ -93,17 +92,14 @@ div.form-container div.buttonrow {
 /* Styling for Inline Components */
 table.embeddedComponent {
     border: 1px solid #B3B3B3;
-    border-top: 0;
-    border-right: 0;
 }
 form table.embeddedComponent td {
-    border: 1px solid #B3B3B3;
     padding: 0 5px;
-    border-bottom: 0;
-    border-left: 0;
+    border: solid #B3B3B3;
+    border-width: 0 0 1px 0;
+    text-align: center;
 }
 table.embeddedComponent tr.label-row td {
-    text-align: center;
     color: #B3B3B3;
 }
 div.form-container form .embeddedComponent input.string,
@@ -146,7 +142,8 @@ table.dataTable thead th {
     border-bottom: 1px solid black;
 }
 
-div#table-container th {
+div#table-container th,
+div.fixedHeader th {
     text-align: center;
     border: 1px solid #ccc;
 }
@@ -178,6 +175,7 @@ div#table-container td.totals_header {
 }
 .list_formats img {
     padding: 1px;
+    cursor: pointer;
 }
 /* msg_list_empty */
 .empty {
@@ -253,6 +251,10 @@ a.paginate_active {
 }
 .sorting_disabled {
     background: no-repeat scroll right center transparent;
+}
+/* datatables fixed headers must not be transparent */
+table.dataTable th {
+    background: no-repeat scroll right center #F0F3F4;
 }
 table.dataTable .row_selected td {
 	background-color: #ddd;
@@ -498,6 +500,7 @@ div#rheader th {
 /* Tabs */
 div.tabs {
     width: 100%;
+    clear: left;
 	height: 1.5em;
     padding: 8px 0 2px 0;
     margin: 5px 0 0 0;
@@ -613,6 +616,7 @@ div#last_update {
 
 /* Action Buttons */
 .action-btn,
+.delete-btn-ajax,
 .delete-btn {
     cursor: pointer;
     line-height: 1.5;
@@ -629,6 +633,7 @@ div#last_update {
     border-radius: 2px;
 }
 .action-btn:hover,
+.delete-btn-ajax:hover,
 .delete-btn:hover {
     text-decoration: none;
     color: #fff;
@@ -787,6 +792,7 @@ li input + a {
 /* HRM RHeader */
 .hrm_avatar {
     float: left;
+    clear: right;
     padding-bottom: 5px;
     padding-right: 10px;
 }
@@ -1039,4 +1045,7 @@ select#sub_defaulttime_defaulttime_person_id_edit_none {
 input#sub_defaulttime_defaulttime_hours_edit_none {
     width: 60px;
 }
-
+.s3_inline_add_resource_link a {
+    margin-left: 2px;
+    padding-left: 2px;
+}

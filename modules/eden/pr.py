@@ -44,7 +44,9 @@ __all__ = ["S3PersonEntity",
            # Representation Methods
            "pr_get_entities",
            "pr_pentity_represent",
-           "pr_person_represent",
+           #"pr_person_represent",
+           "pr_PersonRepresent",
+           "pr_person_phone_represent",
            "pr_person_comment",
            "pr_image_represent",
            "pr_url_represent",
@@ -419,7 +421,7 @@ class S3PersonEntity(S3Model):
                                         itable.organisation_id,
                                         limitby=(0, 1)).first()
                 if instance:
-                    s3db.pr_update_affiliations("org_site", instance)
+                    pr_update_affiliations("org_site", instance)
         return
 
     # -------------------------------------------------------------------------
@@ -514,6 +516,7 @@ class S3PersonModel(S3Model):
              "pr_age_group",
              "pr_age_group_opts",
              "pr_person_id",
+             "pr_person_represent",
              ]
 
     def model(self):
@@ -643,8 +646,7 @@ class S3PersonModel(S3Model):
                                                                        T("By selecting this you agree that we may contact you.")))),
                                    ),
                              s3_comments(),
-                             # @ToDo: Remove the lx_fields when we can Search person_id$location_id$Lx
-                             *(s3_lx_fields() + s3_meta_fields()))
+                             *s3_meta_fields())
 
         # CRUD Strings
         ADD_PERSON = messages.ADD_PERSON
@@ -732,15 +734,17 @@ class S3PersonModel(S3Model):
                                     T("Type the first few characters of one of the Person's names."),
                                     child="person_id")
 
+        person_represent = pr_PersonRepresent()
+
         person_id = S3ReusableField("person_id", table,
                                     sortby = ["first_name", "middle_name", "last_name"],
                                     requires = IS_NULL_OR(
                                                 IS_ONE_OF(db, "pr_person.id",
-                                                          pr_person_represent,
+                                                          person_represent,
                                                           orderby="pr_person.first_name",
                                                           sort=True,
                                                           error_message=T("Person must be specified!"))),
-                                    represent = pr_person_represent,
+                                    represent = person_represent,
                                     label = T("Person"),
                                     comment = person_id_comment,
                                     ondelete = "RESTRICT",
@@ -764,7 +768,6 @@ class S3PersonModel(S3Model):
         add_component("hrm_certification", pr_person="person_id")
         add_component("hrm_competency", pr_person="person_id")
         add_component("hrm_credential", pr_person="person_id")
-        # @ToDo: Double link table to show the Courses attended?
         add_component("hrm_training", pr_person="person_id")
 
         # Experience
@@ -785,6 +788,7 @@ class S3PersonModel(S3Model):
             pr_age_group = pr_age_group,
             pr_age_group_opts = pr_age_group_opts,
             pr_person_id = person_id,
+            pr_person_represent = person_represent,
         )
 
     # -------------------------------------------------------------------------
@@ -1013,6 +1017,7 @@ class S3GroupModel(S3Model):
                                    requires = IS_NOT_EMPTY()),
                              Field("description",
                                    label=T("Group Description"),
+                                   represent = lambda v: v or messages["NONE"],
                                    comment = DIV(_class="tooltip",
                                                  _title="%s|%s" % (T("Group description"),
                                                                    T("A brief description of the group (optional)")))
@@ -1061,7 +1066,15 @@ class S3GroupModel(S3Model):
                   main="name",
                   extra="description")
 
-        # Reusable fields
+        # Reusable field
+        if current.request.controller in ("hrm", "vol"):
+            label = T("Add Team")
+            title = T("Create Team")
+            tooltip = T("Create a new Team.")
+        else:
+            label = crud_strings.pr_group.label_create_button
+            title = T("Create Group")
+            tooltip = T("Create a new Group.")
         group_id = S3ReusableField("group_id", table,
                                    sortby="name",
                                    requires = IS_NULL_OR(
@@ -1072,9 +1085,9 @@ class S3GroupModel(S3Model):
                                    represent = self.group_represent,
                                    comment=S3AddResourceLink(#c="pr",
                                                              f="group",
-                                                             label=crud_strings.pr_group.label_create_button,
-                                                             title=T("Create Group Entry"),
-                                                             tooltip=T("Create a group entry in the registry.")),
+                                                             label=label,
+                                                             title=title,
+                                                             tooltip=tooltip),
                                    ondelete = "RESTRICT")
 
         # Components
@@ -1094,8 +1107,10 @@ class S3GroupModel(S3Model):
                                    default=False,
                                    represent = lambda group_head: \
                                     (group_head and [T("yes")] or [""])[0]),
-                             Field("description",
-                                   label = T("Description")),
+                             s3_comments("description",
+                                         label = T("Description"),
+                                         comment = None,
+                                         ),
                              s3_comments(),
                              *s3_meta_fields())
 
@@ -1142,7 +1157,7 @@ class S3GroupModel(S3Model):
                                "person_id",
                                "group_head",
                                "description"
-                              ])
+                               ])
 
         # ---------------------------------------------------------------------
         # Return model-global names to s3db.*
@@ -1161,7 +1176,7 @@ class S3GroupModel(S3Model):
         if row:
             return row.name
         elif not id:
-            return current.messages.NONE
+            return current.messages["NONE"]
 
         db = current.db
         table = db.pr_group
@@ -1241,6 +1256,7 @@ class S3ContactModel(S3Model):
         T = current.T
 
         define_table = self.define_table
+        messages = current.messages
         super_link = self.super_link
 
         # ---------------------------------------------------------------------
@@ -1262,11 +1278,12 @@ class S3ContactModel(S3Model):
                                    default = "SMS",
                                    label = T("Contact Method"),
                                    represent = lambda opt: \
-                                        contact_methods.get(opt, current.messages.UNKNOWN_OPT)),
+                                        contact_methods.get(opt, messages.UNKNOWN_OPT)),
                              Field("value",
                                    label= T("Value"),
                                    notnull=True,
                                    requires = IS_NOT_EMPTY(),
+                                   represent = lambda v: v or messages["NONE"],
                                   ),
                              Field("priority", "integer",
                                    label= T("Priority"),
@@ -1337,7 +1354,16 @@ class S3ContactModel(S3Model):
     def contact_onvalidation(form):
         """ Contact form validation """
 
-        if form.vars.contact_method == "EMAIL":
+        contact_method = form.vars.contact_method
+        if not contact_method and "id" in form.vars:
+            ctable = current.s3db.pr_contact
+            record = current.db(ctable._id == form.vars.id).select(
+                                ctable.contact_method,
+                                limitby=(0, 1)).first()
+            if record:
+                contact_method = record.contact_method
+
+        if contact_method == "EMAIL":
             email, error = IS_EMAIL()(form.vars.value)
             if error:
                 form.errors.value = current.T("Enter a valid email")
@@ -1433,7 +1459,6 @@ class S3PersonAddressModel(S3Model):
         # Resource configuration
         self.configure(tablename,
                        onaccept=self.address_onaccept,
-                       onvalidation=s3_address_onvalidation,
                        deduplicate=self.address_deduplicate,
                        list_fields = ["id",
                                       "type",
@@ -1483,9 +1508,6 @@ class S3PersonAddressModel(S3Model):
             S3Tracker()(s3db.pr_pentity, pe_id).set_base_location(location_id)
             person = db(table.pe_id == pe_id).select(table.id,
                                                      limitby=(0, 1)).first()
-            if person:
-                # Update the Lx fields
-                s3_lx_update(table, person.id)
         else:
             # Check if a base location already exists
             query = (table.pe_id == pe_id)
@@ -1494,8 +1516,6 @@ class S3PersonAddressModel(S3Model):
             if person and not person.location_id:
                 # Hasn't yet been set so use this
                 S3Tracker()(s3db.pr_pentity, pe_id).set_base_location(location_id)
-                # Update the Lx fields
-                s3_lx_update(table, person.id)
 
         if person and str(vars.type) == "1": # Home Address
             if settings.has_module("hrm"):
@@ -1507,8 +1527,6 @@ class S3PersonAddressModel(S3Model):
                 hrs = db(query).select(htable.id)
                 for hr in hrs:
                     db(htable.id == hr.id).update(location_id=location_id)
-                    # Update the Lx fields
-                    #s3_lx_update(htable, hr.id)
             if settings.has_module("member"):
                 # Also check for any Member record(s)
                 mtable = s3db.member_membership
@@ -1517,8 +1535,6 @@ class S3PersonAddressModel(S3Model):
                 members = db(query).select(mtable.id)
                 for member in members:
                     db(mtable.id == member.id).update(location_id=location_id)
-                    # Update the Lx fields
-                    #s3_lx_update(mtable, member.id)
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -1578,6 +1594,7 @@ class S3PersonImageModel(S3Model):
                                         ),
                                   Field("image", "upload", autodelete=True,
                                         represent = self.pr_image_represent,
+                                        widget = S3ImageCropWidget((300, 300)),
                                         comment =  DIV(_class="tooltip",
                                                        _title="%s|%s" % (T("Image"),
                                                                          T("Upload an image file here. If you don't upload an image file, then you must specify its location in the URL field.")))),
@@ -1600,6 +1617,17 @@ class S3PersonImageModel(S3Model):
                                                             _title="%s|%s" % (T("Description"),
                                                                               T("Give a brief description of the image, e.g. what can be seen where on the picture (optional).")))),
                                   *s3_meta_fields())
+
+        def get_file():
+            """ Callback to return the file field for our record """
+            if len(current.request.args) < 3:
+                return None
+            query = (table.id == current.request.args[2])
+            record = current.db(query).select(table.image, limitby = (0, 1)).first()
+            return record.image if record else None
+
+        table.image.requires.append(IS_PROCESSED_IMAGE("image", get_file,
+            upload_path=os.path.join(current.request.folder, "uploads")))
 
         # CRUD Strings
         current.response.s3.crud_strings[tablename] = Storage(
@@ -1643,7 +1671,7 @@ class S3PersonImageModel(S3Model):
         """ Representation """
 
         if not image:
-            return current.messages.NONE
+            return current.messages["NONE"]
         url_full = URL(c="default", f="download", args=image)
         if size is None:
             size = (None, 60)
@@ -2009,7 +2037,7 @@ class S3PersonEducationModel(S3Model):
 
 # =============================================================================
 class S3PersonDetailsModel(S3Model):
-    """ Extra details for People """
+    """ Extra optional details for People """
 
     names = ["pr_person_details",
              ]
@@ -2085,16 +2113,16 @@ class S3PersonDetailsModel(S3Model):
                                   *s3_meta_fields())
 
         # CRUD Strings
-        ADD_ADDRESS = T("Add Person's Details")
+        ADD_DETAILS = T("Add Person's Details")
         current.response.s3.crud_strings[tablename] = Storage(
-            title_create = ADD_ADDRESS,
+            title_create = ADD_DETAILS,
             title_display = T("Person's Details"),
             title_list = T("Persons' Details"),
             title_update = T("Edit Person's Details"),
             title_search = T("Search Person's Details"),
             subtitle_create = T("Add New Person's Details"),
             label_list_button = T("List Persons' Details"),
-            label_create_button = ADD_ADDRESS,
+            label_create_button = ADD_DETAILS,
             msg_record_created = T("Person's Details added"),
             msg_record_modified = T("Person's Details updated"),
             msg_record_deleted = T("Person's Details deleted"),
@@ -2147,10 +2175,10 @@ class S3SavedSearch(S3Model):
                                                                       T("Your name for this search. Notifications will use this name."))),
                                         ),
                                   self.super_link("pe_id", "pr_pentity",
-                                                  #label=T("Person Entity"),
+                                                  label=T("Person Entity"),
                                                   readable=True,
                                                   writable=True,
-                                                  #represent=pr_pentity_represent,
+                                                  represent=pr_pentity_represent,
                                                   ),
                                   Field("controller",
                                         #label=T("Controller"),
@@ -2336,7 +2364,7 @@ class S3SavedSearch(S3Model):
             lf = S3FieldSelector(field_selector).resolve(resource)
 
             # Parse the values back out
-            values = S3ResourceFilter._parse_value(values)
+            values = S3URLQuery.parse_value(values)
 
             if not isinstance(values, list):
                 values = [values]
@@ -3255,14 +3283,15 @@ def pr_pentity_represent(id, row=None, show_label=True,
                          default_label="[No ID Tag]"):
     """ Represent a Person Entity in option fields or list views """
 
+    db = current.db
+
     if row:
         id = row.pe_id
         s3db = current.s3db
         pe_table = s3db.pr_pentity
     elif not id:
-        return current.messages.NONE
+        return current.messages["NONE"]
     else:
-        db = current.db
         s3db = current.s3db
         pe_table = s3db.pr_pentity
         row = db(pe_table.pe_id == id).select(pe_table.instance_type,
@@ -3320,22 +3349,119 @@ def pr_pentity_represent(id, row=None, show_label=True,
     return pe_str
 
 # =============================================================================
-def pr_person_represent(id, row=None, show_link=False):
+#def pr_person_represent(id, row=None, show_link=False):
+#    """
+#        Represent a Person in option fields or list views
+#
+#        @param show_link: whether to make the output into a hyperlink
+#    """
+#
+#    if row:
+#        name = s3_fullname(row)
+#        id = row.id
+#    elif not id:
+#        return current.messages["NONE"]
+#    else:
+#        name = current.cache.ram("pr_person_%s" % id,
+#                                 lambda: s3_fullname(id),
+#                                 time_expire=60)
+#    if show_link:
+#        request = current.request
+#        group = request.get_vars.get("group", None)
+#        c = request.controller
+#        if group == "staff" or \
+#           c == "hrm":
+#            controller = "hrm"
+#        elif group == "volunteer" or \
+#             c == "vol":
+#            controller = "vol"
+#        else:
+#            controller = "pr"
+#        name = A(name,
+#                 _href = URL(c=controller, f="person", args=[id]))
+#    return name
+
+# =============================================================================
+class pr_PersonRepresent(S3Represent):
     """
-        Represent a Person in option fields or list views
+        Extends S3Represent to change the link method to access the person via
+                            either HRM, Vol or PR controllers
+    """
+
+    def __init__(self,
+                 lookup="pr_person",
+                 key=None,
+                 fields=["first_name", "middle_name", "last_name"],
+                 labels=None,
+                 options=None,
+                 translate=False,
+                 linkto=None,
+                 show_link=False,
+                 multiple=False,
+                 default=None,
+                 none=None):
+
+        if show_link and not linkto:
+            request = current.request
+            group = request.get_vars.get("group", None)
+            if group == "staff":
+                controller = "hrm"
+            elif group == "volunteer":
+                controller = "vol"
+            else:
+                c = request.controller
+                if c == "hrm":
+                    controller = "hrm"
+                elif c == "vol":
+                    controller = "vol"
+                else:
+                    controller = "pr"
+            linkto = URL(c=controller, f="person", args=["[id]"])
+
+        super(pr_PersonRepresent, self).__init__(lookup,
+                                                 key,
+                                                 fields,
+                                                 labels,
+                                                 options,
+                                                 translate,
+                                                 linkto,
+                                                 show_link,
+                                                 multiple,
+                                                 default,
+                                                 none)
+
+# =============================================================================
+def pr_person_phone_represent(id, show_link=True):
+    """
+        Represent a Person with their phone number
 
         @param show_link: whether to make the output into a hyperlink
     """
 
-    if row:
-        name = s3_fullname(row)
-        id = row.id
-    elif not id:
-        return current.messages.NONE
-    else:
-        name = current.cache.ram("pr_person_%s" % id,
-                                 lambda: s3_fullname(id),
-                                 time_expire=60)
+    if not id:
+        return current.messages["NONE"]
+
+    s3db = current.s3db
+    ptable = s3db.pr_person
+    ctable = s3db.pr_contact
+    query = (ptable.id == id)
+    left = ctable.on((ctable.pe_id == ptable.pe_id) & \
+                     (ctable.contact_method == "SMS"))
+    row = current.db(query).select(ptable.first_name,
+                                   ptable.middle_name,
+                                   ptable.last_name,
+                                   ctable.value,
+                                   left=left,
+                                   limitby=(0, 1)).first()
+
+    try:
+        person = row["pr_person"]
+    except:
+        return current.messages.UNKNOWN_OPT
+
+    repr = s3_fullname(person)
+    if row.pr_contact.value:
+        repr = "%s %s" % (repr, row.pr_contact.value)
     if show_link:
         request = current.request
         group = request.get_vars.get("group", None)
@@ -3348,9 +3474,9 @@ def pr_person_represent(id, row=None, show_link=False):
             controller = "vol"
         else:
             controller = "pr"
-        name = A(name,
-                 _href = URL(c=controller, f="person", args=[id]))
-    return name
+        repr = A(repr,
+                 _href = URL(c=controller, f="person", args=[id, "contact"]))
+    return repr
 
 # =============================================================================
 def pr_person_comment(title=None, comment=None, caller=None, child=None):
@@ -3563,7 +3689,7 @@ def pr_contacts(r, **attr):
                 "FACEBOOK": 8,
                 "FAX": 9,
                 "OTHER": 10
-            }
+                }
         return keys[key[0]]
     items.sort(key=mysort)
     opts = current.msg.CONTACT_OPTS
@@ -3575,7 +3701,7 @@ def pr_contacts(r, **attr):
         else:
             edit_btn = DIV()
         if crud._permitted(method="delete"):
-            delete_btn = A(T("Delete"), _class="deleteBtn delete-btn fright")
+            delete_btn = A(T("Delete"), _class="delete-btn-ajax fright")
         else:
             delete_btn = DIV()
         return (edit_btn, delete_btn)
@@ -3619,7 +3745,7 @@ def pr_contacts(r, **attr):
     for contact in emergency:
         name = contact.name or ""
         if name:
-            name = "%s, "% name
+            name = "%s, " % name
         relationship = contact.relationship or ""
         if relationship:
             relationship = "%s, "% relationship
@@ -4842,7 +4968,7 @@ def pr_url_represent(url):
     """ Representation """
 
     if not url:
-        return current.messages.NONE
+        return current.messages["NONE"]
     parts = url.split("/")
     image = parts[-1]
     size = (None, 60)

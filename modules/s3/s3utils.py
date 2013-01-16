@@ -51,8 +51,6 @@ from gluon.sqlhtml import SQLTABLE
 from gluon.tools import Crud
 from gluon.contrib.simplejson.ordered_dict import OrderedDict
 
-from s3validators import IS_UTC_OFFSET
-
 DEBUG = False
 if DEBUG:
     print >> sys.stderr, "S3Utils: DEBUG MODE"
@@ -235,46 +233,6 @@ def s3_split_multi_value(value):
         return [str(value)]
 
 # =============================================================================
-def s3_get_db_field_value(tablename=None,
-                          fieldname=None,
-                          look_up_value=None,
-                          look_up_field="id",
-                          match_case=True):
-    """
-        Returns the value of <field> from the first record in <table_name>
-        with <look_up_field> = <look_up>
-
-        @param table: The name of the table
-        @param field: the field to find the value from
-        @param look_up: the value to find
-        @param look_up_field: the field to find <look_up> in
-        @type match_case: boolean
-
-        @returns:
-            - Field Value if there is a record
-            - None - if there is no matching record
-
-        Example::
-            s3_get_db_field_value("or_organisation", "id",
-                                   look_up = "UNDP",
-                                   look_up_field = "name" )
-
-        @todo: update parameter description
-    """
-
-    db = current.db
-    lt = db[tablename]
-    lf = lt[look_up_field]
-    if match_case or str(lf.type) != "string":
-        query = (lf == look_up_value)
-    else:
-        query = (lf.lower() == str.lower(look_up_value))
-    if "deleted" in lt:
-        query = (lt.deleted == False) & query
-    row = db(query).select(lt[fieldname], limitby=(0, 1)).first()
-    return row and row[fieldname] or None
-
-# =============================================================================
 def s3_filter_staff(r):
     """
         Filter out people which are already staff for this facility
@@ -365,7 +323,7 @@ def s3_fullname(person=None, pe_id=None, truncate=True):
             record = record["pr_person"]
         if record.first_name:
             fname = record.first_name.strip()
-        if record.middle_name:
+        if "middle_name" in record and record.middle_name:
             mname = record.middle_name.strip()
         if record.last_name:
             lname = record.last_name.strip()
@@ -442,14 +400,10 @@ def s3_represent_facilities(db, site_ids, link=True):
                                        table.facility_type_id,
                                        table.site_id,
                                        table.name)
-            ttable = db.org_facility_type
-            type_ids = [r.facility_type_id[0] for r in records if r.facility_type_id]
-            facility_types = db(ttable.id.belongs(type_ids)).select(ttable.id,
-                                                                    ttable.name)
-            facility_types = facility_types.as_dict()
+            type_represent = table.facility_type_id.represent
             for record in records:
                 if record.facility_type_id:
-                    facility_type = facility_types[record.facility_type_id[0]]["name"]
+                    facility_type = type_represent(record.facility_type_id[:1])
                     site_str = "%s (%s)" % (record.name, facility_type)
                 else:
                     site_str = "%s (%s)" % (record.name, instance_type_nice)
@@ -605,7 +559,28 @@ def s3_auth_user_represent(id, row=None):
     try:
         return user.email
     except:
-        return current.messages["UNKNOWN_OPT"]
+        return current.messages.UNKNOWN_OPT
+
+# =============================================================================
+def s3_auth_user_represent_name(id):
+    """
+        Represent users by their names
+    """
+
+    if not id:
+        return current.messages["NONE"]
+
+    db = current.db
+    table = db.auth_user
+    user = db(table.id == id).select(table.first_name,
+                                     table.last_name,
+                                     limitby=(0, 1)).first()
+    try:
+        return s3_format_fullname(user.first_name.strip(),
+                                  None,
+                                  user.last_name.strip())
+    except:
+        return current.messages.UNKNOWN_OPT
 
 # =============================================================================
 def s3_auth_group_represent(opt):
@@ -638,9 +613,7 @@ def s3_auth_group_represent(opt):
     return ", ".join(roles)
 
 # =============================================================================
-def s3_represent_id( table,
-                     fieldname = "name",
-                     translate = False):
+def s3_represent_id(table):
     """
         Returns a represent function for a record id.
     """
@@ -649,46 +622,50 @@ def s3_represent_id( table,
         if not row:
             if not id:
                 return current.messages["NONE"]
-            row  = current.db(table._id == id).select(table[fieldname],
-                                                   limitby=(0, 1)
-                                                   ).first()
+            row  = current.db(table._id == id).select(table.name,
+                                                      limitby=(0, 1)
+                                                      ).first()
         try:
-            if translate:
-                return current.T(row.name)
-            else:
-                return row.name
+            return row.name
         except:
-            return current.messages["UNKNOWN_OPT"]
+            return current.messages.UNKNOWN_OPT
 
     return represent
+
 # =============================================================================
-def s3_represent_multi_id( table,
-                           fieldname = "name",
-                           translate = False):
+def s3_represent_multi_id(table):
     """
         Returns a represent function for a record id.
     """
 
-    def represent(ids, row=None):
+    def represent(ids):
         if not ids:
             return current.messages["NONE"]
 
         ids = [ids] if type(ids) is not list else ids
 
-        row = current.db(table.id.belongs(ids)).select(table.id,
-                                                       table[fieldname]).as_dict()
+        rows = current.db(table.id.belongs(ids)).select(table.name)
 
         try:
-            strings = [str(row.get(id)[fieldname]) for id in ids]
+            strings = [str(row.name) for row in rows]
         except:
             return current.messages["NONE"]
-    
+
         if strings:
             return ", ".join(strings)
         else:
             return current.messages["NONE"]
 
     return represent
+
+# =============================================================================
+def s3_yes_no_represent(value):
+    " Represent a Boolean field as Yes/No instead of True/False "
+
+    if value:
+        return current.T("Yes")
+    else:
+        return current.T("No")
 
 # =============================================================================
 def s3_include_debug_css():
@@ -977,8 +954,8 @@ $('#regform').validate({
   form.submit()
  }
 })
-var MinPasswordChar = ''', str(auth.settings.password_min_length), ''';
-   $('.password:''', password_position, '''').pstrength({ minchar: MinPasswordChar, minchar_label: null } );
+var MinPasswordChar=''', str(settings.get_auth_password_min_length()), ''';
+ $('.password:''', password_position, '''').pstrength({minchar:MinPasswordChar,minchar_label:null});
 ''' ))
     s3.jquery_ready.append(script)
 
@@ -1375,6 +1352,7 @@ class CrudS3(Crud):
         """ Initialise parent class & make any necessary modifications """
         Crud.__init__(self, current.db)
 
+
     def select(
         self,
         table,
@@ -1763,6 +1741,7 @@ class S3BulkImporter(object):
                     f = urllib2.urlopen(req)
                 except urllib2.HTTPError, e:
                     self.errorList.append("Could not access %s: %s" % (filename, e.read()))
+
                     return
                 except:
                     self.errorList.append(errorString % filename)
@@ -1974,8 +1953,8 @@ class S3DateTime(object):
     """
 
     # -------------------------------------------------------------------------
-    @staticmethod
-    def date_represent(date, utc=False):
+    @classmethod
+    def date_represent(cls, date, utc=False):
         """
             Represent the date according to deployment settings &/or T()
 
@@ -1989,7 +1968,7 @@ class S3DateTime(object):
         format = settings.get_L10n_date_format()
 
         if date and isinstance(date, datetime.datetime) and utc:
-            offset = IS_UTC_OFFSET.get_offset_value(session.s3.utc_offset)
+            offset = cls.get_offset_value(session.s3.utc_offset)
             if offset:
                 date = date + datetime.timedelta(seconds=offset)
 
@@ -1999,8 +1978,8 @@ class S3DateTime(object):
             return current.messages["NONE"]
 
     # -----------------------------------------------------------------------------
-    @staticmethod
-    def time_represent(time, utc=False):
+    @classmethod
+    def time_represent(cls, time, utc=False):
         """
             Represent the date according to deployment settings &/or T()
 
@@ -2013,7 +1992,7 @@ class S3DateTime(object):
         format = settings.get_L10n_time_format()
 
         if time and utc:
-            offset = IS_UTC_OFFSET.get_offset_value(session.s3.utc_offset)
+            offset = cls.get_offset_value(session.s3.utc_offset)
             if offset:
                 time = time + datetime.timedelta(seconds=offset)
 
@@ -2023,8 +2002,8 @@ class S3DateTime(object):
             return current.messages["NONE"]
 
     # -----------------------------------------------------------------------------
-    @staticmethod
-    def datetime_represent(dt, utc=False):
+    @classmethod
+    def datetime_represent(cls, dt, utc=False):
         """
             Represent the datetime according to deployment settings &/or T()
 
@@ -2036,7 +2015,7 @@ class S3DateTime(object):
         xml = current.xml
 
         if dt and utc:
-            offset = IS_UTC_OFFSET.get_offset_value(session.s3.utc_offset)
+            offset = cls.get_offset_value(session.s3.utc_offset)
             if offset:
                 dt = dt + datetime.timedelta(seconds=offset)
 
@@ -2044,6 +2023,24 @@ class S3DateTime(object):
             return xml.encode_local_datetime(dt)
         else:
             return current.messages["NONE"]
+
+    # -----------------------------------------------------------------------------
+    @staticmethod
+    def get_offset_value(offset_str):
+        """
+            Convert an UTC offset string into a UTC offset value in seconds
+
+            @param offset_str: the UTC offset as string
+        """
+        if offset_str and len(offset_str) >= 5 and \
+            (offset_str[-5] == "+" or offset_str[-5] == "-") and \
+            offset_str[-4:].isdigit():
+            offset_hrs = int(offset_str[-5] + offset_str[-4:-2])
+            offset_min = int(offset_str[-5] + offset_str[-2:])
+            offset = 3600 * offset_hrs + 60 * offset_min
+            return offset
+        else:
+            return None
 
 # =============================================================================
 class S3MultiPath:
@@ -2638,6 +2635,16 @@ class S3MarkupStripper(HTMLParser.HTMLParser):
     def stripped(self):
         return "".join(self.result)
 
+def s3_strip_markup(text):
+
+    try:
+        stripper = S3MarkupStripper()
+        stripper.feed(text)
+        text = stripper.stripped()
+    except Exception, e:
+        pass
+    return text
+
 # =============================================================================
 class S3DataTable(object):
     """
@@ -2850,10 +2857,10 @@ class S3DataTable(object):
 
         T = current.T
         s3 = current.response.s3
-        application = current.request.application
+        request = current.request
+        application = request.application
 
         # @todo: this needs rework
-        #        - s3FormatRequest must retain any URL filters
         #        - s3FormatRequest must remove the "search" method
         #        - other data formats could have other list_fields,
         #          hence applying the datatable sorting/filters is
@@ -2862,7 +2869,15 @@ class S3DataTable(object):
             end = s3.datatable_ajax_source.find(".aadata")
             default_url = s3.datatable_ajax_source[:end] # strip '.aadata' extension
         else:
-            default_url = current.request.url
+            default_url = request.url
+
+        # Keep any URL filters
+        vars = request.get_vars
+        if vars:
+            default_url = "%s?" % default_url
+            for var in vars:
+                default_url = "%s%s=%s&" % (default_url, var, vars[var])
+
         iconList = []
         url = s3.formats.pdf if s3.formats.pdf else default_url
         iconList.append(IMG(_src="/%s/static/img/pdficon_small.gif" % application,
@@ -2881,6 +2896,12 @@ class S3DataTable(object):
                             _onclick="s3FormatRequest('rss','%s','%s');" % (id, url),
                             _alt=T("Export in RSS format"),
                             _title=T("Export in RSS format"),
+                            ))
+        url = s3.formats.xml if s3.formats.xml else default_url
+        iconList.append(IMG(_src="/%s/static/img/icon-xml.png" % application,
+                            _onclick="s3FormatRequest('xml','%s','%s');" % (id, url),
+                            _alt=T("Export in XML format"),
+                            _title=T("Export in XML format"),
                             ))
 
         div = DIV(_class='list_formats')
@@ -2919,11 +2940,14 @@ class S3DataTable(object):
                     iconList.append(IMG(_src="/%s/static/img/kml_icon.png" % application,
                                         _onclick="s3FormatRequest('kml','%s','%s');" % (id, default_url),
                                         _alt=T("Export in KML format"),
+                                        _title=T("Export in KML format"),
                                         ))
+                    break
         if "map" in s3.formats:
             iconList.append(IMG(_src="/%s/static/img/map_icon.png" % application,
                                 _onclick="s3FormatRequest('map','%s','%s');" % (id, s3.formats.map),
                                 _alt=T("Show on map"),
+                                _title=T("Show on map"),
                                 ))
 
         for icon in iconList:
@@ -3411,5 +3435,8 @@ class S3DataTable(object):
                            action_col=action_col,
                            stringify=stringify,
                            **attr)
+
+
+
 
 # END =========================================================================

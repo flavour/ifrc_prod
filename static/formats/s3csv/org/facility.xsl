@@ -20,13 +20,17 @@
          L4......................gis_location.L4
          Lat.....................gis_location.lat
          Lon.....................gis_location.lon
-         Comments................org_facility.comments
          Contact.................org_facility.contact
          Phone...................org_facility.phone1
          Phone2..................org_facility.phone2
          Email...................org_facility.email
          Website.................org_facility.website
          Opening Times...........org_facility.opening_times
+         Obsolete................org_facility.obsolete
+         Comments................org_facility.comments
+         Urgently Needed.........req_site_needs.urgently_needed
+         Needed..................req_site_needs.needed
+         Not Needed..............req_site_needs.not_needed
 
     *********************************************************************** -->
     <xsl:output method="xml"/>
@@ -43,7 +47,7 @@
         </xsl:call-template>
     </xsl:variable>
 
-    <xsl:variable name="OrgName">
+    <xsl:variable name="Organisation">
         <xsl:call-template name="ResolveColumnHeader">
             <xsl:with-param name="colname">Organisation</xsl:with-param>
         </xsl:call-template>
@@ -53,7 +57,7 @@
     <!-- Indexes for faster processing -->
     <xsl:key name="facility_type" match="row" use="col[@field='Type']"/>
     <xsl:key name="organisation" match="row" use="col[contains(
-                    document(../labels.xml)/labels/column[@name='Organisation']/match/text(),
+                    document('../labels.xml')/labels/column[@name='Organisation']/match/text(),
                     concat('|', @field, '|'))]"/>
 
     <!-- ****************************************************************** -->
@@ -66,9 +70,9 @@
 
             <!-- Organisations -->
             <xsl:for-each select="//row[generate-id(.)=
-                                        generate-id(key('jobtitles',
+                                        generate-id(key('organisation',
                                             col[contains(
-                                                document(../labels.xml)/labels/column[@name='Organisation']/match/text(),
+                                                document('../labels.xml')/labels/column[@name='Organisation']/match/text(),
                                                 concat('|', @field, '|'))]
                                         )[1])]">
                 <xsl:call-template name="Organisation"/>
@@ -84,6 +88,11 @@
         <!-- Create the variables -->
         <xsl:variable name="FacilityName" select="col[@field='Name']/text()"/>
         <xsl:variable name="Type" select="col[@field='Type']/text()"/>
+        <xsl:variable name="OrgName">
+            <xsl:call-template name="GetColumnValue">
+                <xsl:with-param name="colhdrs" select="$Organisation"/>
+            </xsl:call-template>
+        </xsl:variable>
 
         <resource name="org_facility">
             <!-- Link to Location -->
@@ -109,6 +118,17 @@
                 </reference>
             </xsl:if>
 
+            <!-- Site Needs -->
+            <xsl:if test="col[@field='Urgently Needed']!='' or 
+                          col[@field='Needed']!='' or
+                          col[@field='Not Needed']!=''">
+                <resource name="req_site_needs">
+                    <data field="urgently_needed"><xsl:value-of select="col[@field='Urgently Needed']"/></data>
+                    <data field="needed"><xsl:value-of select="col[@field='Needed']"/></data>
+                    <data field="not_needed"><xsl:value-of select="col[@field='Not Needed']"/></data>
+                </resource>
+            </xsl:if>
+
             <!-- Facility data -->
             <data field="name"><xsl:value-of select="$FacilityName"/></data>
             <data field="opening_times"><xsl:value-of select="col[@field='Opening Times']"/></data>
@@ -116,6 +136,7 @@
             <data field="phone2"><xsl:value-of select="col[@field='Phone2']"/></data>
             <data field="email"><xsl:value-of select="col[@field='Email']"/></data>
             <data field="website"><xsl:value-of select="col[@field='Website']"/></data>
+            <data field="obsolete"><xsl:value-of select="col[@field='Obsolete']"/></data>
             <data field="comments"><xsl:value-of select="col[@field='Comments']"/></data>
         </resource>
 
@@ -125,6 +146,12 @@
 
     <!-- ****************************************************************** -->
     <xsl:template name="Organisation">
+
+        <xsl:variable name="OrgName">
+            <xsl:call-template name="GetColumnValue">
+                <xsl:with-param name="colhdrs" select="$Organisation"/>
+            </xsl:call-template>
+        </xsl:variable>
 
         <xsl:if test="$OrgName!=''">
             <resource name="org_organisation">

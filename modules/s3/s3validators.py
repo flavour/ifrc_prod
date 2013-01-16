@@ -52,6 +52,7 @@ __all__ = ["single_phone_number_pattern",
            "IS_ADD_PERSON_WIDGET",
            "IS_COMBO_BOX",
            "IS_IN_SET_LAZY",
+           "IS_PROCESSED_IMAGE",
            "QUANTITY_INV_ITEM",
            ]
 
@@ -76,8 +77,10 @@ def translate(text):
             return str(current.T(text))
     return str(text)
 
+from s3utils import S3DateTime, s3_unicode
+    
 def options_sorter(x, y):
-    return (str(x[1]).upper() > str(y[1]).upper() and 1) or -1
+    return (s3_unicode(x[1]).upper() > s3_unicode(y[1]).upper() and 1) or -1
 
 # -----------------------------------------------------------------------------
 # Phone number requires
@@ -105,7 +108,8 @@ class IS_LAT(object):
 
         INPUT(_type="text", _name="name", requires=IS_LAT())
 
-        latitude has to be in degrees between -90 & 90
+        Latitude has to be in decimal degrees between -90 & 90
+        - we attempt to convert DMS format into decimal degrees
     """
     def __init__(self,
                  error_message = "Latitude/Northing should be between -90 & 90!"
@@ -120,9 +124,44 @@ class IS_LAT(object):
             value = float(value)
             if self.minimum <= value <= self.maximum:
                 return (value, None)
-        except ValueError:
-            pass
-        return (value, self.error_message)
+            else:
+                return (value, self.error_message)
+        except:
+            pattern = re.compile("^[0-9]{,3}[\D\W][0-9]{,3}[\D\W][0-9]+$")
+            if not pattern.match(value):
+                return (value, self.error_message)
+            else:
+                val = []
+                val.append(value)
+                sep = []
+                count = 0
+                for i in val[0]:
+                    try:
+                        int(i)
+                        count += 1
+                    except:
+                        sep.append(count)
+                        count += 1
+                sec = ''
+                posn = sep[1]
+                while posn != (count-1):
+                    sec = sec + val[0][posn+1]#to join the numbers for seconds
+                    posn += 1
+                posn2 = sep[0]
+                mins=''
+                while posn2 != (sep[1]-1):
+                    mins = mins + val[0][posn2+1]# to join the numbers for minutes
+                    posn2 += 1
+                deg = ''
+                posn3 = 0
+                while posn3 != (sep[0]):
+                    deg = deg + val[0][posn3] # to join the numbers for degree
+                    posn3 += 1
+                e = int(sec)/60 #formula to get back decimal degree
+                f = int(mins) + e #formula
+                g = int(f) / 60 #formula
+                value = int(deg) + g                
+                return (value, None)
 
 # =============================================================================
 class IS_LON(object):
@@ -131,7 +170,8 @@ class IS_LON(object):
 
         INPUT(_type="text", _name="name", requires=IS_LON())
 
-        longitude has to be in degrees between -180 & 180
+        Longitude has to be in decimal degrees between -180 & 180
+        - we attempt to convert DMS format into decimal degrees
     """
     def __init__(self,
                  error_message = "Longitude/Easting should be between -180 & 180!"
@@ -146,9 +186,44 @@ class IS_LON(object):
             value = float(value)
             if self.minimum <= value <= self.maximum:
                 return (value, None)
-        except ValueError:
-            pass
-        return (value, self.error_message)
+            else:
+                return (value, self.error_message)
+        except:
+            pattern = re.compile("^[0-9]{,3}[\D\W][0-9]{,3}[\D\W][0-9]+$")
+            if not pattern.match(value):
+                return (value, self.error_message)
+            else:
+                val = []
+                val.append(value)
+                sep = []
+                count = 0
+                for i in val[0]:
+                    try:
+                        int(i)
+                        count += 1
+                    except:
+                        sep.append(count)
+                        count += 1
+                sec = ''
+                posn = sep[1]
+                while posn != (count-1):
+                    sec = sec + val[0][posn+1]#to join the numbers for seconds
+                    posn += 1
+                posn2 = sep[0]
+                mins=''
+                while posn2 != (sep[1]-1):
+                    mins = mins + val[0][posn2+1]# to join the numbers for minutes
+                    posn2 += 1
+                deg = ''
+                posn3 = 0
+                while posn3 != (sep[0]):
+                    deg = deg + val[0][posn3] # to join the numbers for degree
+                    posn3 += 1
+                e = int(sec)/60 #formula to get back decimal degree
+                f = int(mins) + e #formula
+                g = int(f) / 60 #formula
+                value = int(deg) + g                
+                return (value, None)
 
 # =============================================================================
 class IS_NUMBER(object):
@@ -317,7 +392,7 @@ class IS_HTML_COLOUR(IS_MATCH):
     """
 
     def __init__(self,
-                 error_message="must be a 6 digit hex code!"
+                 error_message="must be a 6 digit hex code! (format: rrggbb)"
                 ):
         IS_MATCH.__init__(self, "^[0-9a-fA-F]{6}$", error_message)
 
@@ -404,8 +479,10 @@ class IS_ONE_OF_EMPTY(Validator):
         else:
             self.dbset = dbset
         (ktable, kfield) = str(field).split(".")
+
         if not label:
             label = "%%(%s)s" % kfield
+
         if isinstance(label, str):
             if regex1.match(str(label)):
                 label = "%%(%s)s" % str(label).split(".")[-1]
@@ -413,13 +490,35 @@ class IS_ONE_OF_EMPTY(Validator):
             if not kfield in ks:
                 ks += [kfield]
             fields = ["%s.%s" % (ktable, k) for k in ks]
+        elif hasattr(label, "bulk"):
+            # S3Represent
+            ks = [kfield]
+            if label.custom_lookup:
+                # Represent uses a custom lookup, so we only
+                # retrieve the keys here
+                fields = [kfield]
+                orderby = kfield
+            else:
+                # Represent uses a standard field lookup, so
+                # we can do that right here
+                label._setup()
+                fields = list(label.fields)
+                if kfield not in fields:
+                    fields.insert(0, kfield)
+                # Unlikely, but possible: represent and validator
+                # using different keys - commented for now for
+                # performance reasons (re-enable if ever necessary)
+                #key = label.key
+                #if key and key not in fields:
+                    #fields.insert(0, key)
         else:
             ks = [kfield]
             try:
                 table = current.s3db[ktable]
-                fields =[str(f) for f in table]
+                fields =[str(f) for f in table if f.name not in ("wkt", "the_geom")]
             except RuntimeError:
                 fields = "all"
+
         self.fields = fields
         self.label = label
         self.ktable = ktable
@@ -480,7 +579,7 @@ class IS_ONE_OF_EMPTY(Validator):
             table = db[self.ktable]
 
             if self.fields == "all":
-                fields = [table[f] for f in table.fields]
+                fields = [table[f] for f in table.fields if f not in ("wkt", "the_geom")]
             else:
                 fieldnames = [f.split(".")[1] if "." in f else f for f in self.fields]
                 fields = [table[k] for k in fieldnames if k in table.fields]
@@ -504,7 +603,7 @@ class IS_ONE_OF_EMPTY(Validator):
                     if filter_opts:
                         if None in filter_opts:
                             # Needs special handling (doesn't show up in 'belongs')
-                            _query = (table[filterby]== None)
+                            _query = (table[filterby] == None)
                             filter_opts = [f for f in filter_opts if f is not None]
                             if filter_opts:
                                 _query = _query | (table[filterby].belongs(filter_opts))
@@ -522,10 +621,18 @@ class IS_ONE_OF_EMPTY(Validator):
                     if not self.orderby:
                         dd.update(orderby=table[filterby])
 
-                if self.left is not None:
-                    self.left.append(left)
-                else:
-                    self.left = left
+                if left is not None:
+                    if self.left is not None:
+                        if not isinstance(left, list):
+                            left = [left]
+                        ljoins = [str(join) for join in self.left]
+                        for join in left:
+                            ljoin = str(join)
+                            if ljoin not in ljoins:
+                                self.left.append(join)
+                                ljoins.append(ljoin)
+                    else:
+                        self.left = left
                 if self.left is not None:
                     dd.update(left=self.left)
                 records = dbset(query).select(distinct=True, *fields, **dd)
@@ -533,7 +640,7 @@ class IS_ONE_OF_EMPTY(Validator):
                 # Note this does not support filtering.
                 orderby = self.orderby or \
                           reduce(lambda a, b: a|b, (f for f in fields
-                                                    if not f.name == "id"))
+                                                    if f.type != "id"))
                 # Caching breaks Colorbox dropdown refreshes
                 #dd = dict(orderby=orderby, cache=(current.cache.ram, 60))
                 dd = dict(orderby=orderby)
@@ -541,8 +648,17 @@ class IS_ONE_OF_EMPTY(Validator):
             self.theset = [str(r[self.kfield]) for r in records]
             label = self.label
             try:
-                # Is a function
-                labels = map(label, [], records)
+                # Is callable
+                if hasattr(label, "bulk"):
+                    # S3Represent => use bulk option
+                    d = label.bulk(None,
+                                   rows=records,
+                                   list_type=False,
+                                   show_link=False)
+                    labels = [d.get(r[self.kfield], d[None]) for r in records]
+                else:
+                    # Standard representation function
+                    labels = map(label, [], records)
             except TypeError:
                 if isinstance(label, str):
                     labels = map(lambda r: label % dict(r), records)
@@ -557,26 +673,25 @@ class IS_ONE_OF_EMPTY(Validator):
             self.labels = labels
 
             if labels and self.sort:
-                orig_labels = self.labels
-                orig_theset = self.theset
 
-                labels = []
-                theset = []
+                items = zip(self.theset, self.labels)
+                
+                # Alternative variant that handles generator objects,
+                # doesn't seem necessary, retained here just in case:
+                #orig_labels = self.labels
+                #orig_theset = self.theset
+                #items = []
+                #for i in xrange(len(orig_theset)):
+                    #label = orig_labels[i]
+                    ##if hasattr(label, "flatten"):
+                        ##try:
+                            ##label = label.flatten()
+                        ##except:
+                            ##pass
+                    #items.append((orig_theset[i], label))
 
-                for label in orig_labels:
-                    try:
-                        labels.append(label.flatten())
-                    except:
-                        labels.append(label)
-                orig_labels = list(labels)
-                labels.sort()
-
-                for label in labels:
-                     orig_index = orig_labels.index(label)
-                     theset.append(orig_theset[orig_index])
-
-                self.labels = labels
-                self.theset = theset
+                items.sort(key=lambda item: s3_unicode(item[1]).lower())
+                self.theset, self.labels = zip(*items)
 
         else:
             self.theset = None
@@ -719,7 +834,6 @@ class IS_ONE_OF_EMPTY(Validator):
 
 # =============================================================================
 class IS_ONE_OF(IS_ONE_OF_EMPTY):
-
     """
         Extends IS_ONE_OF_EMPTY by restoring the 'options' method.
     """
@@ -727,13 +841,10 @@ class IS_ONE_OF(IS_ONE_OF_EMPTY):
     def options(self):
 
         self.build_set()
-        items = [(k, self.labels[i]) for (i, k) in enumerate(self.theset)]
-        if self.sort:
-            items.sort(options_sorter)
+        items = zip(self.theset, self.labels)
         if self.zero != None and not self.multiple:
             items.insert(0, ("", self.zero))
         return items
-
 
 # =============================================================================
 class IS_ONE_OF_EMPTY_SELECT(IS_ONE_OF_EMPTY):
@@ -1018,7 +1129,8 @@ class IS_LOCATION_SELECTOR(Validator):
                 if L0:
                     location = db(table.id == L1).select(table.name,
                                                          table.parent,
-                                                         limitby=(0, 1)).first()
+                                                         limitby=(0, 1)
+                                                         ).first()
                     if location and (location.parent != int(L0)):
                         db(query).update(parent = L0)
                         location["level"] = "L1"
@@ -1684,6 +1796,91 @@ class IS_ADD_PERSON_WIDGET(Validator):
         return (person_id, None)
 
 # =============================================================================
+class IS_PROCESSED_IMAGE(Validator):
+    """
+        Uses an S3ImageCropWidget to allow the user to crop/scale images and
+        processes the results sent by the browser.
+
+        @author: aviraldg
+
+        @param file_cb: callback that returns the file for this field
+
+        @param error_message: the error message to be returned
+
+        @param image_bounds: the boundaries for the processed image
+
+        @param upload_path: upload path for the image
+    """
+
+    def __init__(self,
+                 field_name,
+                 file_cb,
+                 error_message="No image was specified!",
+                 image_bounds=(300, 300),
+                 upload_path=None):
+        self.field_name = field_name
+        self.file_cb = file_cb
+        self.error_message = error_message
+        self.image_bounds = image_bounds
+        self.upload_path = upload_path
+
+    def __call__(self, value):
+        r = current.request
+        vars = r.post_vars
+
+        if r.env.request_method == "GET":
+            return value, None
+
+        # If there's a newly uploaded file, accept it. It'll be processed in
+        # the update form.
+        # NOTE: A FieldStorage with data evaluates as False (odd!)
+        file = vars.get(self.field_name)
+        if file not in ("", None):
+            return file, None
+
+        encoded_file = vars.get("imagecrop-data")
+        file = self.file_cb()
+
+        if not (encoded_file or file):
+            return value, current.T(self.error_message)
+
+        # Decode the base64-encoded image from the client side image crop
+        # process if, that worked.
+        if encoded_file:
+            import base64
+            import uuid
+            try:
+                from cStringIO import StringIO
+            except ImportError:
+                from StringIO import StringIO
+
+            metadata, encoded_file = encoded_file.split(",")
+            filename, datatype, enctype = metadata.split(";")
+
+            f = Storage()
+            f.filename = uuid.uuid4().hex + filename
+
+            f.file = StringIO(base64.decodestring(encoded_file))
+
+            return f, None
+
+        # Crop the image, if we've got the crop points.
+        points = vars.get("imagecrop-points")
+        if points and file:
+            import os
+            points = map(float, points.split(","))
+
+            if not self.upload_path:
+                path = os.path.join(r.folder, "uploads", "images", file)
+            else:
+                path = os.path.join(self.upload_path, file)
+
+            current.s3task.async("crop_image",
+                args=[path] + points + [self.image_bounds[0]])
+
+            return None, None
+
+# =============================================================================
 class IS_UTC_OFFSET(Validator):
     """
         Validates a given string value as UTC offset in the format +/-HHMM
@@ -1704,25 +1901,12 @@ class IS_UTC_OFFSET(Validator):
         self.error_message = error_message
 
     # -------------------------------------------------------------------------
-    @staticmethod
-    def get_offset_value(offset_str):
-        if offset_str and len(offset_str) >= 5 and \
-            (offset_str[-5] == "+" or offset_str[-5] == "-") and \
-            offset_str[-4:].isdigit():
-            offset_hrs = int(offset_str[-5] + offset_str[-4:-2])
-            offset_min = int(offset_str[-5] + offset_str[-2:])
-            offset = 3600 * offset_hrs + 60 * offset_min
-            return offset
-        else:
-            return None
-
-    # -------------------------------------------------------------------------
     def __call__(self, value):
 
         if value and isinstance(value, str):
             _offset_str = value.strip()
 
-            offset = self.get_offset_value(_offset_str)
+            offset = S3DateTime.get_offset_value(_offset_str)
 
             if offset is not None and offset > -86340 and offset < 86340:
                 # Add a leading 'UTC ',
@@ -1762,9 +1946,9 @@ class IS_UTC_DATETIME(Validator):
                  maximum=None):
 
         if format is None:
-            self.format = current.deployment_settings.get_L10n_datetime_format()
+            self.format = format = str(current.deployment_settings.get_L10n_datetime_format())
         else:
-            self.format = format
+            self.format = format = str(format)
 
         self.utc_offset = utc_offset
 
@@ -1776,16 +1960,24 @@ class IS_UTC_DATETIME(Validator):
 
         if error_message is None:
             if minimum is None and maximum is None:
-                error_message = "enter date and time"
+                error_message = current.T("enter date and time")
             elif minimum is None:
-                error_message = "enter date and time on or before %(max)s"
+                error_message = current.T("enter date and time on or before %(max)s")
             elif maximum is None:
-                error_message = "enter date and time on or after %(min)s"
+                error_message = current.T("enter date and time on or after %(min)s")
             else:
-                error_message = "enter date and time in range %(min)s %(max)s"
+                error_message = current.T("enter date and time in range %(min)s %(max)s")
 
-        self.error_message = error_message % dict(min = min_local,
-                                                  max = max_local)
+        if min_local:
+            min = min_local.strftime(format)
+        else:
+            min = ""
+        if max_local:
+            max = max_local.strftime(format)
+        else:
+            max = ""
+        self.error_message = error_message % dict(min = min,
+                                                  max = max)
 
     # -------------------------------------------------------------------------
     def delta(self, utc_offset=None):
@@ -1800,7 +1992,7 @@ class IS_UTC_DATETIME(Validator):
             self.utc_offset = "UTC +0000" # fallback to UTC
         else:
             self.utc_offset = offset
-        delta = IS_UTC_OFFSET.get_offset_value(self.utc_offset)
+        delta = S3DateTime.get_offset_value(self.utc_offset)
         return delta
 
     # -------------------------------------------------------------------------
@@ -1826,12 +2018,12 @@ class IS_UTC_DATETIME(Validator):
         # Convert into datetime object
         try:
             (y, m, d, hh, mm, ss, t0, t1, t2) = \
-                time.strptime(dtstr, str(self.format))
+                time.strptime(dtstr, self.format)
             dt = datetime(y, m, d, hh, mm, ss)
         except:
             try:
                 (y, m, d, hh, mm, ss, t0, t1, t2) = \
-                    time.strptime(dtstr+":00", str(self.format))
+                    time.strptime(dtstr + ":00", self.format)
                 dt = datetime(y, m, d, hh, mm, ss)
             except:
                 return(value, self.error_message)
@@ -1854,10 +2046,10 @@ class IS_UTC_DATETIME(Validator):
             return "-"
         elif offset:
             dt = value + timedelta(seconds=offset)
-            return dt.strftime(str(format))
+            return dt.strftime(format)
         else:
             dt = value
-            return dt.strftime(str(format)) + "+0000"
+            return dt.strftime(format) + "+0000"
 
 # =============================================================================
 class IS_ACL(IS_IN_SET):

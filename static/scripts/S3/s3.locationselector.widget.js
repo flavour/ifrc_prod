@@ -31,14 +31,16 @@ function s3_gis_locationselector_jQuery_onReady() {
         }
 
         // Load Google API for Geocoder
-        try {
-            if (google && S3.gis.geocoder) {
-                // Google already loaded, so don't load again
-                s3_gis_initGeocoder();
-            } else if (S3.gis.geocoder) {
+        if (S3.gis.geocoder) {
+            try {
+                if (google) {
+                    s3_gis_initGeocoder();
+                }
+            } catch(err) {
+                // Google not yet loaded, so load
                 s3_gis_loadGoogle();
             }
-        } catch(err) {};
+        }
 
         // Set initial Autocompletes
         s3_gis_autocompletes();
@@ -177,6 +179,7 @@ function s3_gis_autocompletes() {
 }
 
 function s3_gis_autocomplete(level) {
+    // Convert Input to an Autocomplete
     if (undefined != $('#gis_location_L' + level + '_ac').val()) {
         $('#gis_location_L' + level + '_ac').autocomplete({
             source: s3_gis_ac_set_source(level),
@@ -216,6 +219,13 @@ function s3_gis_autocomplete(level) {
                 .appendTo(ul);
         };
     }
+    // OnChange invalidate all lower Lx
+    $('#gis_location_L' + level + '_ac').change(function() {
+        for (var i = level + 1; i <= 5; i++) {
+            // Clear the Value
+            $('#gis_location_L' + i + ', #gis_location_L' + i + '_ac').val('');
+        }
+    });
 }
 
 function s3_gis_autocomplete_search() {
@@ -646,25 +656,27 @@ function s3_gis_l0_select() {
         success: function(data) {
             if (data.id == L0) {
                 // Store the code (for the Geocoder)
-                S3.gis.country = data.code
+                S3.gis.country = data.code;
                 // Read which hierarchy levels we have & their labels
-                for (level = 1; level < 6; level++) {
+                for (level = 1; level <= 5; level++) {
                     var _level = 'L' + level;
                     if (data[_level]) {
                         // Replace the label
                         $('#gis_location_' + _level + '_label__row label').text(data[_level] + ':');
                         s3_gis_show_level(level);
                         // Replace the Help Tip
-                        var tooltip = $('#gis_location_' + _level + '__row div.tooltip');
-                        var old_title = tooltip.attr('title');
-                        var parts = old_title.split('|');
-                        var newtitle = data[_level] + '|' + parts[1]+ '|' + parts[2];
-                        tooltip.attr('title', newtitle);
+                        //var tooltip = $('#gis_location_' + _level + '__row div.tooltip');
+                        //var old_title = tooltip.attr('title');
+                        //var parts = old_title.split('|');
+                        //var newtitle = data[_level] + '|' + parts[1]+ '|' + parts[2];
+                        //tooltip.attr('title', newtitle);
                         // Re-apply Cluetip so that it sees the new value
-                        tooltip.cluetip({activation: 'hover', sticky: false, splitTitle: '|'});
+                        //tooltip.cluetip({activation: 'hover', sticky: false, splitTitle: '|'});
                     } else {
                         s3_gis_hide_level(level);
                     }
+                    // Clear the value
+                    $('#gis_location_' + _level + ', #gis_location_' + _level + '_ac').val('');
                 }
                 if ( !S3.gis.no_map ) {
                     // Zoom the Map?
@@ -713,7 +725,6 @@ function s3_gis_l0_select() {
     $('#gis_location_L4_ac').autocomplete('option', 'source', s3_gis_ac_set_source(4));
     $('#gis_location_L5_ac').autocomplete('option', 'source', s3_gis_ac_set_source(5));
 }
-
 
 function s3_gis_zoomMap(left, bottom, right, top) {
     // Zoom the Map to the specified bounds
@@ -896,6 +907,8 @@ function s3_gis_add_tab() {
     $('#gis_location_map-btn').html( i18n.gis_place_on_map );
     // Display it
     $('#gis_location_map_button_row').show();
+    // Display the Geocoder button
+    $('#gis_location_geocoder-btn').removeClass('hide').show();
 
     // Set the Classes on the tabs
     $('#gis_loc_add_tab').removeClass('tab_other').addClass('tab_here');
@@ -980,6 +993,8 @@ function s3_gis_edit_tab() {
     $('#gis_location_map-btn').html( i18n.gis_place_on_map );
     // Display it
     $('#gis_location_map_button_row').show();
+    // Display the Geocoder button
+    $('#gis_location_geocoder-btn').removeClass('hide').show();
 
     // Set the Classes on the tabs
     $('#gis_loc_edit_tab').removeClass('tab_other').addClass('tab_here');
@@ -1100,6 +1115,8 @@ function s3_gis_view_tab() {
     $('#gis_location_map-btn').html( i18n.gis_view_on_map );
     // Display it
     $('#gis_location_map_button_row').show();
+    // Hide the Geocoder button
+    $('#gis_location_geocoder-btn').hide();
 
     // Set the Classes on the tabs
     $('#gis_loc_view_tab').removeClass('tab_other').addClass('tab_here');
@@ -1190,119 +1207,158 @@ function s3_gis_loadGoogle() {
     document.body.appendChild(script);
 }
 function s3_gis_initGeocoder() {
-    // Do Geocoder lookups if changes made to Street Address, Postcode & L3
-    $('#gis_location_street').blur( function() {
-        s3_gis_geocode();
-    });
-    $('#gis_location_postcode').blur( function() {
-        s3_gis_geocode();
-    });
-    $('#gis_location_L3_ac').blur( function() {
-        s3_gis_geocode();
-    });
-}
-function s3_gis_geocode() {
-    // Address has been changed - do a Geocoder lookup
-    var lat = $('#gis_location_lat').val();
-    var lon = $('#gis_location_lon').val();
-    // Only do the Geocoder lookup if we don't already have LatLon
-    if (!lat && !lon) {
-        // Read the Street Address
-        var address = $('#gis_location_street').val();
-        if (address) {
-            // Strip the leading digits as they cause NO_RESULTS
-            var start = address.search(/[A-z]/);
-            address = address.substr(start);
-        }
-        // Read Postcode to be able to fine-tune the results
-        var postcode = $('#gis_location_postcode').val();
-        if (postcode) {
-            address += ' ' + postcode
-        }
-        // Read any Lx set to be able to fine-tune the results
-        var L5 = $('#gis_location_L5_ac').val();
-        if (L5) {
-            address += ' ' + L5
-        }
-        var L4 = $('#gis_location_L4_ac').val();
-        if (L4) {
-            address += ' ' + L4
-        }
-        var L3 = $('#gis_location_L3_ac').val();
-        if (L3) {
-            address += ' ' + L3
-        }
-        var L2 = $('#gis_location_L2_ac').val();
-        if (L2) {
-            address += ' ' + L2
-        }
-        var L1 = $('#gis_location_L1_ac').val();
-        if (L1) {
-            address += ' ' + L1
-        }
-        // Build the Query
-        var query = { 'address': address }
-        // Restrict results to the country if we have it available.
-        if (S3.gis.country) {
-            query['region'] = S3.gis.country;
-        }
-        // @ToDo: Restrict results to the bounds if we have them available.
-        //if () {
-        //    // Convert to LatLngBounds
-        //    var myLatLngBounds;
-        //    query['bounds'] = myLatLngBounds;
-        //}
-        // Query the Geocoder service
-        var geocoder = new google.maps.Geocoder();
-        geocoder.geocode( query, function(results, status) {
-            if (status == google.maps.GeocoderStatus.OK) {
+    try {
+        if (google) {
 
-                // Parse the returned Location
-                var myLatLng = results[0].geometry.location;
-                // Convert to OpenLayers format
-                var lat = myLatLng.lat();
-                var lon = myLatLng.lng();
-                var newPoint = new OpenLayers.LonLat(lon, lat);
+            S3.gis.geocoder = new google.maps.Geocoder();
 
-                var myLatLngBounds = results[0].geometry.viewport;
-                if (myLatLngBounds) {
-                    // Zoom to the Viewport (Bounds)
-                    var northEast = myLatLngBounds.getNorthEast();
-                    var southWest = myLatLngBounds.getSouthWest();
-                    var left = southWest.lng();
-                    var bottom = southWest.lat();
-                    var right = northEast.lng();
-                    var top = northEast.lat();
-                    s3_gis_zoomMap(left, bottom, right, top);
-                } else if (S3.gis.mapWin.rendered) {
-                    // Map has been opened, so center directly
-                    newPoint.transform(S3.gis.proj4326, S3.gis.projection_current);
-                    map.setCenter(newPoint);
-                } else {
-                    // Map hasn't yet been opened, so change the mapPanel ready for when it is
-                    S3.gis.mapPanel.center = newPoint;
+            // Active Geocoder request
+            $('#gis_location_geocoder-btn').click(function() {
+                //var url = 'http://maps.googleapis.com/maps/api/geocode/xml?sensor=false&address=';
+                s3_gis_geocode(true);
+            });
+
+            // Do Geocoder lookups if changes made to Street Address, Postcode & L3
+            $('#gis_location_street').blur(function() {
+                // Address has been changed - do a Geocoder lookup
+                var lat = $('#gis_location_lat').val();
+                var lon = $('#gis_location_lon').val();
+                // Only do the Geocoder lookup if we don't already have LatLon
+                if (!lat && !lon) {
+                    s3_gis_geocode();
                 }
-
-                // @ToDo: Set the Marker to the center of this viewport?
-                // Better to let the user do this manually?
-                //var marker = new google.maps.Marker({
-                //    map: map,
-                //    position: results[0].geometry.location
-                //});
-
-                // @ToDo: Populate the Lx Hierarchy
-                //var L1 = $('#gis_location_L1_ac').val();
-                //if (!L1) {
-                    //results[0].address_components administrative_area_level_1
-                //}
-                // results[0].address_components postal_code
-
-            } else {
-                // @ToDo: Visible notification?
-                s3_debug('Geocode was not successful for the following reason', status);
-            }
-        });
+            });
+            $('#gis_location_postcode').blur(function() {
+                // Address has been changed - do a Geocoder lookup
+                var lat = $('#gis_location_lat').val();
+                var lon = $('#gis_location_lon').val();
+                // Only do the Geocoder lookup if we don't already have LatLon
+                if (!lat && !lon) {
+                    s3_gis_geocode();
+                }
+            });
+            $('#gis_location_L3_ac').blur(function() {
+                // Address has been changed - do a Geocoder lookup
+                var lat = $('#gis_location_lat').val();
+                var lon = $('#gis_location_lon').val();
+                // Only do the Geocoder lookup if we don't already have LatLon
+                if (!lat && !lon) {
+                    s3_gis_geocode();
+                }
+            });
+        }
+    } catch(err) {
+        // Hide Geocoder button
+        $('#gis_location_geocoder-btn').hide();
     }
+}
+function s3_gis_geocode(active) {
+    // Read the Street Address
+    var address = $('#gis_location_street').val();
+    if (address) {
+        // Strip the leading digits as they cause NO_RESULTS
+        var start = address.search(/[A-z]/);
+        address = address.substr(start);
+    }
+    // Read Postcode to be able to fine-tune the results
+    var postcode = $('#gis_location_postcode').val();
+    if (postcode) {
+        address += ', ' + postcode;
+    }
+    // Read any Lx set to be able to fine-tune the results
+    var L5 = $('#gis_location_L5_ac').val();
+    if (L5) {
+        address += ', ' + L5;
+    }
+    var L4 = $('#gis_location_L4_ac').val();
+    if (L4) {
+        address += ', ' + L4;
+    }
+    var L3 = $('#gis_location_L3_ac').val();
+    if (L3) {
+        address += ', ' + L3;
+    }
+    var L2 = $('#gis_location_L2_ac').val();
+    if (L2) {
+        address += ', ' + L2;
+    }
+    var L1 = $('#gis_location_L1_ac').val();
+    if (L1) {
+        address += ', ' + L1;
+    }
+    // Build the Query
+    var query = { 'address': address }
+    // Restrict results to the country if we have it available.
+    if (S3.gis.country) {
+        query['region'] = S3.gis.country.toLowerCase();
+    }
+    // @ToDo: Restrict results to the bounds if we have them available.
+    //if () {
+    //    // Convert to LatLngBounds
+    //    var myLatLngBounds;
+    //    query['bounds'] = myLatLngBounds;
+    //}
+    // Query the Geocoder service
+    S3.gis.geocoder.geocode(query, function(results, status) {
+        if (status == google.maps.GeocoderStatus.OK) {
+
+            // Parse the returned Location
+            var myLatLng = results[0].geometry.location;
+            // Convert to OpenLayers format
+            var lat = myLatLng.lat();
+            var lon = myLatLng.lng();
+            var newPoint = new OpenLayers.LonLat(lon, lat);
+            newPoint.transform(S3.gis.proj4326, S3.gis.projection_current);
+
+            var myLatLngBounds = results[0].geometry.viewport;
+            if (myLatLngBounds) {
+                // Zoom to the Viewport (Bounds)
+                var northEast = myLatLngBounds.getNorthEast();
+                var southWest = myLatLngBounds.getSouthWest();
+                var left = southWest.lng();
+                var bottom = southWest.lat();
+                var right = northEast.lng();
+                var top = northEast.lat();
+                s3_gis_zoomMap(left, bottom, right, top);
+            } else if (S3.gis.mapWin.rendered) {
+                // Map has been opened, so center directly
+                map.setCenter(newPoint);
+            } else {
+                // Map hasn't yet been opened, so change the mapPanel ready for when it is
+                S3.gis.mapPanel.center = newPoint;
+            }
+
+            if (active) {
+                // Set the LatLon
+                $('#gis_location_lat').val(lat);
+                $('#gis_location_lon').val(lon);
+                // Set the Postcode & Lx (if not already-set)
+                var address_components = results[0].address_components;
+                $.each(address_components, function(index, value) { 
+                    var component = address_components[index];
+                    $.each(component['types'], function(index, value) {
+                        if ((value == 'postal_code') && (!postcode)) {
+                            $('#gis_location_postcode').val(component['long_name']);
+                        } else if ((value == 'administrative_area_level_1') && (!L1)) {
+                            $('#gis_location_L1_ac').val(component['long_name']);
+                        } else if ((value == 'administrative_area_level_2') && (!L2)) {
+                            $('#gis_location_L2_ac').val(component['long_name']);
+                        } else if ((value == 'administrative_area_level_3') && (!L3)) {
+                            $('#gis_location_L3_ac').val(component['long_name']);
+                        } else if ((value == 'administrative_area_level_4') && (!L4)) {
+                            $('#gis_location_L4_ac').val(component['long_name']);
+                        }
+                    });
+                });
+                // Set the Marker
+                var feature = new OpenLayers.Feature.Vector(new OpenLayers.Geometry.Point(newPoint.lon, newPoint.lat));
+                S3.gis.draftLayer.addFeatures([feature]);
+            }
+        } else {
+            // @ToDo: Visible notification?
+            s3_debug('Geocode was not successful for the following reason', status);
+        }
+    });
 }
 
 // Save

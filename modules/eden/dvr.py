@@ -87,6 +87,7 @@ class S3DVRModel(S3Model):
                                             dvr_damage_opts.get(opt, UNKNOWN_OPT),
                                         label= T("Damage Assessment")),
                                   Field("insurance", "boolean",
+                                        represent = s3_yes_no_represent,
                                         label = T("Insurance")),
                                   Field("status", "integer",
                                         default = 1,
@@ -165,8 +166,6 @@ class S3DVRModel(S3Model):
                     onaccept = _config("pr_address", "create_onaccept") or \
                                _config("pr_address", "onaccept")
                     callback(onaccept, _form, tablename="pr_address")
-                    # Normally happens onvalidation:
-                    s3_lx_update(atable, id)
                 else:
                     # Update Home Address from location_id
                     id = person["pr_address"].id
@@ -182,8 +181,6 @@ class S3DVRModel(S3Model):
                                     )
                     _form = Storage(vars=_vars)
                     callback(onaccept, _form, tablename="pr_address")
-                    # Normally happens onvalidation:
-                    s3_lx_update(atable, id)
         return
 
 # END =========================================================================

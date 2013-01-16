@@ -28,6 +28,8 @@
 
 """
 
+import os
+
 from gluon import *
 from gluon.storage import Storage
 from gluon.tools import callback
@@ -201,7 +203,7 @@ class S3SQLDefaultForm(S3SQLForm):
                                           format=format)
 
             # De-duplicate link table entries
-            record_id = self.deduplicate_link(request, record_id)
+            self.record_id = record_id = self.deduplicate_link(request, record_id)
 
             # Add asterisk to labels of required fields
             mark_required = self._config("mark_required", default = [])
@@ -389,6 +391,7 @@ class S3SQLDefaultForm(S3SQLForm):
                 query = (table[lkey] == _lkey) & (table[rkey] == _rkey)
                 row = current.db(query).select(table._id, limitby=(0, 1)).first()
                 if row is not None:
+                    tablename = self.tablename
                     record_id = row[pkey]
                     formkey = session.get("_formkey[%s/None]" % tablename)
                     formname = "%s/%s" % (tablename, record_id)
@@ -432,8 +435,7 @@ class S3SQLDefaultForm(S3SQLForm):
         success = True
         error = None
 
-        formname = "%s/%s" % (self.tablename,
-                              self.record_id)
+        formname = "%s/%s" % (self.tablename, self.record_id)
         if form.accepts(vars,
                         current.session,
                         formname=formname,
@@ -529,8 +531,16 @@ class S3SQLDefaultForm(S3SQLForm):
             done = []
             while tr:
                 f = tr.attributes.get("_id", None)
-                if f.startswith(tablename):
-                    f = f[len(tablename)+1:-6]
+                if not f:
+                    try:
+                        # DIV-based form-style
+                        f = tr[0][0].attributes.get("_id", None)
+                    except:
+                        # Something else
+                        # @ToDo: Support DRRPP formstyle
+                        f = None
+                if f and f.startswith(tablename):
+                    f = f[len(tablename) + 1 : -6]
                     for k in subheadings.keys():
                         if k in done:
                             continue
@@ -723,8 +733,11 @@ class S3SQLCustomForm(S3SQLForm):
         # Apply permissions for subtables
         fields = [f for f in fields if f[0] not in forbidden]
         for a, n, f in fields:
-            if a and a in noupdate:
-                f.writable = False
+            if a:
+                if a in noupdate:
+                    f.writable = False
+                if not labels is None and f.name not in labels:
+                    labels[f.name] = "%s:" % f.label
         self.subtables = [s for s in self.subtables if s not in forbidden]
 
         # Aggregate the form fields
@@ -732,8 +745,8 @@ class S3SQLCustomForm(S3SQLForm):
 
         # Render the form
         form = SQLFORM.factory(*formfields,
-                               record=data,
-                               showid=False,
+                               record = data,
+                               showid = False,
                                labels = labels,
                                formstyle = formstyle,
                                table_name = self.tablename,
@@ -954,6 +967,7 @@ class S3SQLCustomForm(S3SQLForm):
         data[table._id.name] = accept_id
         prefix, name = tablename.split("_", 1)
         form = Storage(vars=Storage(data), record=oldrecord)
+        #form = Storage(vars=data, record=oldrecord)
 
         # Audit
         if record_id is None:
@@ -964,7 +978,7 @@ class S3SQLCustomForm(S3SQLForm):
                   record=accept_id, representation=format)
 
         # Update super entity links
-        s3db.update_super(table, data)
+        s3db.update_super(table, form.vars)
 
         if accept_id:
             if record_id is None:
@@ -976,7 +990,7 @@ class S3SQLCustomForm(S3SQLForm):
                 # Update realm
                 update_realm = s3db.get_config(table, "update_realm")
                 if update_realm:
-                    current.auth.set_realm_entity(table, Storage(data),
+                    current.auth.set_realm_entity(table, form.vars,
                                                   force_update=True)
 
             # Store session vars
@@ -1035,13 +1049,22 @@ class S3SQLFormElement(object):
     # Utility methods
     # -------------------------------------------------------------------------
     @staticmethod
-    def _rename_field(field, name, skip_post_validation=False):
+    def _rename_field(field, name,
+                      comments=True,
+                      popup=None,
+                      skip_post_validation=False):
         """
             Rename a field (actually: create a new Field instance with the
             same attributes as the given Field, but a different field name).
 
             @param field: the original Field instance
             @param name: the new name
+            @param comments: render comments - if set to False, only
+                             navigation items with an inline() renderer
+                             method will be rendered (unless popup is None)
+            @param popup: only if comments=False, additional vars for comment
+                          navigation items (e.g. AddResourceLink), None prevents
+                          rendering of navigation items
             @param skip_post_validation: skip field validation during POST,
                                          useful for client-side processed
                                          dummy fields.
@@ -1059,6 +1082,23 @@ class S3SQLFormElement(object):
             required = field.required
             notnull = field.notnull
 
+        if not comments:
+            if popup:
+                comment = field.comment
+                if hasattr(comment, "clone"):
+                    comment = comment.clone()
+                if hasattr(comment, "renderer") and \
+                   hasattr(comment, "inline") and \
+                   isinstance(popup, dict):
+                    comment.vars.update(popup)
+                    comment.renderer = comment.inline
+                else:
+                    comment = None
+            else:
+                comment = None
+        else:
+            comment = field.comment
+            
         f = Field(str(name),
                   type=field.type,
                   length=field.length,
@@ -1072,7 +1112,7 @@ class S3SQLFormElement(object):
 
                   widget=widget,
                   label=field.label,
-                  comment=field.comment,
+                  comment=comment,
 
                   writable=field.writable,
                   readable=field.readable,
@@ -1114,9 +1154,12 @@ class S3SQLField(S3SQLFormElement):
 
         rfield = S3ResourceField(resource, self.selector)
 
-        subtables = Storage([(c.tablename, c.alias)
-                             for c in resource.components.values()
-                             if not c.multiple])
+        if resource.components:
+            subtables = Storage([(c.tablename, c.alias)
+                                 for c in resource.components.values()
+                                 if not c.multiple])
+        else:
+            subtables = Storage()
 
         tname = rfield.tname
         if rfield.field is not None:
@@ -1132,6 +1175,9 @@ class S3SQLField(S3SQLFormElement):
                 name = "sub_%s_%s" % (alias, rfield.fname)
                 f = self._rename_field(field, name)
                 return alias, rfield.field.name, f
+
+            else:
+                raise SyntaxError("Invalid subtable: %s" % tname)
         else:
             raise SyntaxError("Invalid selector: %s" % self.selector)
 
@@ -1230,9 +1276,9 @@ class SKIP_POST_VALIDATION(Validator):
             other = other[0]
         self.other = other
         if other:
-            if hasattr(other, 'multiple'):
+            if hasattr(other, "multiple"):
                 self.multiple = other.multiple
-            if hasattr(other, 'options'):
+            if hasattr(other, "options"):
                 self.options = other.options
 
     def __call__(self, value):
@@ -1435,6 +1481,7 @@ class S3SQLInlineComponent(S3SQLSubForm):
                       fails, otherwise None
         """
 
+        # @todo: catch uploads during validation errors
         if isinstance(value, basestring):
             try:
                 value = json.loads(value)
@@ -1468,6 +1515,8 @@ class S3SQLInlineComponent(S3SQLSubForm):
         s3 = current.response.s3
         appname = current.request.application
 
+        self.upload = Storage()
+
         if value is None:
             value = field.default
         if isinstance(value, basestring):
@@ -1492,8 +1541,9 @@ class S3SQLInlineComponent(S3SQLSubForm):
         formname = self._formname()
 
         # Add the header row
-        labels = self._render_headers(data,
-                                      _class="label-row")
+        thead = self._render_headers(data,
+                                     readonly=False,
+                                     _class="label-row")
 
         fields = data["fields"]
         items = data["data"]
@@ -1529,7 +1579,7 @@ class S3SQLInlineComponent(S3SQLSubForm):
                                          readonly=True,
                                          index=i,
                                          _id="read-row-%s" % rowname,
-                                         _class="read-row")
+                                         _class="read-row inline-form")
             if record_id:
                 audit("read", prefix, name,
                       record=record_id, representation="html")
@@ -1545,7 +1595,7 @@ class S3SQLInlineComponent(S3SQLSubForm):
                                      readonly=False,
                                      index=0,
                                      _id="edit-row-%s" % formname,
-                                     _class="edit-row hide")
+                                     _class="edit-row inline-form hide")
         action_rows.append(edit_row)
 
         # Add-row
@@ -1557,7 +1607,7 @@ class S3SQLInlineComponent(S3SQLSubForm):
                                         deletable=True,
                                         readonly=False,
                                         _id="add-row-%s" % formname,
-                                        _class="add-row")
+                                        _class="add-row inline-form")
             action_rows.append(add_row)
 
         # Empty edit row
@@ -1567,7 +1617,7 @@ class S3SQLInlineComponent(S3SQLSubForm):
                                       readonly=False,
                                       index="default",
                                       _id="empty-edit-row-%s" % formname,
-                                      _class="empty-row hide")
+                                      _class="empty-row inline-form hide")
         action_rows.append(empty_row)
 
         # Empty read row
@@ -1577,7 +1627,7 @@ class S3SQLInlineComponent(S3SQLSubForm):
                                       readonly=True,
                                       index="none",
                                       _id="empty-read-row-%s" % formname,
-                                      _class="empty-row hide")
+                                      _class="empty-row inline-form hide")
         action_rows.append(empty_row)
 
         # Real input: a hidden text field to store the JSON data
@@ -1590,22 +1640,32 @@ class S3SQLInlineComponent(S3SQLSubForm):
         attr["_id"] = real_input
 
         if has_rows:
-            widget = TABLE(
-                        THEAD(labels),
-                        TBODY(item_rows),
-                        TFOOT(action_rows),
-                        _class="embeddedComponent",
-                     )
+            widget = TABLE(thead,
+                           TBODY(item_rows),
+                           TFOOT(action_rows),
+                           _class="embeddedComponent",
+                           )
         else:
             widget = current.T("No entries currently available")
 
+        if self.upload:
+            hidden = DIV(_class="hidden", _style="display:none;")
+            for k, v in self.upload.items():
+                hidden.append(INPUT(_type="text",
+                                    _id=k,
+                                    _name=k,
+                                    _value=v,
+                                    _style="display:none;"))
+        else:
+            hidden = ""
+
         # Render output HTML
-        output = DIV(
-                    INPUT(**attr),
-                    widget,
-                    _id=self._formname(separator="-"),
-                    _field=real_input
-                )
+        output = DIV(INPUT(**attr),
+                     hidden,
+                     widget,
+                     _id=self._formname(separator="-"),
+                     _field=real_input
+                     )
 
         return output
 
@@ -1622,8 +1682,13 @@ class S3SQLInlineComponent(S3SQLSubForm):
         else:
             data = value
 
-        labels = self._render_headers(data,
-                                      _class="label-row")
+        if data["data"] == []:
+            # Don't render a subform for NONE
+            return current.messages["NONE"]
+
+        thead = self._render_headers(data,
+                                     readonly=True,
+                                     _class="label-row")
 
         trs = []
 
@@ -1645,7 +1710,7 @@ class S3SQLInlineComponent(S3SQLSubForm):
             columns = [TD(item[f["name"]]["text"]) for f in fields]
             trs.append(TR(columns, _class="read-row"))
 
-        return TABLE(THEAD(labels),
+        return TABLE(thead,
                      TBODY(trs),
                      TFOOT(),
                      _class="embeddedComponent")
@@ -1661,20 +1726,23 @@ class S3SQLInlineComponent(S3SQLSubForm):
             @param format: the data format extension (for audit)
         """
 
-        db = current.db
-        s3db = current.s3db
-        auth = current.auth
-        manager = current.manager
-
-        resource = self.resource
-
         # Name of the real input field
         fname = self._formname(separator="_")
 
         if fname in form.vars:
 
+            db = current.db
+            s3db = current.s3db
+            auth = current.auth
+            manager = current.manager
+
+            resource = self.resource
+
             # Retrieve the data
-            data = json.loads(form.vars[fname])
+            try:
+                data = json.loads(form.vars[fname])
+            except ValueError:
+                return
             if "component" not in data:
                 return
 
@@ -1710,15 +1778,26 @@ class S3SQLInlineComponent(S3SQLSubForm):
                 values = Storage()
                 for f, d in item.iteritems():
                     if f[0] != "_" and d and isinstance(d, dict):
-                        # Must run through validator again (despite pre-validation)
-                        # in order to post-process widget output properly (e.g. UTC
-                        # offset subtraction)
-                        try:
-                            value, error = validate(table, None, f, d["value"])
-                        except AttributeError:
+
+                        field = table[f]
+                        if table[f].type == "upload":
+                            # Find, rename and store the uploaded file
+                            rowindex = item.get("_index", None)
+                            if rowindex is not None:
+                                filename = self._store_file(table, f, rowindex)
+                                if filename:
+                                    values[f] = filename
                             continue
-                        if not error:
-                            values[f] = value
+                        else:
+                            # Must run through validator again (despite pre-validation)
+                            # in order to post-process widget output properly (e.g. UTC
+                            # offset subtraction)
+                            try:
+                                value, error = validate(table, None, f, d["value"])
+                            except AttributeError:
+                                continue
+                            if not error:
+                                values[f] = value
 
                 if "_id" in item:
                     record_id = item["_id"]
@@ -1789,11 +1868,11 @@ class S3SQLInlineComponent(S3SQLSubForm):
                         auth.s3_set_record_owner(table, record_id)
                         # onaccept
                         onaccept(table, Storage(vars=values), method="create")
+
+            # Success
+            return True
         else:
             return False
-
-        # Success
-        return True
 
     # -------------------------------------------------------------------------
     # Utility methods
@@ -1814,21 +1893,35 @@ class S3SQLInlineComponent(S3SQLSubForm):
             return "%s%s" % (self.alias, self.selector)
 
     # -------------------------------------------------------------------------
-    def _render_headers(self, data, extra_columns=0, **attributes):
+    def _render_headers(self, data, readonly=False, **attributes):
         """
             Render the header row with field labels
 
             @param data: the input field data as Python object
-            @param extra_columns: number of (empty) extra columns to add
+            @param readonly: whether the form is read-only
             @param attributes: HTML attributes for the header row
         """
 
         fields = data["fields"]
-        labels = [TD(LABEL(f["label"])) for f in fields]
-        # @ToDo: Is this required? Header Row doesn't have to be the same number of columns
-        for i in range(extra_columns):
-            labels.append(TD())
-        return TR(labels, **attributes)
+        # Don't render a header row if there are no labels
+        render_header = False
+        header_row = TR(**attributes)
+        happend = header_row.append
+        for f in fields:
+            label = f["label"]
+            if label:
+                render_header = True
+            label = TD(LABEL(label))
+            happend(label)
+
+        if render_header:
+            if not readonly:
+                # Add columns for the Controls
+                happend(TD())
+                happend(TD())
+            return THEAD(header_row)
+        else:
+            return THEAD(_class="hide")
 
     # -------------------------------------------------------------------------
     def _action_icon(self, title, image, name, index, throbber=False):
@@ -1914,7 +2007,15 @@ class S3SQLInlineComponent(S3SQLSubForm):
         for f in fields:
             fname = f["name"]
             idxname = "%s_i_%s_%s_%s" % (formname, fname, rowtype, index)
+            if not readonly:
+                parent = table._tablename.split("_", 1)[1]
+                caller = "sub_%s_%s" % (formname, idxname)
+                popup = Storage(parent=parent, caller=caller)
+            else:
+                popup = None
             formfield = self._rename_field(table[fname], idxname,
+                                           comments=False,
+                                           popup=popup,
                                            skip_post_validation=True)
 
             # Get reduced options set
@@ -1932,11 +2033,19 @@ class S3SQLInlineComponent(S3SQLSubForm):
                 formfield.default = default
 
             if index is not None and item and fname in item:
-                value = item[fname]["value"]
-                value, error = validate(table, None, fname, value)
-                if error:
-                    value = None
-                data[idxname] = value
+                if formfield.type == "upload":
+                    filename = item[fname]["value"]
+                    if current.request.env.request_method == "POST":
+                        if "_index" in item and item.get("_changed", False):
+                            rowindex = item["_index"]
+                            filename = self._store_file(table, fname, rowindex)
+                    data[idxname] = filename
+                else:
+                    value = item[fname]["value"]
+                    value, error = validate(table, None, fname, value)
+                    if error:
+                        value = None
+                    data[idxname] = value
             formfields.append(formfield)
         if not data:
             data = None
@@ -2151,6 +2260,38 @@ class S3SQLInlineComponent(S3SQLSubForm):
         return subset
 
     # -------------------------------------------------------------------------
+    def _store_file(self, table, fieldname, rowindex):
+        """
+            Find, rename and store an uploaded file and return it's
+            new pathname
+        """
+
+        field = table[fieldname]
+        
+        formname = self._formname()
+        upload = "upload_%s_%s_%s" % (formname, fieldname, rowindex)
+
+        post_vars = current.request.post_vars
+        if upload in post_vars:
+
+            f = post_vars[upload]
+
+            if hasattr(f, "file"):
+                # Newly uploaded file (FieldStorage)
+                (sfile, ofilename) = (f.file, f.filename)
+                nfilename = field.store(sfile,
+                                        ofilename,
+                                        field.uploadfolder)
+                self.upload[upload] = nfilename
+                return nfilename
+
+            elif isinstance(f, basestring):
+                # Previously uploaded file
+                return f
+
+        return None
+
+    # -------------------------------------------------------------------------
     @staticmethod
     def _formstyle(id, label, widget, comment):
         """
@@ -2164,6 +2305,8 @@ class S3SQLInlineComponent(S3SQLSubForm):
 
         if id == "submit_record__row":
             return TR(_id=id)
+        elif comment:
+            return TR(DIV(widget, comment), _id=id)
         else:
             return TR(widget, _id=id)
 

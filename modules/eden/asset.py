@@ -158,16 +158,14 @@ class S3AssetModel(S3Model):
                                                  script = None, # No Item Pack Filter
                                                  ),
                              organisation_id(required = True,
-                                             script = SCRIPT('''
-$(document).ready(function(){
- S3FilterFieldChange({
-  'FilterField':'organisation_id',
-  'Field':'site_id',
-  'FieldResource':'site',
-  'FieldPrefix':'org',
-  'FieldID':'site_id'
- })
-})'''),),
+                                             script = '''
+S3OptionsFilter({
+ 'triggerName':'organisation_id',
+ 'targetName':'site_id',
+ 'lookupResource':'site',
+ 'lookupPrefix':'org',
+ 'lookupField':'site_id'
+})'''),
                              # This is a component, so needs to be a super_link
                              # - can't override field name, ondelete or requires
                              super_link("site_id", "org_site",
@@ -190,8 +188,7 @@ $(document).ready(function(){
                                              label = T("Supplier/Donor"),
                                              ondelete = "SET NULL"),
                              s3_date("purchase_date",
-                                     label = T("Purchase Date")
-                                     ),
+                                     label = T("Purchase Date")),
                              Field("purchase_price", "double",
                                    #default=0.00,
                                    represent=lambda v, row=None: \
@@ -206,7 +203,7 @@ $(document).ready(function(){
                                        writable=False,
                                        comment=self.pr_person_comment(child="assigned_to_id")),
                              s3_comments(),
-                             *(s3_address_fields() + s3_meta_fields()))
+                             *s3_meta_fields())
 
         # CRUD strings
         ADD_ASSET = T("Add Asset")
@@ -240,8 +237,6 @@ $(document).ready(function(){
                                     tooltip=T("If you don't see the asset in the list, you can add a new one by clicking link 'Add Asset'.")),
                                    ondelete = "CASCADE")
 
-        table.virtualfields.append(AssetVirtualFields())
-
         # Search Method
         advanced_asset_search = (
                     S3SearchSimpleWidget(
@@ -264,20 +259,26 @@ $(document).ready(function(){
                       ),
                     S3SearchOptionsWidget(
                         name="asset_search_L0",
-                        field="L1",
+                        field="location_id$L0",
                         location_level="L0",
                         cols = 3
                     ),
                     S3SearchOptionsWidget(
                         name="asset_search_L1",
-                        field="L1",
+                        field="location_id$L1",
                         location_level="L1",
                         cols = 3
                     ),
                     S3SearchOptionsWidget(
                         name="asset_search_L2",
-                        field="L2",
+                        field="location_id$L2",
                         location_level="L2",
+                        cols = 3
+                    ),
+                    S3SearchOptionsWidget(
+                        name="asset_search_L3",
+                        field="location_id$L3",
+                        location_level="L3",
                         cols = 3
                     ),
                     S3SearchLocationWidget(
@@ -298,21 +299,21 @@ $(document).ready(function(){
             advanced = advanced_asset_search
             )
 
-        report_fields = [
-                         "number",
+        report_fields = ["number",
                          (T("Category"), "item_id$item_category_id"),
                          (T("Item"), "item_id"),
                          "organisation_id",
                          "site_id",
-                         (T("Country"),"L0"),
-                         "L1",
-                         "L2",
+                         (T("Country"),"location_id$L0"),
+                         "location_id$L1",
+                         "location_id$L2",
                          ]
 
         # Resource Configuration
         configure(tablename,
                   super_entity = ("supply_item_entity", "sit_trackable"),
                   mark_required = ["organisation_id"],
+                  # Open Tabs after creation
                   create_next = URL(c="asset", f="asset",
                                     args=["[id]"]),
                   onaccept=self.asset_onaccept,
@@ -323,7 +324,7 @@ $(document).ready(function(){
                         cols=report_fields,
                         fact=[("number", "count", T("Number of items"))],
                         defaults=Storage(
-                                cols="asset.L1",
+                                cols="asset.location_id$L1",
                                 fact="count:asset.number",
                                 rows="asset.item_id$item_category_id"
                             )
@@ -334,14 +335,13 @@ $(document).ready(function(){
                                "number",
                                "type",
                                #"purchase_date",
-                               (T("Assigned To"),"assigned_to_person"),
+                               (T("Assigned To"), "assigned_to_id"),
                                "organisation_id",
                                "site_id",
                                (current.messages.COUNTRY, "location_id$L0"),
                                "location_id$L1",
-                               #"L1",
-                               #"L2",
-                               #"L3",
+                               #"location_id$L2",
+                               #"location_id$L3",
                                "comments",
                                ],
                   realm_components = ["log", "presence"],
@@ -406,6 +406,7 @@ $(document).ready(function(){
                              Field("check_in_to_person", "boolean",
                                    #label = T("Mobile"),      # Relabel?
                                    label = T("Track with this Person?"),
+                                   
                                    comment = DIV(_class="tooltip",
                                                  #_title="%s|%s" % (T("Mobile"),
                                                  _title="%s|%s" % (T("Track with this Person?"),
@@ -441,26 +442,24 @@ $(document).ready(function(){
                                         empty = False,
                                         represent = self.org_site_represent,
                                         #widget = S3SiteAutocompleteWidget(),
-                                        comment = SCRIPT(
-'''$(document).ready(function(){
- S3FilterFieldChange({
-  'FilterField':'organisation_id',
-  'Field':'site_id',
-  'FieldPrefix':'org',
-  'FieldResource':'site',
-  'FieldID':'site_id',
-  'fncRepresent': function(record, PrepResult) {
-                      var InstanceTypeNice = %(instance_type_nice)s;
-                      return record.name + " (" + InstanceTypeNice[record.instance_type] + ")";
-                  }
- })
-})''' % dict(instance_type_nice = auth.org_site_types)),
-                                              ),
+                                        script = '''
+S3OptionsFilter({
+ 'triggerName':'organisation_id',
+ 'targetName':'site_id',
+ 'lookupPrefix':'org',
+ 'lookupResource':'site',
+ 'lookupField':'site_id',
+ 'fncRepresent': function(record,PrepResult){
+  var InstanceTypeNice=%(instance_type_nice)s
+  return record.name+" ("+InstanceTypeNice[record.instance_type]+")"
+}})''' % dict(instance_type_nice = auth.org_site_types),
+                                        ),
                              self.org_room_id(),
                              #location_id(),
                              Field("cancel", "boolean",
                                    default = False,
                                    label = T("Cancel Log Entry"),
+                                   represent = s3_yes_no_represent,
                                    comment = DIV(_class="tooltip",
                                                  _title="%s|%s" % (T("Cancel Log Entry"),
                                                                    T("'Cancel' will indicate an asset log entry did not occur")))
@@ -544,7 +543,7 @@ $(document).ready(function(){
         if row:
             id = row.id
         elif not id:
-            return current.messages.NONE
+            return current.messages["NONE"]
 
         db = current.db
         table = db.asset_asset
@@ -663,8 +662,6 @@ $(document).ready(function(){
                 # Set Base Location
                 asset_tracker.set_base_location(tracker(s3db.org_site,
                                                         vars.site_id))
-                # Populate the address fields
-                s3_address_update(atable, asset_id)
             elif status == ASSET_LOG_ASSIGN:
                 if type == "person":#
                     if vars.check_in_to_person:
@@ -866,7 +863,7 @@ def asset_rheader(r):
             s3db = current.s3db
             s3 = current.response.s3
 
-            NONE = current.messages.NONE
+            NONE = current.messages["NONE"]
 
             if record.type == ASSET_TYPE_VEHICLE:
                 tabs = [(T("Asset Details"), None),
@@ -978,36 +975,6 @@ def asset_rheader(r):
     return None
 
 # =============================================================================
-class AssetVirtualFields:
-    """ Virtual fields as dimension classes for reports """
-    extra_fields = ["id",
-                    "location_id"]
-
-    def site(self):
-        # The site of the asset
-        try:
-            location_id = self.asset_asset.location_id
-        except AttributeError:
-            # not available
-            location_id = None
-        if location_id:
-            s3db = current.s3db
-            stable = s3db.org_site
-            query = (stable.location_id == location_id)
-            site = current.db(query).select(stable.name,
-                                            stable.site_id,
-                                            stable.instance_type,
-                                            limitby=(0, 1)).first()
-            if site:
-                return s3db.org_site_represent(site, show_link=False)
-        return current.messages.NONE
-    
-    def assigned_to_person(self):
-        current_log = asset_get_current_log(self.asset_asset.id)
-        ltable = current.s3db.asset_log
-        return ltable.person_id.represent(current_log.person_id)
-
-# =============================================================================
 def asset_controller():
     """ RESTful CRUD controller """
 
@@ -1019,8 +986,6 @@ def asset_controller():
         # Location Filter
         s3db.gis_location_filter(r)
 
-        if r.interactive:
-            s3_address_hide(r.table)
         if r.component_name == "log":
             s3db.asset_log_prep(r)
             #if r.method == "update":

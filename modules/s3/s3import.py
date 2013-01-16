@@ -1306,7 +1306,7 @@ class S3Importer(S3CRUD):
 
         # Build the datatable
         rfields = resource.resolve_selectors(list_fields)[0]
-        dt = S3DataTable(rfields, data)
+        dt = S3DataTable(rfields, data, orderby=orderby)
         datatable_id = "s3import_1"
         if representation == "aadata":
             # Ajax callback
@@ -2726,20 +2726,17 @@ class S3ImportJob():
 
                 # Get the component tablename
                 ctablename = celement.get(xml.ATTRIBUTE.name, None)
-                if not ctablename:
+                if not ctablename or ctablename not in cnames:
                     continue
 
                 # Get the component alias (for disambiguation)
                 calias = celement.get(xml.ATTRIBUTE.alias, None)
                 if calias is None:
-                    if ctablename not in cnames:
-                        continue
                     aliases = cnames[ctablename]
                     if len(aliases) == 1:
                         calias = aliases[0]
                     else:
-                        # ambiguous components *must* use alias
-                        continue
+                        calias = ctablename.split("_", 1)[1]
                 if (ctablename, calias) not in cinfos:
                     continue
                 else:
@@ -2916,7 +2913,7 @@ class S3ImportJob():
                                     ATTRIBUTE.name,
                                     tablename,
                                     attr,
-                                    uid)
+                                    xml.xml_encode(uid))
                         e = root.xpath(expr)
                         if e:
                             # Element in the source => append to relements

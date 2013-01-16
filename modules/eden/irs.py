@@ -257,9 +257,9 @@ class S3IRSModel(S3Model):
                                    represent = lambda opt: \
                                        irs_incident_type_opts.get(opt, opt)),
                              self.hrm_human_resource_id(
-                                   #readable=False,
-                                   #writable=False,
-                                   label = T("Reported By (Staff)")
+                                    #readable=False,
+                                    #writable=False,
+                                    label = T("Reported By (Staff)")
                                     ),
                              # Plain text field in case non-staff & don't want to clutter the PR
                              Field("person",
@@ -313,7 +313,7 @@ class S3IRSModel(S3Model):
                                          (T("No"),
                                           T("Yes"))[verified == True]),
                              # @ToDo: Move this to Events?
-                             # Then display here as a Virtual Field
+                             # Then add component to list_fields
                              s3_datetime("dispatch",
                                          label = T("Date/Time of Dispatch"),
                                          future=0,
@@ -333,7 +333,7 @@ class S3IRSModel(S3Model):
                                          (T("No"),
                                           T("Yes"))[closed == True]),
                              s3_comments(),
-                             *(s3_lx_fields() + s3_meta_fields()))
+                             *s3_meta_fields())
         # CRUD strings
         ADD_INC_REPORT = T("Add Incident Report")
         crud_strings[tablename] = Storage(
@@ -366,13 +366,13 @@ class S3IRSModel(S3Model):
                     ),
                     S3SearchOptionsWidget(
                         name="incident_search_L1",
-                        field="L1",
+                        field="location_id$L1",
                         location_level="L1",
                         cols = 3,
                     ),
                     S3SearchOptionsWidget(
                         name="incident_search_L2",
-                        field="L2",
+                        field="location_id$L2",
                         location_level="L2",
                         cols = 3,
                     ),
@@ -393,8 +393,8 @@ class S3IRSModel(S3Model):
         report_fields = [
                          "category",
                          "datetime",
-                         "L1",
-                         "L2",
+                         "location_id$L1",
+                         "location_id$L2",
                          ]
 
         # Resource Configuration
@@ -405,13 +405,13 @@ class S3IRSModel(S3Model):
                       search=[
                             S3SearchOptionsWidget(
                                 name="incident_search_L1",
-                                field="L1",
+                                field="location_id$L1",
                                 location_level="L1",
                                 cols = 3,
                             ),
                             S3SearchOptionsWidget(
                                 name="incident_search_L2",
-                                field="L2",
+                                field="location_id$L2",
                                 location_level="L2",
                                 cols = 3,
                             ),
@@ -432,7 +432,7 @@ class S3IRSModel(S3Model):
                       cols=report_fields,
                       fact=report_fields,
                       methods=["count", "list"],
-                      defaults = dict(rows="L1",
+                      defaults = dict(rows="location_id$L1",
                                       cols="category",
                                       fact="datetime",
                                       aggregate="count")
@@ -532,7 +532,6 @@ class S3IRSModel(S3Model):
 
         configure("irs_ireport",
                   create_onaccept=self.ireport_onaccept,
-                  onvalidation=s3_lx_onvalidation,
                   create_next=create_next,
                   update_next=URL(args=["[id]", "update"])
                   )
@@ -594,7 +593,7 @@ class S3IRSModel(S3Model):
         if row:
             return row.name
         elif not id:
-            return current.messages.NONE
+            return current.messages["NONE"]
 
         db = current.db
         table = db.irs_ireport
@@ -898,9 +897,9 @@ class S3IRSModel(S3Model):
             code = "".join((
 '''S3.timeline.data=''', data, '''
 S3.timeline.tl_start="''', tl_start.isoformat(), '''"
-S3.timeline.tl_end="''', tl_end.isoformat(), '''"'
-S3.timeline.now="''', now.isoformat()
-))
+S3.timeline.tl_end="''', tl_end.isoformat(), '''"
+S3.timeline.now="''', now.isoformat(), '''"
+'''))
 
             # Control our code in static/scripts/S3/s3.timeline.js
             s3.js_global.append(code)
@@ -1062,7 +1061,7 @@ class S3IRSResponseModel(S3Model):
 
         def response_represent(opt):
             if opt is None:
-                return current.messages.NONE
+                return current.messages["NONE"]
             elif opt:
                 return T("Yes")
             else:

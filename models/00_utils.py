@@ -301,11 +301,10 @@ def s3_rest_controller(prefix=None, resourcename=None, **attr):
             prefix, name, table, tablename = r.target()
             authorised = s3_has_permission("update", tablename)
 
-            # If the component has components itself, then use the
-            # component's native controller for CRU(D) => make sure
-            # you have one, or override by native=False
+            # If a component has components itself, then action buttons
+            # can be forwarded to the native controller by setting native=True
             if r.component and s3db.has_components(table):
-                native = output.get("native", True)
+                native = output.get("native", False)
             else:
                 native = False
 
@@ -340,7 +339,7 @@ def s3_rest_controller(prefix=None, resourcename=None, **attr):
                 hook = r.resource.components[name]
                 fkey = "%s.%s" % (name, hook.fkey)
                 vars = request.vars.copy()
-                vars.update({fkey: r.id})
+                vars.update({fkey: r.record[hook.fkey]})
                 url = URL(prefix, name, args=["create"], vars=vars)
                 add_btn = A(label, _href=url, _class="action-btn")
                 output.update(add_btn=add_btn)

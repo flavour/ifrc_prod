@@ -76,6 +76,9 @@ def user():
                    create_onaccept = lambda form: auth.s3_approve_user(form.vars),
                    )
 
+    if "import" in request.args:
+        s3db.add_component("auth_membership", auth_user="user_id")
+
     def disable_user(r, **args):
         if not r.id:
             session.error = T("Can only disable 1 record at a time!")
@@ -99,7 +102,7 @@ def user():
         auth.s3_approve_user(user)
 
         session.confirmation = T("User Account has been Approved")
-        redirect(URL(args=[]))
+        redirect(URL(args=[r.id, "roles"]))
 
     def link_user(r, **args):
         if not r.id:
@@ -135,6 +138,7 @@ def user():
         title_list = T("Users"),
         title_update = T("Edit User"),
         title_search = T("Search Users"),
+        title_upload = T("Import Users"),
         subtitle_create = T("Add New User"),
         label_list_button = T("List Users"),
         label_create_button = ADD_USER,
@@ -218,8 +222,8 @@ def user():
     def postp(r, output):
         # Only show the disable button if the user is not currently disabled
         table = r.table
-        query = (table.registration_key != "disabled") & \
-                (table.registration_key != "pending")
+        query = (table.registration_key == None) | \
+                (table.registration_key == "")
         rows = db(query).select(table.id)
         restrict = [str(row.id) for row in rows]
         s3.actions = [
@@ -230,7 +234,8 @@ def user():
                              _class="action-btn",
                              _title = str(T("Link (or refresh link) between User, Person & HR Record")),
                              url=URL(c="admin", f="user",
-                                     args=["[id]", "link"])),
+                                     args=["[id]", "link"]),
+                             restrict = restrict),
                         dict(label=str(T("Roles")), _class="action-btn",
                              url=URL(c="admin", f="user",
                                      args=["[id]", "roles"])),
@@ -240,7 +245,9 @@ def user():
                              restrict = restrict)
                       ]
         # Only show the approve button if the user is currently pending
-        query = (table.registration_key == "pending")
+        query = (table.registration_key != "disabled") & \
+                (table.registration_key != None) & \
+                (table.registration_key != "")
         rows = db(query).select(table.id)
         restrict = [str(row.id) for row in rows]
         s3.actions.append(
@@ -271,7 +278,10 @@ def user():
     s3.postp = postp
 
     output = s3_rest_controller("auth", "user",
-                                rheader=rheader)
+                                rheader=rheader,
+                                csv_template=("auth", "user"),
+                                csv_stylesheet=("auth", "user.xsl")
+                                )
     return output
 
 # =============================================================================
@@ -925,10 +935,11 @@ def result_automated():
     """
         Selenium Test Result Reports list
     """
-
     file_list_automated = UL()
     static_path = os.path.join(request.folder, "static", "test_automated")
-    for filename in os.listdir(static_path):
+    filenames = os.listdir(static_path)
+    filenames.reverse()
+    for filename in filenames:
         link = A(filename,
                  _href = URL(c = "static",
                              f = "test_automated",
@@ -945,7 +956,9 @@ def result_smoke():
 
     file_list_smoke = UL()
     static_path = os.path.join(request.folder, "static", "test_smoke")
-    for filename in os.listdir(static_path):
+    filenames = os.listdir(static_path)
+    filenames.reverse()
+    for filename in filenames:
         link = A(filename,
                  _href = URL(c = "static",
                              f = "test_smoke",
@@ -962,7 +975,9 @@ def result_roles():
 
     file_list_roles = UL()
     static_path = os.path.join(request.folder, "static", "test_roles")
-    for filename in os.listdir(static_path):
+    filenames = os.listdir(static_path)
+    filenames.reverse()
+    for filename in filenames:
         link = A(filename,
                  _href = URL(c = "static",
                              f = "test_roles",

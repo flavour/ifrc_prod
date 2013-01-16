@@ -854,7 +854,9 @@ $(document).ready(function() {
                                 Buttons = Buttons + '<a class="' + c + '" onclick="' + oc + '">' + label + '</a>' + '&nbsp;';
                             } else if (Actions[i]._jqclick) {
                                 Buttons = Buttons + '<span class="' + c + '" id="' + id + '">' + label + '</span>' + '&nbsp;';
-                                fnActionCallBacks[t].push([id, S3ActionCallBack]);
+                                if (typeof S3ActionCallBack != 'undefined') {
+                                    fnActionCallBacks[t].push([id, S3ActionCallBack]);
+                                }
                             } else {
                                 if (Actions[i].icon) {
                                     label = '<img src="' + Actions[i].icon + '" alt="' + label + '" title="' + label + '">';
@@ -978,6 +980,8 @@ $(document).ready(function() {
                 }
             } // end of fnDrawCallback
         }); // end of call to $(oTable).datatable()
+        // Does not handle horizontal overflow properly:
+        //new FixedHeader(oDataTable[t]);
     } // end of initDataTable function
 
     // Allow dataTables to be initialised outside of this function.
@@ -1001,6 +1005,22 @@ $(document).ready(function() {
     }); */
 });
 
+function s3AppendUrlQuery(url, extension, query) {
+    var parts = url.split('?'), q = '';
+    var newurl = parts[0] + '.' + extension;
+    if (parts.length > 1) {
+        if (query) {
+            q = '&' + query;
+        }
+        return (newurl + '?' + parts[1] + q);
+    } else {
+        if (query) {
+            q = '?' + query;
+        }
+        return (newurl + q);
+    }
+}
+
 function s3FormatRequest(representation, tableid, url) {
     var t = tableIdReverse('#' + tableid);
     var dt = oDataTable[t];
@@ -1020,9 +1040,9 @@ function s3FormatRequest(representation, tableid, url) {
             argData += '&iSortCol_' + i + '=' + aaSort[i][0];
             argData += '&sSortDir_' + i + '=' + aaSort[i][1];
         }
-        url = url + '.' + representation + '?' + argData;
+        url = s3AppendUrlQuery(url, representation, argData);
     } else {
-        url = url + '.' + representation;
+        url = s3AppendUrlQuery(url, representation, '');
     }
     window.location = url;
 }

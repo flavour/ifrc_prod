@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 
 """ Deployment Settings
 
@@ -119,6 +120,12 @@ class S3Config(Storage):
             salt to encrypt passwords - normally randomised during 1st run
         """
         return self.auth.get("hmac_key", "akeytochange")
+
+    def get_auth_password_min_length(self):
+     	""" 
+            To set the Minimum Password Length
+ 	    """
+        return self.auth.get("password_min_length", int(4))
 
     def get_auth_facebook(self):
         """
@@ -280,6 +287,12 @@ class S3Config(Storage):
             ("editor", "Editor"),
             ("super", "Super Editor")
         ]))
+    def get_auth_set_presence_on_login(self):
+        return self.auth.get("set_presence_on_login", False)
+    def get_auth_ignore_levels_for_presence(self):
+        return self.auth.get("ignore_levels_for_presence", ["L0"])
+    def get_auth_create_unknown_locations(self):
+        return self.auth.get("create_unknown_locations", False)
 
     def get_security_archive_not_delete(self):
         return self.security.get("archive_not_delete", True)
@@ -518,6 +531,8 @@ class S3Config(Storage):
         return self.L10n.get("datetime_format", T("%Y-%m-%d %H:%M"))
     def get_L10n_utc_offset(self):
         return self.L10n.get("utc_offset", "UTC +0000")
+    def get_L10n_firstDOW(self):
+        return self.L10n.get("firstDOW", 1)
 
     def get_L10n_lat_lon_format(self):
         """
@@ -581,7 +596,13 @@ class S3Config(Storage):
             Provide the default Sahana Eden Form Style
             Label above the Inputs:
             http://uxmovement.com/design-articles/faster-with-top-aligned-labels
+
+            Things that need to be looked at for custom formstyles:
+            * subheadings (s3forms.py)
+            * S3AddPersonWidget (s3widgets.py)
+            * S3EmbedComponentWidget (s3widgets.py)
         """
+
         row = []
         if hidden:
             _class = "hide"
@@ -656,6 +677,13 @@ class S3Config(Storage):
         """ Display social media Buttons in the footer? """
         return self.ui.get("social_buttons", False)
 
+    def get_ui_auth_user_represent(self):
+        """
+            Should the auth_user created_by/modified_by be represented by Name or Email?
+            - defaults to email
+        """
+        return self.ui.get("auth_user_represent", "email")
+
     def get_ui_crud_form(self, tablename):
         """ Get custom crud_forms for diffent tables """
         return self.ui.get("crud_form_%s" % tablename, None)
@@ -668,6 +696,12 @@ class S3Config(Storage):
         else:
             return attr
 
+    def get_ui_hide_report_options(self):
+        """
+            Hide report options form by default
+        """
+        return self.ui.get("hide_report_options", True)
+            
     # =========================================================================
     # Messaging
     # -------------------------------------------------------------------------
@@ -964,6 +998,24 @@ class S3Config(Storage):
         """
         return self.inv.get("direct_stock_edits", False)
 
+    def get_inv_send_show_mode_of_transport(self):
+        """
+            Show mode of transport on Sent Shipments
+        """
+        return self.inv.get("show_mode_of_transport", False)
+
+    def get_inv_send_show_org(self):
+        """
+            Show Organisation on Sent Shipments
+        """
+        return self.inv.get("send_show_org", True)
+
+    def get_inv_send_show_time_in(self):
+        """
+            Show Time In on Sent Shipments
+        """
+        return self.inv.get("send_show_time_in", False)
+
     def get_inv_stock_count(self):
         """
             Call Stock Adjustments 'Stock Counts'
@@ -982,7 +1034,7 @@ class S3Config(Storage):
         """
         T = current.T
         return self.inv.get("item_status", {
-                0: current.messages.NONE,
+                0: current.messages["NONE"],
                 1: T("Dump"),
                 2: T("Sale"),
                 3: T("Reject"),
@@ -1002,8 +1054,8 @@ class S3Config(Storage):
         """
             Shipment types which are common to both Send & Receive
         """
-        return self.inv.get("shipment_type", {
-                0 : current.messages.NONE,
+        return self.inv.get("shipment_types", {
+                0 : current.messages["NONE"],
                 11: current.T("Internal Shipment"),
             })
 
@@ -1011,16 +1063,22 @@ class S3Config(Storage):
         """
             Shipment types which are just for Send
         """
-        return self.inv.get("send_type", {
+        return self.inv.get("send_types", {
                 21: current.T("Distribution"),
             })
+
+    def get_inv_send_type_default(self):
+        """
+            Which Shipment type is default 
+        """
+        return self.inv.get("send_type_default", 0)
 
     def get_inv_recv_types(self):
         """
             Shipment types which are just for Receive
         """
         T = current.T
-        return self.inv.get("recv_type", {
+        return self.inv.get("recv_types", {
                 #31: T("Other Warehouse"), Same as Internal Shipment
                 32: T("Donation"),
                 #33: T("Foreign Donation"),
@@ -1078,6 +1136,12 @@ class S3Config(Storage):
         """
         return self.org.get("site_address_autocomplete", False)
 
+    def get_org_site_last_contacted(self):
+        """
+            Whether to display the last_contacted field for a Site
+        """
+        return self.org.get("site_last_contacted", False)
+
     def get_org_summary(self):
         """
             Whether to use Summary fields for Organisation/Office:
@@ -1133,6 +1197,14 @@ class S3Config(Storage):
     def get_pr_request_gender(self):
         """ Include Gender in the AddPersonWidget """
         return self.pr.get("request_gender", True)
+    def get_pr_select_existing(self):
+        """
+            Whether the AddPersonWidget allows selecting existing PRs
+            - set to True if Persons can be found in multiple contexts
+            - set to False if just a single context
+            @ToDo: Fix (form fails to submit)
+        """
+        return self.pr.get("select_existing", True)
 
     # -------------------------------------------------------------------------
     # Proc
@@ -1178,6 +1250,13 @@ class S3Config(Storage):
             Label project_location as 'Community'
         """
         return self.project.get("community", False)
+
+    #def get_project_locations_from_countries(self):
+    #    """
+    #        Create a project_location for each country that a Project is
+    #        implemented in
+    #    """
+    #    return self.project.get("locations_from_countries", False)
 
     def get_project_milestones(self):
         """
@@ -1225,18 +1304,24 @@ class S3Config(Storage):
     # -------------------------------------------------------------------------
     # Request Settings
     def get_req_type_inv_label(self):
-        return self.req.get("type_inv_label", current.T("Warehouse Stock"))
+        return current.T(self.req.get("type_inv_label", "Warehouse Stock"))
     def get_req_type_hrm_label(self):
-        return self.req.get("type_hrm_label", current.T("People"))
+        return current.T(self.req.get("type_hrm_label", "People"))
+    def get_req_requester_label(self):
+        return current.T(self.req.get("requester_label", "Requester"))
+    def get_req_requester_optional(self):
+        return self.req.get("requester_optional", False)
+    def get_req_requester_from_site(self):
+        return self.req.get("requester_from_site", False)
     def get_req_date_writable(self):
         """ Whether Request Date should be manually editable """
         return self.req.get("date_writable", True)
     def get_req_status_writable(self):
         """ Whether Request Status should be manually editable """
         return self.req.get("status_writable", True)
-    def get_req_quantities_writable(self):
+    def get_req_item_quantities_writable(self):
         """ Whether Item Quantities should be manually editable """
-        return self.req.get("quantities_writable", False)
+        return self.req.get("item_quantities_writable", False)
     def get_req_skill_quantities_writable(self):
         """ Whether People Quantities should be manually editable """
         return self.req.get("skill_quantities_writable", False)
@@ -1248,18 +1333,26 @@ class S3Config(Storage):
         return self.req.get("multiple_req_items", True)
     def get_req_show_quantity_transit(self):
         return self.req.get("show_quantity_transit", True)
+    def get_req_inline_forms(self):
+        """
+            Whether Requests module should use inline forms for Items
+        """
+        return self.req.get("inline_forms", True)
     def get_req_prompt_match(self):
         """
             Whether a Requester is prompted to match each line item in an Item request
         """
         return self.req.get("prompt_match", True)
+    def get_req_summary(self):
+        """
+            Whether to use Summary Needs for Sites (Office/Facility currently):
+        """
+        return self.req.get("summary", False)
     def get_req_use_commit(self):
         """
             Whether there is a Commit step in Requests Management
         """
         return self.req.get("use_commit", True)
-    def get_req_requester_optional(self):
-        return self.req.get("requester_optional", False)
     def get_req_ask_security(self):
         """
             Should Requests ask whether Security is required?
@@ -1270,6 +1363,11 @@ class S3Config(Storage):
             Should Requests ask whether Transportation is required?
         """
         return self.req.get("ask_transport", False)
+    def get_req_items_ask_purpose(self):
+        """
+            Should Requests for Items ask for Purpose?
+        """
+        return self.req.get("items_ask_purpose", True)
     def get_req_req_crud_strings(self, type = None):
         return self.req.get("req_crud_strings") and \
                self.req.req_crud_strings.get(type, None)
@@ -1283,7 +1381,6 @@ class S3Config(Storage):
             Select one or more from:
             * People
             * Stock
-            * Summary
             * Other
             tbc: Assets, Shelter, Food
         """

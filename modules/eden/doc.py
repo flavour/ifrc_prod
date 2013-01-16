@@ -57,7 +57,7 @@ class S3DocumentLibrary(S3Model):
         organisation_id = self.org_organisation_id
 
         messages = current.messages
-        NONE = messages.NONE
+        NONE = messages["NONE"]
         UNKNOWN_OPT = messages.UNKNOWN_OPT
 
         # Shortcuts
@@ -184,7 +184,8 @@ class S3DocumentLibrary(S3Model):
                                    # upload folder needs to be visible to the download() function as well as the upload
                                    uploadfolder = os.path.join(current.request.folder,
                                                                "uploads",
-                                                               "images")),
+                                                               "images"),
+                                   widget=S3ImageCropWidget((300, 300))),
                              Field("name", length=128,
                                    # Allow Name to be added onvalidation
                                    requires = IS_NULL_OR(IS_LENGTH(128)),
@@ -254,7 +255,7 @@ class S3DocumentLibrary(S3Model):
             return A(table.file.retrieve(file)[0],
                      _href=URL(c="default", f="download", args=[file]))
         else:
-            return current.messages.NONE
+            return current.messages["NONE"]
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -293,6 +294,19 @@ class S3DocumentLibrary(S3Model):
 
         vars = form.vars
         doc = vars.file
+        
+        if (not document) and (not doc) and ("imagecrop-data" in vars):
+            import base64
+            import uuid
+            encoded_file = vars.get("imagecrop-data")
+            metadata, encoded_file = encoded_file.split(",")
+            filename, datatype, enctype = metadata.split(";")
+            f = Storage()
+            f.filename = uuid.uuid4().hex + filename
+            import cStringIO
+            f.file = cStringIO.StringIO(base64.decodestring(encoded_file))
+            form.vars.file = f
+        
         if doc is None:
             # This is a prepop, so file not in form
             return
@@ -353,7 +367,7 @@ def doc_image_represent(filename):
     """
 
     if not filename:
-        return current.messages.NONE
+        return current.messages["NONE"]
 
     return DIV(A(IMG(_src=URL(c="default", f="download",
                               args=filename),

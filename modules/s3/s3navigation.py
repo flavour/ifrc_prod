@@ -26,24 +26,23 @@
     FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
     OTHER DEALINGS IN THE SOFTWARE.
 
-    @todo: - re-write tabs and popup links as S3NavigationItems
-           - refine check_selected (e.g. must be False if link=False)
+    @todo: - refine check_selected (e.g. must be False if link=False)
            - implement collapse-flag (render only components in a TAG[""])
            - implement convenience methods for breadcrumbs (+renderer))
            - add site-map generator and renderer (easy)
            - rewrite action buttons/links as S3NavigationItems
-           - Documentation!
-                => http://eden.sahanafoundation.org/wiki/S3Navigation
-           - ...and all the todo's in the code
+           - ...and any todo's in the code
 """
 
 __all__ = ["S3NavigationItem",
+           "S3ScriptItem",
            "S3ResourceHeader",
            "s3_rheader_tabs",
            "s3_rheader_resource"]
 
 from gluon import *
 from gluon.storage import Storage
+from s3utils import s3_unicode
 
 # =============================================================================
 class S3NavigationItem(object):
@@ -81,7 +80,8 @@ class S3NavigationItem(object):
         a menu-alike behavior of the item - which may though not fit for all
         navigation elements.
 
-        For more details, see the S3Navigation wiki page.
+        For more details, see the S3Navigation wiki page:
+        http://eden.sahanafoundation.org/wiki/S3Navigation
     """
 
     # -------------------------------------------------------------------------
@@ -108,6 +108,7 @@ class S3NavigationItem(object):
                  restrict=None,
                  link=True,
                  mandatory=False,
+                 ltr=False,
                  **attributes):
         """
             Constructor
@@ -139,6 +140,7 @@ class S3NavigationItem(object):
             @param restrict: restrict to roles (role UID or list of role UIDs)
             @param link: item has its own URL
             @param mandatory: item is always active
+            @param ltr: item is always rendered LTR
 
             @param attributes: attributes to use in layout
         """
@@ -218,9 +220,15 @@ class S3NavigationItem(object):
         self.override_url = url
 
         # Layout attributes and options
-        attr = attributes.items()
-        self.attr = Storage((k, v) for k, v in attr if k[0] == "_")
-        self.opts = Storage((k, v) for k, v in attr if k[0] != "_")
+        attr = Storage()
+        opts = Storage()
+        for k, v in attributes.iteritems():
+            if k[0] == "_":
+                attr[k] = v
+            else:
+                opts[k] = v
+        self.attr = attr
+        self.opts = opts
 
         # Initialize parent and components
         self.parent = parent
@@ -232,6 +240,7 @@ class S3NavigationItem(object):
         self.visible = None             # Item is visible
         self.link = link                # Item shall be linked
         self.mandatory = mandatory      # Item is always active
+        self.ltr = ltr                  # Item is always rendered LTR
 
         # Role restriction
         self.restrict = restrict
@@ -252,6 +261,54 @@ class S3NavigationItem(object):
         else:
             # No renderer
             self.renderer = None
+
+    # -------------------------------------------------------------------------
+    def clone(self):
+        """ Clone this item and its components """
+
+        item = self.__class__()
+        item.label = self.label
+        item.tags = self.tags
+        
+        item.r = self.r
+        
+        item.application = self.application
+        item.controller = self.controller
+        item.function = self.function
+        
+        item.match_controller = [c for c in self.match_controller]
+        item.match_function = [f for f in self.match_function]
+
+        item.args = [a for a in self.args]
+        item.vars = Storage(**self.vars)
+
+        item.extension = self.extension
+        item.tablename = self.tablename
+        item.method = self.method
+        item.p = self.p
+
+        item.override_url = self.override_url
+
+        item.attr = Storage(**self.attr)
+        item.opts = Storage(**self.opts)
+
+        item.parent = self.parent
+        item.components = [i.clone() for i in self.components]
+
+        item.enabled = self.enabled
+        item.selected = self.selected
+        item.visible = self.visible
+        item.link = self.link
+        item.mandatory = self.mandatory
+        if self.restrict is not None:
+            item.restrict = [r for r in self.restrict]
+        else:
+            item.restrict = None
+
+        item.check = self.check
+        item.renderer = self.renderer
+
+        return item
 
     # -------------------------------------------------------------------------
     # Check methods
@@ -563,15 +620,33 @@ class S3NavigationItem(object):
         if not c and self.parent is None:
             return 1
 
+
+        rvars = request.get_vars
+        controller = request.controller
+        function = request.function
+
+        # Handle "viewing" (foreign controller in a tab)
+        # NOTE: this tries to match the item against the resource name
+        # in "viewing", so if the target controller/function of the item
+        # are different from prefix/name in the resource name, then this
+        # may require additional match_controller/match_function to be
+        # set for this item! (beware ambiguity then, though)
+        if "viewing" in rvars:
+            try:
+                tn, record_id = rvars["viewing"].split(".")
+                controller, function = tn.split("_", 1)
+            except:
+                pass
+
         # Controller
-        if request.controller == c or request.controller in mc:
+        if controller == c or controller in mc:
             level = 1
 
         # Function
         if level == 1:
             f = self.get("function")
             mf = self.get("match_function")
-            if request.function == f or request.function in mf:
+            if function == f or function in mf:
                 level = 2
             elif f == "index":
                 # "weak" match: homepage link matches any function
@@ -590,9 +665,8 @@ class S3NavigationItem(object):
         #   7 = args match and vars match
         if level == 2:
             extra = 1
-            rvars = request.get_vars
             for k, v in vars.iteritems():
-                if k not in rvars or k in rvars and rvars[k] != v:
+                if k not in rvars or k in rvars and rvars[k] != s3_unicode(v):
                     extra = 0
                     break
                 else:
@@ -743,9 +817,9 @@ class S3NavigationItem(object):
         f = self.get("function")
         if f is None:
             f = "index"
-        p = self.p
         f, args = self.__format(f, args, extension)
-        return aURL(p=p, a=a, c=c, f=f, args=args, vars=vars)
+        return aURL(c=c, f=f, p=self.p, a=a, t=self.tablename,
+                    args=args, vars=vars)
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -830,7 +904,7 @@ class S3NavigationItem(object):
         """
             Invokes the renderer and serializes the output for the web2py
             template parser, returns a string to be written to the response
-            body, uses the xml() method of the renderer output, if present
+            body, uses the xml() method of the renderer output, if present.
         """
 
         output = self.render()
@@ -1384,6 +1458,41 @@ class S3ComponentTab:
                k in get_vars and get_vars[k] != v:
                 return False
         return True
+
+# =============================================================================
+class S3ScriptItem(S3NavigationItem):
+    """
+        Simple Navigation Item just for injecting scripts into HTML forms
+    """
+
+    # -------------------------------------------------------------------------
+    def __init__(self,
+                 script=None,
+                 **attributes):
+        """
+            @param script: script to inject into jquery_ready when rendered
+        """
+
+        self.script = script
+        return super(S3ScriptItem, self).__init__(attributes)
+
+    # -------------------------------------------------------------------------
+    def xml(self):
+        """
+            Injects associated script into jquery_ready.
+        """
+
+        current.response.s3.jquery_ready.append(self.script)
+        return ""
+
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def inline(item):
+        """
+            Present to ensure that script injected even in inline forms
+        """
+
+        return ""
 
 # =============================================================================
 def s3_search_tabs(r, tabs=[], vars={}):

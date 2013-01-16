@@ -102,10 +102,13 @@ class S3MessagingModel(S3Model):
                              Field("subject", length=78),
                              Field("message", "text"),
                              #Field("attachment", "upload", autodelete = True), #TODO
-                             Field("verified", "boolean", default = False),
+                             Field("verified", "boolean", default = False,
+                                   represent = s3_yes_no_represent),
                              Field("verified_comments", "text"),
-                             Field("actionable", "boolean", default = True),
-                             Field("actioned", "boolean", default = False),
+                             Field("actionable", "boolean", default = True,
+                                   represent = s3_yes_no_represent),
+                             Field("actioned", "boolean", default = False,
+                                   represent = s3_yes_no_represent),
                              Field("actioned_comments", "text"),
                              Field("priority", "integer", default = 1,
                                    requires = IS_NULL_OR(IS_IN_SET(msg_priority_opts)),
@@ -222,6 +225,7 @@ class S3MessagingModel(S3Model):
                              *s3_meta_fields())
 
         configure(tablename,
+                  orderby = ~table.created_on,
                   list_fields=["id",
                                "message_id",
                                "pe_id",
@@ -233,16 +237,16 @@ class S3MessagingModel(S3Model):
         # Inbound Messages
         # ---------------------------------------------------------------------
         # Channel - For inbound messages this tells which channel the message came in from.
-        tablename = "msg_channel"
-        table = define_table(tablename,
-                             message_id(),
-                             Field("pr_message_method",
-                                   length=32,
-                                   requires = IS_IN_SET(msg_contact_method_opts,
-                                                        zero=None),
-                                   default = "EMAIL"),
-                             Field("log"),
-                             *s3_meta_fields())
+        #tablename = "msg_channel"
+        #table = define_table(tablename,
+        #                     message_id(),
+        #                     Field("pr_message_method",
+        #                           length=32,
+        #                           requires = IS_IN_SET(msg_contact_method_opts, # @ToDo: Inbound channels are more than Outbound as should include Gateway
+        #                                                zero=None),
+        #                           default = "EMAIL"),
+        #                     Field("log"),
+        #                     *s3_meta_fields())
 
         # ---------------------------------------------------------------------
         # Pass variables back to global scope (s3db.*)
@@ -256,7 +260,7 @@ class S3MessagingModel(S3Model):
         """ Represent a Message in the Log """
 
         if not id:
-            return current.messages.NONE
+            return current.messages["NONE"]
 
         db = current.db
         table = db.msg_log

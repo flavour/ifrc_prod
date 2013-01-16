@@ -30,7 +30,7 @@ def s3_menu_postp():
         query = (person.id == person_id)
         record = db(query).select(person.id, limitby=(0, 1)).first()
         if record:
-            name = s3db.pr_person_represent(record.id)
+            name = s3db.pr_person_id().represent(record.id)
             menu_selected.append(["%s: %s" % (T("Person"), name), False,
                                   URL(f="person",
                                       args=[record.id])])
@@ -173,7 +173,7 @@ def person():
     s3.prep = prep
 
     def postp(r, output):
-        if r.component_name == "saved_search":
+        if r.component_name == "saved_search" and r.method in (None, "search"):
             s3_action_buttons(r)
             s3.actions.append(
                 dict(url=URL(args=r.args + ["[id]", "load"]),
@@ -184,10 +184,10 @@ def person():
     s3.postp = postp
 
     s3db.configure("pr_group_membership",
-                    list_fields=["id",
-                                 "group_id",
-                                 "group_head",
-                                 "description"
+                   list_fields=["id",
+                                "group_id",
+                                "group_head",
+                                "description"
                                 ])
 
     # Basic tabs
@@ -392,7 +392,7 @@ def presence():
 
     table.pe_id.readable = True
     table.pe_id.label = "Name"
-    table.pe_id.represent = s3db.pr_person_represent
+    table.pe_id.represent = s3db.pr_person_id().represent
     table.observer.readable = False
     table.presence_condition.readable = False
     # @ToDo: Add Skills

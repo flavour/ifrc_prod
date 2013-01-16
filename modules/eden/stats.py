@@ -1185,7 +1185,7 @@ def stats_parameter_represent(id, row=None):
     if row:
         return row.name
     elif not id:
-        return current.messages.NONE
+        return current.messages["NONE"]
 
     db = current.db
     table = db.stats_parameter
@@ -1200,7 +1200,7 @@ def stats_parameter_represent(id, row=None):
 def stats_demographic_data_controller():
     """
         Function to be called from controller functions to display all
-        requests as a tab for a site.
+        demographic data as a tab for a location.
     """
 
     vars = current.request.vars
@@ -1258,7 +1258,7 @@ def stats_group_represent(id, row=None):
     if row:
         return represent(s3db.stats_source)(row.source_id)
     elif not id:
-        return current.messages.NONE
+        return current.messages["NONE"]
 
     s3db = current.s3db
     table = s3db.stats_group

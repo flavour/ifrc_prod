@@ -256,7 +256,7 @@ class GIS(object):
         return GPS_SYMBOLS
 
     # -------------------------------------------------------------------------
-    def download_kml(self, record_id, filename):
+    def download_kml(self, record_id, filename, session_id_name, session_id):
         """
             Download a KML file:
                 - unzip it if-required
@@ -266,6 +266,11 @@ class GIS(object):
 
             Designed to be called asynchronously using:
                 current.s3task.async("download_kml", [record_id, filename])
+
+            @param record_id: id of the record in db.gis_layer_kml
+            @param filename: name to save the file as
+            @param session_id_name: name of the session
+            @param session_id: id of the session
 
             @ToDo: Pass error messages to Result & have JavaScript listen for these
         """
@@ -284,7 +289,7 @@ class GIS(object):
                                 "gis_cache",
                                 filename)
 
-        warning = self.fetch_kml(url, filepath)
+        warning = self.fetch_kml(url, filepath, session_id_name, session_id)
 
         # @ToDo: Handle errors
         #query = (cachetable.name == name)
@@ -330,7 +335,7 @@ class GIS(object):
                 pass
 
     # -------------------------------------------------------------------------
-    def fetch_kml(self, url, filepath):
+    def fetch_kml(self, url, filepath, session_id_name, session_id):
         """
             Fetch a KML file:
                 - unzip it if-required
@@ -358,7 +363,8 @@ class GIS(object):
             # Keep Session for local URLs
             import Cookie
             cookie = Cookie.SimpleCookie()
-            cookie[response.session_id_name] = response.session_id
+            cookie[session_id_name] = session_id
+            # For sync connections
             current.session._unlock(response)
             try:
                 file = fetch(url, cookie=cookie)
@@ -510,6 +516,8 @@ class GIS(object):
             @param features: A list of point features
             @param parent: A location_id to provide a polygonal bounds suitable
                            for validating child locations
+
+            @ToDo: Support Polygons (separate function?)
         """
 
         if parent:
@@ -1467,7 +1475,8 @@ class GIS(object):
         config = GIS.get_config()
 
         if config.default_location_id:
-            return self.get_parent_country(config.default_location_id)
+            return self.get_parent_country(config.default_location_id,
+                                           key_type=key_type)
 
         return None
 
@@ -2076,7 +2085,7 @@ class GIS(object):
                         markers[record[pkey]] = marker
 
                 markers[tablename] = markers
-                
+
         # Lookup the LatLons now so that it can be done as a single
         # query rather than per record
         #if DEBUG:
@@ -2159,7 +2168,8 @@ class GIS(object):
                     latlons[row[tablename].id] = (_location.lat, _location.lon)
 
         _latlons = {}
-        _latlons[tablename] = latlons
+        if latlons:
+            _latlons[tablename] = latlons
         _wkts = {}
         _wkts[tablename] = wkts
         _geojsons = {}
@@ -4670,7 +4680,7 @@ class GIS(object):
                 _path = Lx.path
                 if _path and L0_name and L1_name and L2_name and L3_name and L4_name:
                     _path = "%s/%s" % (_path, id)
-                
+
                 else:
                     # This feature needs to be updated
                     _path = self.update_location_tree(Lx)
@@ -5244,10 +5254,7 @@ class GIS(object):
             @param add_polygon: Whether to include a DrawFeature control to allow drawing a polygon over the map
             @param add_polygon_active: Whether the DrawFeature control should be active by default
             @param features: Simple Features to overlay on Map (no control over appearance & not interactive)
-                [{
-                  "lat": lat,
-                  "lon": lon
-                }]
+                [wkt]
             @param feature_queries: Feature Queries to overlay onto the map & their options (List of Dicts):
                 [{
                   "name"   : T("MyLabel"), # A string: the label for the layer
@@ -5313,6 +5320,9 @@ class GIS(object):
         if not response.warning:
             response.warning = ""
         s3 = response.s3
+        if s3.gis.location_selector_loaded:
+            # Already loaded, bail
+            return ""
         session = current.session
         T = current.T
         db = current.db
@@ -5581,8 +5591,8 @@ class GIS(object):
             mouse_position = '''S3.gis.mouse_position=true\n'''
 
         # OSM Authoring
-        if config.osm_oauth_consumer_key and \
-           config.osm_oauth_consumer_secret:
+        pe_id = auth.s3_user_pe_id(auth.user.id) if auth.s3_logged_in() else None
+        if pe_id and s3db.auth_user_options_get_osm(pe_id):
             osm_auth = '''S3.gis.osm_oauth='%s'\n''' % T("Zoom in closer to Edit OpenStreetMap layer")
         else:
             osm_auth = ""
@@ -5835,20 +5845,20 @@ S3.gis.lon=%s
         # Simple Features added to the Draft layer
         # - used by the Location Selector
         #
-        _features = ""
         if features:
-            _features = '''S3.gis.features=new Array()\n'''
-            counter = -1
+            simplify = GIS.simplify
+            _f = []
+            append = _f.append
             for feature in features:
-                counter = counter + 1
-                if feature["lat"] and feature["lon"]:
-                    # Generate JS snippet to pass to static
-                    _features += '''S3.gis.features[%i]={
- lat:%f,
- lon:%f
-}\n''' % (counter,
-          feature["lat"],
-          feature["lon"])
+                geojson = simplify(feature, output="geojson")
+                if geojson:
+                    f = dict(type = "Feature",
+                             geometry = json.loads(geojson))
+                    append(f)
+            # Generate JS snippet to pass to static
+            _features = '''S3.gis.features=%s\n''' % json.dumps(_f)
+        else:
+            _features = ""
 
         # ---------------------------------------------------------------------
         # Feature Queries
@@ -6121,6 +6131,16 @@ S3.gis.layers_feature_resources[%i]={
                     (ltable.enabled == True)
             layer = db(query).select(etable.instance_type,
                                      limitby=(0, 1)).first()
+            if not layer:
+                # Use Site Default
+                ctable = db.gis_config
+                query = (etable.id == ltable.layer_id) & \
+                        (ltable.config_id == ctable.id) & \
+                        (ctable.uuid == "SITE_DEFAULT") & \
+                        (ltable.base == True) & \
+                        (ltable.enabled == True)
+                layer = db(query).select(etable.instance_type,
+                                         limitby=(0, 1)).first()
             if layer:
                 layer_type = layer.instance_type
                 if layer_type == "gis_layer_openstreetmap":
@@ -6140,6 +6160,7 @@ S3.gis.layers_feature_resources[%i]={
                     layer_types = [XYZLayer]
                 elif layer_type == "gis_layer_empty":
                     layer_types = [EmptyLayer]
+
             if not layer_types:
                 layer_types = [EmptyLayer]
 
@@ -6278,17 +6299,14 @@ i18n.gis_feature_info="%s"
             ready = '''%s
 S3.gis.show_map()''' % ready
         else:
-            ready = "S3.gis.show_map();"
+            ready = "S3.gis.show_map()"
         # Tell YepNope to load all our scripts asynchronously & then run the callback
         script = '''yepnope({
  load:['%s'],
- complete:function(){
-  %s
- }
-})''' % (script, ready)
-
+ complete:function(){%s}})''' % (script, ready)
         html_append(SCRIPT(script))
 
+        s3.gis.location_selector_loaded = 1
         return html
 
 # =============================================================================
@@ -6431,6 +6449,12 @@ class Layer(object):
         # Flag to show whether we've set the default baselayer
         # (otherwise a config higher in the hierarchy can overrule one lower down)
         base = True
+        # Layers requested to be visible via URL (e.g. embedded map)
+        visible = current.request.get_vars.get("layers", None)
+        if visible:
+            visible = visible.split(".")
+        else:
+            visible = []
         for _record in rows:
             record = _record[tablename]
             # Check if we've already seen this layer
@@ -6448,7 +6472,7 @@ class Layer(object):
             if role_required and not s3_has_role(role_required):
                 continue
             # All OK - add SubLayer
-            record["visible"] = _config.visible
+            record["visible"] = _config.visible or str(layer_id) in visible
             if base and _config.base:
                 # name can't conflict with OSM/WMS/ArcREST layers
                 record["_base"] = True
@@ -7043,7 +7067,6 @@ class JSLayer(Layer):
         else:
             return None
 
-
 # -----------------------------------------------------------------------------
 class KMLLayer(Layer):
     """
@@ -7088,7 +7111,6 @@ class KMLLayer(Layer):
         KMLLayer.cacheable = cacheable
         KMLLayer.cachepath = cachepath
 
-
     # -------------------------------------------------------------------------
     class SubLayer(Layer.SubLayer):
         def as_dict(self):
@@ -7121,8 +7143,11 @@ class KMLLayer(Layer):
 
                 if download:
                     # Download file (async, if workers alive)
+                    response = current.response
+                    session_id_name = response.session_id_name
+                    session_id = response.session_id
                     current.s3task.async("gis_download_kml",
-                                         args=[self.id, filename])
+                                         args=[self.id, filename, session_id_name, session_id])
                     if cached:
                         db(query).update(modified_on=request.utcnow)
                     else:
@@ -7204,7 +7229,7 @@ class OpenWeatherMapLayer(Layer):
         if sublayers:
             if current.response.s3.debug:
                 # Non-debug has this included within OpenLayers.js
-                self.scripts.append("scripts/gis/OWM.OpenLayers.1.3.0.2.js")
+                self.scripts.append("scripts/gis/OWM.OpenLayers.js")
             output = {}
             for sublayer in sublayers:
                 if sublayer.type == "station":
@@ -7516,7 +7541,10 @@ class S3Map(S3Search):
                 session_options = session.s3.search_options
                 if session_options and tablename in session_options:
                     # session
-                    session_options = session_options[tablename]
+                    if "clear_opts" in r.get_vars:
+                        session_options = Storage()
+                    else:
+                        session_options = session_options[tablename] or Storage()
                 else:
                     # unfiltered
                     session_options = Storage()
@@ -7542,29 +7570,38 @@ class S3Map(S3Search):
             r.http = "POST"
 
         # Process the search forms
-        query, errors = self.process_forms(r,
-                                           simple_form,
-                                           advanced_form,
-                                           form_values)
+        dq, vq, errors = self.process_forms(r,
+                                            simple_form,
+                                            advanced_form,
+                                            form_values)
 
+        search_url = None
+        search_url_vars = Storage()
+        save_search = ""
         if not errors:
             resource = self.resource
-            resource.add_filter(query)
+            if (dq is None or hasattr(dq, "serialize_url")) and \
+               (vq is None or hasattr(vq, "serialize_url")):
+                query = dq
+                if vq is not None:
+                    if query is not None:
+                        query &= vq
+                    else:
+                        query = vq
+                if query is not None:
+                    search_url_vars = query.serialize_url(resource)
+                search_url = r.url(method = "", vars = search_url_vars)
 
-            # Save Search Widget
-            if session.auth and \
-               current.deployment_settings.get_save_search_widget():
+                # Create a Save Search widget
                 save_search = self.save_search_widget(r, query, **attr)
-            else:
-                save_search = DIV()
+
+            # Add sub-queries
+            resource.add_filter(dq)
+            resource.add_filter(vq)
 
             # Add a map for search results
             # (this same map is also used by the Map Search Widget, if-present)
             # Build URL to load the features onto the map
-            if hasattr(query, "serialize_url"):
-                vars = query.serialize_url(resource)
-            else:
-                vars = None
             gis = current.gis
             request = self.request
             marker_fn = s3db.get_config(tablename, "marker_fn")
@@ -7575,7 +7612,7 @@ class S3Map(S3Search):
                                         request.function)
             url = URL(extension="geojson",
                       args=None,
-                      vars=vars)
+                      vars=search_url_vars)
             feature_resources = [{
                     "name"      : T("Search Results"),
                     "id"        : "search_results",
@@ -7584,12 +7621,21 @@ class S3Map(S3Search):
                     "active"    : True,
                     "marker"    : marker
                 }]
+            # @ToDo: deployment_setting for whether to show WMSBrowser in Search?
+            # @ToDo: WMSBrowser setting should come from hierarchy
+            config = gis.get_config()
+            if config.wmsbrowser_url:
+                wms_browser = {"name": config.wmsbrowser_name,
+                               "url": config.wmsbrowser_url}
+            else:
+                wms_browser = {}
             map = gis.show_map(feature_resources=feature_resources,
                                catalogue_layers=True,
                                legend=True,
                                toolbar=True,
                                collapsed=True,
                                search = True,
+                               wms_browser = wms_browser,
                                )
 
         else:
@@ -7900,7 +7946,9 @@ class S3ExportPOI(S3Method):
 
 # -----------------------------------------------------------------------------
 class S3ImportPOI(S3Method):
-    """ Import point-of-interest resources for a location """
+    """
+        Import point-of-interest resources for a location
+    """
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -7915,7 +7963,6 @@ class S3ImportPOI(S3Method):
         if r.representation == "html":
 
             T = current.T
-            auth = current.auth
             s3db = current.s3db
             request = current.request
             response = current.response
@@ -7960,7 +8007,7 @@ class S3ImportPOI(S3Method):
                         TR(
                             TD(B("%s: " % T("Password"))),
                             TD(INPUT(_type="text", _name="password",
-                                     _id="password", _value="osm")),
+                                     _id="password", _value="planet")),
                             TD(),
                             ),
                         TR(
@@ -8049,6 +8096,7 @@ class S3ImportPOI(S3Method):
                         # Python < 2.7
                         error = subprocess.call(cmd, shell=True)
                         if error:
+                            s3_debug(cmd)
                             current.session.error = T("OSM file generation failed!")
                             redirect(URL(args=r.id))
                     try:

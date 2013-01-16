@@ -111,7 +111,7 @@ def sites_for_org():
     else:
         table = s3db.org_site
         query = (table.organisation_id == org)
-        records = db(query).select(table.id,
+        records = db(query).select(table.site_id,
                                    table.name,
                                    orderby=table.name)
         result = records.json()
@@ -139,6 +139,8 @@ def site_org_json():
 def facility_marker_fn(record):
     """
         Function to decide which Marker to use for Facilities Map
+        @ToDo: Legend
+        @ToDo: Move to Templates
         @ToDo: Use Symbology
     """
 
@@ -199,7 +201,7 @@ def facility_marker_fn(record):
 # -----------------------------------------------------------------------------
 def facility():
     """ RESTful CRUD controller """
-    
+
     # Pre-processor
     def prep(r):
         # Location Filter
@@ -207,7 +209,7 @@ def facility():
 
         if r.interactive:
             if r.component:
-                cname = r.component.name
+                cname = r.component_name
                 if cname in ("inv_item", "recv", "send"):
                     # Filter out items which are already in this inventory
                     s3db.inv_prep(r)
@@ -233,11 +235,38 @@ def facility():
                     field.comment = None
                     # Filter out people which are already staff for this office
                     s3base.s3_filter_staff(r)
+                    # Modify list_fields
+                    s3db.configure("hrm_human_resource",
+                                   list_fields=["person_id",
+                                                "phone",
+                                                "email",
+                                                "organisation_id",
+                                                "job_title_id",
+                                                "department_id",
+                                                "site_contact",
+                                                "status",
+                                                "comments",
+                                                ]
+                                   )
 
                 elif cname == "req" and r.method not in ("update", "read"):
                     # Hide fields which don't make sense in a Create form
                     # inc list_create (list_fields over-rides)
                     s3db.req_create_form_mods()
+
+                elif cname == "asset":
+                    # Default/Hide the Organisation & Site fields
+                    record = r.record
+                    atable = s3db.asset_asset
+                    field = atable.organisation_id
+                    field.default = record.organisation_id
+                    field.readable = field.writable = False
+                    field = atable.site_id
+                    field.default = record.site_id
+                    field.readable = field.writable = False
+                    # Stay within Facility tab
+                    s3db.configure("asset_asset",
+                                   create_next = None)
 
             elif r.id:
                 field = r.table.obsolete
@@ -406,19 +435,12 @@ def organisation_list_represent(l):
 
     organisation_represent = s3db.org_organisation_represent
     if l:
-        max = 4
-        if len(l) > max:
-            count = 1
-            for x in l:
-                if count == 1:
-                    output = organisation_represent(x)
-                elif count > max:
-                    return "%s, etc" % output
-                else:
-                    output = "%s, %s" % (output, organisation_represent(x))
-                count += 1
+        max_length = 4
+        if len(l) > max_length:
+            return "%s, etc" % \
+                   organisation_represent.multiple(l[:max_length])
         else:
-            return ", ".join([organisation_represent(x) for x in l])
+            return organisation_represent.multiple(l)
     else:
         return NONE
 
@@ -533,5 +555,15 @@ def incoming():
     """
 
     return inv_incoming()
+
+# -----------------------------------------------------------------------------
+def facility_geojson():
+    """
+        Create GeoJSON[P] of Facilities for use by a high-traffic website
+        - controller just for testing
+        - function normally run on a schedule
+    """
+
+    s3db.org_facility_geojson()
 
 # END =========================================================================

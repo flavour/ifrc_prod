@@ -108,7 +108,12 @@ class S3MainMenuDefaultLayout(S3NavigationItem):
                                 return None
                         else:
                             label = item.label
-                        link = A(label, _href=item.url(), _id=item.attr._id)
+                        if item.ltr:
+                            _class = "ltr"
+                        else:
+                            _class = ""
+                        link = A(label, _href=item.url(), _id=item.attr._id,
+                                 _class=_class)
                         return LI(link)
             else:
                 # Main menu
@@ -278,7 +283,8 @@ class S3AddResourceLink(S3NavigationItem):
                  vars=None,
                  info=None,
                  title=None,
-                 tooltip=None):
+                 tooltip=None,
+                 ):
         """
             Constructor
 
@@ -339,6 +345,23 @@ class S3AddResourceLink(S3NavigationItem):
             ttip = ""
 
         return DIV(popup_link, ttip)
+
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def inline(item):
+        """ Render this link for an inline component """
+
+        if not item.authorized:
+            return None
+        
+        popup_link = A(item.label,
+                       _href=item.url(format="popup"),
+                       _class="s3_add_resource_link colorbox action-lnk",
+                       _id="%s_%s_add" % (item.vars["caller"], item.function),
+                       _target="top",
+                       _title=item.opts.info)
+
+        return DIV(popup_link, _class="s3_inline_add_resource_link")
 
 # =============================================================================
 def homepage(module=None, *match, **attr):
