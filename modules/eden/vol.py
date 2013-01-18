@@ -63,7 +63,7 @@ class S3VolClusterDataModel(S3Model):
         table = self.define_table(tablename,
                                   hrm_human_resource_id(ondelete = "CASCADE"),
                                   Field("active", "boolean",
-                                        represent = self.vol_active,
+                                        represent = self.vol_active_represent,
                                         label = T("Active")),
                                   *s3_meta_fields())
 
@@ -216,7 +216,7 @@ S3OptionsFilter({
                                                           writable=False),
                                   *s3_meta_fields())
 
-        # Return names to response.s3
+        # Pass names back to global scope (s3.*)
         return Storage(
                 vol_cluster_type_id = vol_cluster_type_id,
                 vol_cluster_id = vol_cluster_id,
@@ -239,7 +239,7 @@ S3OptionsFilter({
 
     # =====================================================================
     @staticmethod
-    def vol_active(opt):
+    def vol_active_represent(opt):
         """
             Represent the Active status of a Volunteer
         """
