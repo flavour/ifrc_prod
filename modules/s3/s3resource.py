@@ -615,7 +615,6 @@ class S3Resource(object):
 
         # Limitby
         if vfltr is None:
-            #limitby = None
             limitby = self.limitby(start=start, limit=limit)
             if limitby is not None:
                 attributes["limitby"] = limitby
@@ -646,11 +645,14 @@ class S3Resource(object):
                 # Make sure the primary key of the table this field
                 # belongs to is included in the SELECT
                 qtables.append(tname)
+
+                # @todo: is this really needed?
                 # if tname is an alias, get primary key from id instead of _id
                 if hasattr(qtable, "_ot") and qtable._ot != tname:
                     pkey = qtable.id
                 else:    
                     pkey = qtable._id
+                    
                 if not groupby:
                     qfields.append(pkey)
                 if str(field) == str(pkey):
@@ -658,73 +660,120 @@ class S3Resource(object):
             if not groupby or str(field) in gfields:
                 qfields.append(field)
 
-        # Add orderby fields which are not in qfields
-        # @todo: this could need some cleanup/optimization
-        if distinct:
-            if orderby is not None:
-                qf = [str(f) for f in qfields]
-                if isinstance(orderby, str):
-                    of = orderby.split(",")
-                elif not isinstance(orderby, (list, tuple)):
-                    of = [orderby]
+        if distinct or left_joins:
+            if orderby:
+                # For GROUPBY id (which we need here for left joins), we need
+                # all ORDERBY-fields to appear in an aggregation function, or
+                # otherwise the ORDERBY can be ambiguous.
+                qfield_names = [str(f) for f in qfields]
+                if isinstance(groupby, (list, tuple)):
+                    groups = ",".join([str(f) for f in groupby])
+                elif not groupby:
+                    groups = ""
                 else:
-                    of = orderby
-                for e in of:
-                    if isinstance(e, Field) and str(e) not in qf:
-                        qfields.append(e)
-                        qf.append(str(e))
-                    elif isinstance(e, str):
-                        fn = e.strip().split()[0].split(".", 1)
-                        tn, fn = ([table._tablename] + fn)[-2:]
+                    groups = groupby
+
+                if isinstance(orderby, str):
+                    orderby_fields = orderby.split(",")
+                elif not isinstance(orderby, (list, tuple)):
+                    orderby_fields = [orderby]
+                else:
+                    orderby_fields = orderby
+
+                orderby = []
+                for orderby_field in orderby_fields:
+
+                    if isinstance(orderby_field, str):
+                        fn, direction = (orderby_field.strip().split() + ["asc"])[:2]
+                        tn, fn = ([table._tablename] + fn.split(".", 1))[-2:]
                         try:
-                            t = db[tn]
-                            f = t[fn]
-                        except:
+                            f = db[tn][fn]
+                        except (AttributeError, KeyError):
                             continue
-                        if str(f) not in qf:
-                            qfields.append(f)
-                            qf.append(str(e))
+                    elif isinstance(orderby_field, Field):
+                        direction = "asc"
+                        f = orderby_field
+                    else:
+                        continue
+
+                    fname = str(f)
+                    kname = str(self._id)
+                    direction = direction.strip().lower()[:3]
+                    if kname in qfield_names and fname == kname or \
+                       kname in groups:
+                        expression = f if direction == "asc" else ~f
+                    else:
+                        expression = f.min() if direction == "asc" else ~(f.max())
+                    orderby.append(expression)
+
+                    # If the ORDERBY-field is not in SELECT, then add it.
+                    # According to SQL documentation, this is /not/ required - you
+                    # can have fields in the ORDERBY which are not in the SELECT,
+                    # however postgresql does seem to need it
+                    if str(f) not in qfield_names:
+                        qfields.append(f)
+                        qfield_names.append(str(f))
             else:
-                # default ORDERBY needed with postgresql and DISTINCT,
-                # otherwise DAL will add an ORDERBY for any primary keys
-                # in the join, which could render DISTINCT meaningless here.
+                # In DISTINCT without ORDERBY, the DAL adapter for postgresql
+                # would automatically add all primary keys as ORDERBY, which
+                # would though make DISTINCT pointless here - adding a default
+                # ORDERBY id will prevent this.
                 if str(self._id) not in [str(f) for f in qfields]:
                     qfields.insert(0, self._id)
                 attributes["orderby"] = self._id
 
         if groupby:
+            attributes["distinct"] = False
             attributes["groupby"] = groupby
+            attributes["orderby"] = orderby
 
         # Temporarily deactivate virtual fields
         osetattr = object.__setattr__
         if not virtual:
             vf = table.virtualfields
             osetattr(table, "virtualfields", [])
+
         # Count the rows
-        numrows = None
-        ids = None
+        numrows = ids = None
         if limitby is not None:
-            # No vfilter present
+            # No virtual filter
+
             if getids or left_joins:
+                # Find the IDs for all records which match the query,
+                # ordered by the ORDERBY fields. That way, we know:
+                # - the total number of records matching the query
+                # - the IDs of all records matching the query
+                # - the IDs of all records in the target page
+
+                # We don't need virtual fields here
                 if virtual:
                     vf = table.virtualfields
                     osetattr(table, "virtualfields", [])
+
                 rows = db(query).select(self._id,
-                                        distinct=distinct,
                                         left=attributes.get("left", None),
-                                        orderby=attributes.get("orderby", None),
+                                        orderby=orderby,
                                         groupby=self._id,
                                         cacheable=True)
+
+                # Restore the virtual fields
                 if virtual:
                     osetattr(table, "virtualfields", vf)
+
                 numrows = len(rows)
                 row_ids = [row[table._id] for row in rows]
+
+                # Create a simplified query for the page
+                # (this will improve performance of the second select):
                 if left_joins:
                     page = row_ids[limitby[0]:limitby[0]+limitby[1]]
                     query = table._id.belongs(page)
                     del attributes["limitby"]
+
+                # If the caller asked for the IDs, then de-duplicate the list:
                 if getids:
                     ids = list(set(row_ids))
+
             elif count:
                 c = self._id.count()
                 row = db(query).select(c,
@@ -734,8 +783,7 @@ class S3Resource(object):
                 ids = []
         else:
             # No limitby present => count/collect ids from the rows
-            numrows = None
-            ids = None
+            numrows = ids = None
 
         # Retrieve the rows
         attributes["cacheable"] = cacheable
@@ -3117,12 +3165,28 @@ class S3Resource(object):
             else:
                 raise SyntaxError("Invalid field: %s" % str(f))
 
+        def concat(old, new):
+
+            if new is None or old == new:
+                return old
+            elif type(old) is not list:
+                result = [old]
+            else:
+                result = old
+            if type(new) is not list:
+                if new not in result:
+                    result.append(new)
+            else:
+                result.extend([item for item in new if item not in result])
+            return result
+
         records = []
         record_ids = []
         for rfield in rfields:
 
             renderer = rfield.represent
-            lazy = renderer is not None and hasattr(renderer, "bulk")
+            lazy = represent and \
+                   renderer is not None and hasattr(renderer, "bulk")
 
             if show_links is False and hasattr(renderer, "linkto"):
                 linkto = renderer.linkto
@@ -3156,18 +3220,15 @@ class S3Resource(object):
                     continue
                 else:
                     this = record[key]
-                if record_id in duplicates:
+
+                duplicate = record_id in duplicates
+                if duplicate or joined:
                     if lazy:
-                        if lazy_value not in this.value:
-                            this.value.append(lazy_value)
-                    elif value not in this:
-                        this.append(value)
-                elif joined and value != this:
-                    if lazy:
-                        this.value = [this.value, lazy_value]
+                        this.value = concat(this.value, lazy_value)
                         this.multiple = True
                     else:
-                        record[key] = [this, value]
+                        record[key] = concat(this, value)
+                if not duplicate:
                     duplicates.append(record_id)
 
             if represent:
@@ -4708,11 +4769,14 @@ class S3ResourceQuery(object):
             else:
                 q = l.belongs(r)
         elif op == self.LIKE:
-            if isinstance(l, Field) and l.type not in TEXTTYPES:
-                q = (l == s3_unicode(r).replace("%", ""))
-            else:
-                q = l.like(s3_unicode(r))
-            #q = l.like(s3_unicode(r))
+            # Fixed in web2py trunk by:
+            # https://github.com/web2py/web2py/commit/7b4a0515becf3a6b7ffd145d7a1e00c11ede9b91
+            # for earlier versions, use this instead as a workaround:
+            #if isinstance(l, Field) and l.type not in TEXTTYPES:
+                #q = (l == s3_unicode(r).replace("%", ""))
+            #else:
+                #q = l.like(s3_unicode(r))
+            q = l.like(s3_unicode(r))
         elif op == self.LT:
             q = l < r
         elif op == self.LE:
@@ -5965,14 +6029,18 @@ class S3Pivottable(object):
 
         # Retrieve the records ------------------------------------------------
         #
-        records = resource.select(self.dfields, start=None, limit=None)
+        records = resource.select(self.dfields,
+                                  start=None, limit=None, cacheable=True)
 
         # Generate the report -------------------------------------------------
         #
         if records:
             try:
                 pkey = resource.table._id
-                self.records = Storage([(i[pkey], i) for i in records])
+                # Extract unique rows (otherwise the renderer will loose
+                # data due to naive de-duplication):
+                e = resource.extract(records, self.dfields)
+                self.records = Storage([(i[str(pkey)], i) for i in e])
             except KeyError:
                 raise KeyError("Could not retrieve primary key values of %s" %
                                resource.tablename)
@@ -6438,7 +6506,8 @@ class S3Pivottable(object):
                             continue
                         append(value)
                     if len(values) and type(values[0]) is list:
-                        values = reduce(lambda x, y: x.extend(y) or x, values)
+                        from itertools import chain
+                        values = chain.from_iterable(values)
                     if method in ("list", "count"):
                         values =  list(set(values))
                     row_values.extend(values)
