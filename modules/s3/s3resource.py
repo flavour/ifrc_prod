@@ -78,7 +78,7 @@ from gluon.tools import callback
 
 from s3fields import S3Represent, S3RepresentLazy
 from s3utils import s3_has_foreign_key, s3_get_foreign_key, s3_unicode, S3MarkupStripper
-from s3data import S3DataTable
+from s3data import S3DataTable, S3DataList
 from s3validators import IS_ONE_OF
 
 DEBUG = False
@@ -789,7 +789,7 @@ class S3Resource(object):
                 # Create a simplified query for the page
                 # (this will improve performance of the second select):
                 if left_joins:
-                    page = row_ids[limitby[0]:limitby[0]+limitby[1]]
+                    page = row_ids[limitby[0]:limitby[1]]
                     query = table._id.belongs(page)
                     del attributes["limitby"]
 
@@ -1413,6 +1413,71 @@ class S3Resource(object):
         if rows:
             data = self.extract(rows, selectors, represent=True)
             return S3DataTable(rfields, data), numrows, ids
+        else:
+            return None, 0, []
+
+    # -------------------------------------------------------------------------
+    def datalist(self,
+                 fields=None,
+                 start=0,
+                 limit=None,
+                 left=None,
+                 orderby=None,
+                 distinct=False,
+                 getids=False,
+                 listid=None):
+        """
+            Generate a data list of this resource
+
+            @param fields: list of fields to include (field selector strings)
+            @param start: index of the first record to include
+            @param limit: maximum number of records to include
+            @param left: additional left joins for DB query
+            @param orderby: orderby for DB query
+            @param distinct: distinct-flag for DB query
+            @param getids: return the record IDs of all records matching the
+                           query (used in search to create a filter)
+
+            @return: tuple (S3DataList, numrows, ids), where numrows represents
+                     the total number of rows in the table that match the query;
+                     ids is empty unless getids=True
+        """
+
+        # Choose fields
+        if fields is None:
+            fields = [f.name for f in self.readable_fields()]
+        selectors = list(fields)
+
+        # Automatically include the record ID
+        table = self.table
+        if table._id.name not in selectors:
+            fields.insert(0, table._id.name)
+            selectors.insert(0, table._id.name)
+
+        # Resolve the selectors
+        rfields = self.resolve_selectors(fields, extra_fields=False)[0]
+
+        # Retrieve the rows
+        rows, numrows, ids = self.select(fields=selectors,
+                                         start=start,
+                                         limit=limit,
+                                         orderby=orderby,
+                                         left=left,
+                                         distinct=distinct,
+                                         count=True,
+                                         getids=getids,
+                                         cacheable=True)
+
+        # Generate the data table
+        if rows:
+            data = self.extract(rows, selectors, represent=True)
+            return S3DataList(self,
+                              fields,
+                              data,
+                              listid=listid,
+                              start=start,
+                              total=numrows,
+                              limit=limit), numrows, ids
         else:
             return None, 0, []
 
@@ -3189,10 +3254,12 @@ class S3Resource(object):
 
         # Get field attributes
         attr = {}
+        effort = {}
         for rfield in rfields:
-            key = rfield.colname
+            colname = rfield.colname
+            effort[colname] = 0
             joined = rfield.tname != self.tablename
-            attr[key] = ({}, {}, joined, rfield.ftype[:5] == "list:")
+            attr[colname] = ({}, {}, joined, rfield.ftype[:5] == "list:")
 
         # Extract values and merge duplicate rows
         record_ids = []
@@ -3207,7 +3274,8 @@ class S3Resource(object):
             else:
                 duplicate = True
             for rfield in rfields:
-                values, records, joined, list_type = attr[rfield.colname]
+                colname = rfield.colname
+                values, records, joined, list_type = attr[colname]
                 if duplicate and not joined:
                     continue
                 try:
@@ -3225,8 +3293,9 @@ class S3Resource(object):
                         record[value] = None
                     continue
 
-                # @todo: declutter this:
                 if list_type and value is not None:
+                    if represent and value:
+                        effort[colname] += 30 + len(value)
                     for v in value:
                         if v not in record:
                             record[v] = None
@@ -3260,10 +3329,14 @@ class S3Resource(object):
                 else:
                     linkto = None
 
+                per_row_lookup = list_type and \
+                                 effort[colname] < len(values) * 30
+
                 # Render all unique values
-                if hasattr(renderer, "bulk"):
+                if hasattr(renderer, "bulk") and not list_type:
+                    per_row_lookup = False
                     values = renderer.bulk(values.keys(), list_type = False)
-                else:
+                elif not per_row_lookup:
                     for value in values:
                         try:
                             text = renderer(value)
@@ -3277,15 +3350,26 @@ class S3Resource(object):
                     record = records[record_id]
                     result = results[record_id]
 
-                    # Single value
-                    if len(record) == 1 or \
-                       not joined and not list_type:
+                    # List type with per-row lookup?
+                    if per_row_lookup:
+                        value = record.keys()
+                        if None in value and len(value) > 1:
+                            value = [v for v in value if v is not None]
+                        try:
+                            text = renderer(value)
+                        except:
+                            text = s3_unicode(value)
+                        result[colname] = text
+
+                    # Single value (master record)
+                    elif len(record) == 1 or \
+                         not joined and not list_type:
                         value = record.keys()[0]
                         result[colname] = values[value] \
                                           if value in values else NONE
                         continue
 
-                    # Multiple values
+                    # Multiple values (joined or list-type)
                     else:
                         vlist = []
                         for value in record:
@@ -3295,18 +3379,18 @@ class S3Resource(object):
                                     if value in values else NONE
                             vlist.append(value)
 
-                    # Concatenate multiple values
-                    if any([hasattr(v, "xml") for v in vlist]):
-                        data = TAG[""](
-                                list(
-                                    chain.from_iterable(
-                                        [(v, ", ") for v in vlist])
-                                    )[:-1]
-                                )
-                    else:
-                        data = ", ".join([s3_unicode(v) for v in vlist])
+                        # Concatenate multiple values
+                        if any([hasattr(v, "xml") for v in vlist]):
+                            data = TAG[""](
+                                    list(
+                                        chain.from_iterable(
+                                            [(v, ", ") for v in vlist])
+                                        )[:-1]
+                                    )
+                        else:
+                            data = ", ".join([s3_unicode(v) for v in vlist])
 
-                    result[colname] = data
+                        result[colname] = data
 
                 # Restore linkto
                 if linkto is not None:
