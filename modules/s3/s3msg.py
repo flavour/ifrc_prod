@@ -421,13 +421,14 @@ class S3Msg(object):
                 # Filter by Recipient Type
                 otable.pe_id.requires = IS_ONE_OF(db,
                                                   "pr_pentity.pe_id",
-                                                  orderby="instance_type",
+                                                  # Breaks PG
+                                                  #orderby="instance_type",
                                                   filterby="instance_type",
                                                   filter_opts=(recipient_type,))
             otable.pe_id.comment = DIV(_class="tooltip",
                                        _title="%s|%s" % \
-                                        (T("Recipients"),
-                                         T("Please enter the first few letters of the Person/Group for the autocomplete.")))
+                (T("Recipients"),
+                 T("Please enter the first few letters of the Person/Group for the autocomplete.")))
         otable.pe_id.writable = True
         otable.pe_id.label = T("Recipient(s)")
 
@@ -452,17 +453,11 @@ class S3Msg(object):
                 current.session.confirmation = T("Check outbox for the message status")
                 redirect(url)
             else:
-                current.session.error = T("Error in message:%s")\
-                                            % current.session.error
+                current.session.error = T("Error in message:%s") % \
+                                            current.session.error
                 redirect(url)
 
         # Source forms
-        #crud = current.crud
-        #logform = crud.create(ltable,
-        #                      onvalidation = compose_onvalidation,
-        #                      formname = "msg_log/%s" % formid)
-        #outboxform = crud.create(otable,
-        #                         formname = "msg_outbox/%s" % formid)
         sqlform = S3SQLDefaultForm()
         logform = sqlform(request=request,
                           resource=s3db.resource("msg_log"),
@@ -478,7 +473,7 @@ class S3Msg(object):
         lcustom = logform.custom
         ocustom = outboxform.custom
 
-        pe_row = TR(TD(LABEL("%s:" % ocustom.label.pe_id)),
+        pe_row = TR(TD(LABEL(ocustom.label.pe_id)),
                     _id="msg_outbox_pe_id__row")
         if recipient:
             ocustom.widget.pe_id["_class"] = "hide"
@@ -494,24 +489,23 @@ class S3Msg(object):
         form = DIV( lcustom.begin,
                     TABLE(
                         TBODY(
-                            TR(TD(LABEL("%s:" % \
-                                ocustom.label.pr_message_method)),
+                            TR(TD(LABEL(ocustom.label.pr_message_method)),
                                TD(ocustom.widget.pr_message_method),
                                TD(ocustom.comment.pr_message_method),
                                _id="msg_outbox_pr_message_method__row"
                             ),
                             pe_row,
-                            TR(TD(LABEL("%s:" % lcustom.label.subject)),
+                            TR(TD(LABEL(lcustom.label.subject)),
                                TD(lcustom.widget.subject),
                                TD(lcustom.comment.subject),
                                _id="msg_log_subject__row"
                             ),
-                            TR(TD(LABEL("%s:" % lcustom.label.message)),
+                            TR(TD(LABEL(lcustom.label.message)),
                                TD(lcustom.widget.message),
                                TD(lcustom.comment.message),
                                _id="msg_log_message__row"
                             ),
-                            # TR(TD(LABEL("%s:" % lcustom.label.priority)),
+                            # TR(TD(LABEL(lcustom.label.priority)),
                                # TD(lcustom.widget.priority),
                                # TD(lcustom.comment.priority),
                                # _id="msg_log_priority__row"
