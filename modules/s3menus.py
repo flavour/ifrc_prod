@@ -1417,6 +1417,7 @@ class S3OptionsMenu(object):
                     ),
                     M("InBox", f="inbox"),
                     M("Email InBox", f="email_inbox"),
+                    M("RSS Feeds", f="rss_feed"),
                     M("Twilio SMS InBox", f="twilio_inbox"),
                     M("Log", f="log"),
                     M("Outbox", f="outbox"),
@@ -1426,7 +1427,6 @@ class S3OptionsMenu(object):
                        M("Queries", f="twitter_search"),
                        M("Results", f="twitter_search_results")
                     ),
-                    M("CAP", translate=False, f="tbc"),
                     M("Administration", restrict=[ADMIN])(settings_messaging)
                 )
 
@@ -1638,8 +1638,7 @@ class S3OptionsMenu(object):
                  ),
                  M("Tasks", f="task")(
                     M("New", m="create"),
-                    #M("List All Tasks"),
-                    M("Search", m="search"),
+                    M("Search"),
                  ),
                 )
             if current.auth.s3_has_role("STAFF"):
@@ -1654,20 +1653,18 @@ class S3OptionsMenu(object):
                         M("Import Tasks", f="task", m="import", p="create"),
                      ),
                      M("Reports", f="report")(
-                        M("Activity Report", f="activity", m="report"),
-                        M("Last Week's Work", f="time", m="report",
+                        M("Activity Report", f="activity", m="report2"),
+                        M("Last Week's Work", f="time", m="report2",
                           vars=Storage(rows="person_id",
                                        cols="day",
-                                       fact="hours",
-                                       aggregate="sum",
+                                       fact="sum(hours)",
                                        week=1)),
-                        M("Last Month's Work", f="time", m="report",
+                        M("Last Month's Work", f="time", m="report2",
                           vars=Storage(rows="person_id",
                                        cols="week",
-                                       fact="hours",
-                                       aggregate="sum",
+                                       fact="sum(hours)",
                                        month=1)),
-                        M("Project Time Report", f="time", m="report"),
+                        M("Project Time Report", f="time", m="report2"),
                      ),
                     )
         else:
@@ -1833,6 +1830,7 @@ class S3OptionsMenu(object):
         return [
             M("Email Settings", c="msg", f="email_inbound_channel"),
             M("Parsing Settings", c="msg", f="workflow"),
+            M("RSS Settings", c="msg", f="rss_channel"),
             M("SMS Gateway Settings", c="msg", f="sms_outbound_gateway",
                 args=[1], m="update"),
             M("Mobile Commons SMS Settings", c="msg", f="mcommons_channel"),
