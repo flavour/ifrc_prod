@@ -770,6 +770,16 @@ class S3LocationModel(S3Model):
         else:
             children = None
 
+        if "level" in _vars and _vars.level:
+            if _vars.level == "null":
+                level = None
+            elif "|" in _vars.level:
+                level = _vars.level.split("|")
+            else:
+                level = str.upper(_vars.level)
+        else:
+            level = None
+
         if children:
             # LocationSelector
             children = current.gis.get_children(children, level=level)
@@ -794,16 +804,6 @@ class S3LocationModel(S3Model):
                 fields.append(table.level)
                 fields.append(table.parent)
         resource.add_filter(query)
-
-        if "level" in _vars and _vars.level:
-            if _vars.level == "null":
-                level = None
-            elif "|" in _vars.level:
-                level = _vars.level.split("|")
-            else:
-                level = str.upper(_vars.level)
-        else:
-            level = None
 
         if level:
             # LocationSelector or Autocomplete
