@@ -100,6 +100,8 @@ class AuthS3(Auth):
             - requires_membership
 
         - S3 extension for user registration:
+            - s3_registration_form
+            - s3_register_validation
             - s3_user_register_onaccept
 
         - S3 extension for user administration:
@@ -837,18 +839,13 @@ Thank you
 
         labels, required = s3_mark_required(utable)
 
-        if deployment_settings.get_terms_of_service():
-            submit_button = T("I accept. Create my account.")
-        else:
-            submit_button = T("Register")
-
         #formstyle = deployment_settings.get_ui_formstyle()
         form = SQLFORM(utable, hidden=dict(_next=request.vars._next),
                        labels = labels,
                        separator = "",
-                       showid=settings.showid,
-                       submit_button=submit_button,
-                       delete_label=messages.delete_label,
+                       showid = settings.showid,
+                       submit_button = T("Register"),
+                       delete_label = messages.delete_label,
                        #formstyle = formstyle
                        )
         for i, row in enumerate(form[0].components):
@@ -1527,6 +1524,158 @@ S3OptionsFilter({
                         element.text = str(id)
                         record = Storage(id=id)
                         s3db.update_super(gtable, record)
+
+    # =============================================================================
+    @staticmethod
+    def s3_register_validation():
+        """
+            JavaScript client-side validation for Registration / User profile
+            - needed to check for passwords being same, etc
+        """
+
+        T = current.T
+        request = current.request
+        appname = request.application
+        settings = current.deployment_settings
+        s3 = current.response.s3
+
+        # Static Scripts
+        scripts_append = s3.scripts.append
+        if s3.debug:
+            scripts_append("/%s/static/scripts/jquery.validate.js" % appname)
+            scripts_append("/%s/static/scripts/jquery.pstrength.2.1.0.js" % appname)
+            scripts_append("/%s/static/scripts/S3/s3.register_validation.js" % appname)
+        else:
+            scripts_append("/%s/static/scripts/jquery.validate.min.js" % appname)
+            scripts_append("/%s/static/scripts/jquery.pstrength.2.1.0.min.js" % appname)
+            scripts_append("/%s/static/scripts/S3/s3.register_validation.min.js" % appname)
+
+        # Configuration
+        js_global = []
+        js_append = js_global.append
+        if request.cookies.has_key("registered"):
+            # If we have already registered on this site from this PC then the login form is default
+            # .password:last
+            js_append('''S3.password_position=2''')
+        else:
+            # If we haven't already registered on this site from this PC then the registration form is default
+            # .password:first
+            js_append('''S3.password_position=1''')
+
+        if settings.get_auth_registration_mobile_phone_mandatory():
+            js_append('''S3.auth_registration_mobile_phone_mandatory=1''')
+
+        if settings.get_auth_registration_organisation_required():
+            js_append('''S3.auth_registration_organisation_required=1''')
+            js_append('''i18n.enter_your_organisation="%s"''' % T("Enter your organization"))
+
+        if settings.get_auth_terms_of_service():
+            js_append('''S3.auth_terms_of_service=1''')
+            js_append('''i18n.tos_required="%s"''' % T("You must agree to the Terms of Service"))
+
+        if request.controller != "admin":
+            if settings.get_auth_registration_organisation_hidden():
+                js_append('''S3.auth_registration_hide_organisation=1''')
+
+            # Check for Whitelists
+            table = current.s3db.auth_organisation
+            query = (table.organisation_id != None) & \
+                    (table.domain != None)
+            whitelists = current.db(query).select(table.organisation_id,
+                                                  table.domain)
+            if whitelists:
+                domains = []
+                domains_append = domains.append
+                for whitelist in whitelists:
+                    domains_append("'%s':%s" % (whitelist.domain,
+                                                whitelist.organisation_id))
+                domains = ''','''.join(domains)
+                domains = '''S3.whitelists={%s}''' % domains
+                js_append(domains)
+
+        js_append('''i18n.enter_first_name="%s"''' % T("Enter your first name"))
+        js_append('''i18n.provide_password="%s"''' % T("Provide a password"))
+        js_append('''i18n.repeat_your_password="%s"''' % T("Repeat your password"))
+        js_append('''i18n.enter_same_password="%s"''' % T("Enter the same password as above"))
+        js_append('''i18n.please_enter_valid_email="%s"''' % T("Please enter a valid email address"))
+
+        js_append('''S3.password_min_length=%i''' % settings.get_auth_password_min_length())
+
+        script = '''\n'''.join(js_global)
+        s3.js_global.append(script)
+
+        # Call script after Global config done
+        s3.jquery_ready.append('''s3_register_validation()''')
+
+    # =============================================================================
+    def s3_registration_form(self):
+        """
+            Build a form for Registration
+        """
+
+        T = current.T
+
+        # Build the Form
+        form = self.register()
+        form.attributes["_id"] = "regform"
+
+        if current.deployment_settings.get_auth_terms_of_service():
+            id = "tos__row"
+            label = T("I agree to the %(terms_of_service)s") % \
+                dict(terms_of_service=A(T("Terms of Service"),
+                                        _href=URL(c="default", f="tos"),
+                                        _target="_blank",
+                                        ))
+            label = XML("%s:" % label)
+            widget = INPUT(_name="tos",
+                           _id="tos",
+                           _type="checkbox",
+                           )
+            #formstyle = current.deployment_settings.get_ui_formstyle()
+            #if formstyle == "bootstrap":
+            #    row = DIV(LABEL(label,
+            #                    _id="tos__label",
+            #                    _for="tos",
+            #                    _class="control-label",
+            #                    ),
+            #              DIV(widget,
+            #                  _class="controls",
+            #                  ),
+            #              # Somewhere to store Error Messages
+            #              SPAN(_class="help-block"),
+            #              _id=id,
+            #              _class="control-group hide",
+            #              )
+            #else:
+            #    # Assume callable
+            comment = ""
+            #    #row = formstyle(id, label, widget, comment)
+            # Auth uses default formstyle currently
+            row = TR(TD(LABEL(label,
+                              _id="tos__label",
+                              _for="tos",
+                              ),
+                        _class="w2p_fl"),
+                     TD(widget,
+                        _class="w2p_fw"),
+                     TD(comment,
+                        _class="w2p_fc"),
+                     _id=id,
+                     )
+
+            form[0][-2].append(row)
+
+        # Insert shortcut to Login
+        form[0][-1][1].append(A(T("Login"),
+                                _href=URL(f="user", args="login"),
+                                _id="login-btn",
+                                _class="action-lnk"
+                                ))
+
+        # Client-side Validation
+        self.s3_register_validation()
+
+        return form
 
     # -------------------------------------------------------------------------
     def s3_user_register_onaccept(self, form):
@@ -5950,41 +6099,48 @@ class S3Audit(object):
             @note: this defines the audit table
         """
 
+        settings = current.deployment_settings
+        audit_read = settings.get_security_audit_read()
+        audit_write = settings.get_security_audit_write()
+        if not audit_read and not audit_write:
+            # Auditing is Disabled
+            self.table = None
+            return
+
         db = current.db
         if tablename in db:
             self.table = db[tablename]
         else:
-            self.table = None
-        if not self.table:
             self.table = db.define_table(tablename,
-                            Field("timestmp", "datetime"),
-                            Field("person", "integer"),
-                            Field("operation"),
-                            Field("tablename"),
-                            Field("record", "integer"),
-                            Field("representation"),
-                            Field("old_value", "text"),
-                            Field("new_value", "text"),
-                            migrate=migrate,
-                            fake_migrate=fake_migrate)
-        session = current.session
-        self.auth = session.auth
-        if session.auth and session.auth.user:
-            self.user = session.auth.user.id
-        else:
-            self.user = None
+                                         Field("timestmp", "datetime"),
+                                         Field("user_id", db.auth_user),
+                                         Field("method"),
+                                         Field("tablename"),
+                                         Field("record_id", "integer"),
+                                         Field("representation"),
+                                         # List of Key:Values
+                                         Field("old_value", "text"),
+                                         # List of Key:Values
+                                         Field("new_value", "text"),
+                                         migrate=migrate,
+                                         fake_migrate=fake_migrate,
+                                         )
 
-        self.diff = None
+        user = current.auth.user
+        if user:
+            self.user_id = user.id
+        else:
+            self.user_id = None
 
     # -------------------------------------------------------------------------
-    def __call__(self, operation, prefix, name,
+    def __call__(self, method, prefix, name,
                  form=None,
                  record=None,
                  representation="unknown"):
         """
             Audit
 
-            @param operation: Operation to log, one of
+            @param method: Method to log, one of
                 "create", "update", "read", "list" or "delete"
             @param prefix: the module prefix of the resource
             @param name: the name of the resource (without prefix)
@@ -5993,22 +6149,14 @@ class S3Audit(object):
             @param representation: the representation format
         """
 
-        settings = current.deployment_settings
-
-        audit_read = settings.get_security_audit_read()
-        audit_write = settings.get_security_audit_write()
-
-        if not audit_read and not audit_write:
+        table = self.table
+        if not table:
+            # Auditing Disabled
             return True
 
-        #import sys
-        #print >> sys.stderr, "Audit %s: %s_%s record=%s representation=%s" % \
-                             #(operation, prefix, name, record, representation)
-
-        now = datetime.datetime.utcnow()
-        db = current.db
-        table = self.table
-        tablename = "%s_%s" % (prefix, name)
+        #if DEBUG:
+        #    _debug("Audit %s: %s_%s record=%s representation=%s" % \
+        #           (method, prefix, name, record, representation))
 
         if record:
             if isinstance(record, Row):
@@ -6035,50 +6183,192 @@ class S3Audit(object):
         else:
             record = None
 
-        if operation in ("list", "read"):
+        now = datetime.datetime.utcnow()
+        tablename = "%s_%s" % (prefix, name)
+
+        settings = current.deployment_settings
+        audit_read = settings.get_security_audit_read()
+        if callable(audit_read):
+            audit_read = audit_read(method, tablename, form, record,
+                                    representation)
+        audit_write = settings.get_security_audit_write()
+        if callable(audit_write):
+            audit_write = audit_write(method, tablename, form, record,
+                                      representation)
+
+        if method in ("list", "read"):
             if audit_read:
                 table.insert(timestmp = now,
-                             person = self.user,
-                             operation = operation,
+                             user_id = self.user_id,
+                             method = method,
                              tablename = tablename,
-                             record = record,
-                             representation = representation)
+                             record_id = record,
+                             representation = representation,
+                             )
 
-        elif operation in ("create", "update"):
+        elif method == "create":
             if audit_write:
                 if form:
-                    record = form.vars.id
-                    new_value = ["%s:%s" % (var, str(form.vars[var]))
-                                 for var in form.vars]
+                    vars = form.vars
+                    if not record:
+                        record = vars["id"]
+                    new_value = ["%s:%s" % (var, str(vars[var]))
+                                 for var in vars if vars[var]]
                 else:
                     new_value = []
                 table.insert(timestmp = now,
-                             person = self.user,
-                             operation = operation,
+                             user_id = self.user_id,
+                             method = method,
                              tablename = tablename,
-                             record = record,
+                             record_id = record,
                              representation = representation,
-                             new_value = new_value)
-                self.diff = None
+                             new_value = new_value,
+                             )
 
-        elif operation == "delete":
+        elif method == "update":
             if audit_write:
-                query = db[tablename].id == record
+                if form:
+                    rvars = form.record
+                    if rvars:
+                        old_value = ["%s:%s" % (var, str(rvars[var]))
+                                     for var in rvars]
+                    else:
+                        old_value = []
+                    fvars = form.vars
+                    if not record:
+                        record = fvars["id"]
+                    new_value = ["%s:%s" % (var, str(fvars[var]))
+                                 for var in fvars]
+                else:
+                    new_value = []
+                    old_value = []
+                table.insert(timestmp = now,
+                             user_id = self.user_id,
+                             method = method,
+                             tablename = tablename,
+                             record_id = record,
+                             representation = representation,
+                             old_value = old_value,
+                             new_value = new_value,
+                             )
+
+        elif method == "delete":
+            if audit_write:
+                db = current.db
+                query = (db[tablename].id == record)
                 row = db(query).select(limitby=(0, 1)).first()
                 old_value = []
                 if row:
                     old_value = ["%s:%s" % (field, row[field])
                                  for field in row]
                 table.insert(timestmp = now,
-                             person = self.user,
-                             operation = operation,
+                             user_id = self.user_id,
+                             method = method,
                              tablename = tablename,
-                             record = record,
+                             record_id = record,
                              representation = representation,
-                             old_value = old_value)
-                self.diff = None
+                             old_value = old_value,
+                             )
 
         return True
+
+    # -------------------------------------------------------------------------
+    def represent(self, records):
+        """
+            Provide a Human-readable representation of Audit records
+            - currently unused
+
+            @param record: the record IDs
+        """
+
+        table = self.table
+        # Retrieve the records
+        if isinstance(records, int):
+            limit = 1
+            query = (table.id == records)
+        else:
+            limit = len(records)
+            query = (table.id.belongs(records))
+        records = current.db(query).select(table.tablename,
+                                           table.method,
+                                           table.user_id,
+                                           table.old_value,
+                                           table.new_value,
+                                           limitby=(0, limit)
+                                           )
+
+        # Convert to Human-readable form
+        s3db = current.s3db
+        output = []
+        oappend = output.append
+        for record in records:
+            table = s3db[tablename]
+            method = record.method
+            if method == "create":
+                new_value = record.new_value
+                if not new_value:
+                    continue
+                diff = []
+                dappend = diff.append
+                for v in new_value:
+                    fieldname, value = v.split(":", 1)
+                    represent = table[fieldname].represent
+                    if represent:
+                        value = represent(value)
+                    label = table[fieldname].label or fieldname
+                    dappend("%s is %s" % (label, value))
+
+            elif method == "update":
+                old_values = record.old_value
+                new_values = record.new_value
+                if not new_value:
+                    continue
+                changed = {}
+                for v in new_values:
+                    fieldname, new_value = v.split(":", 1)
+                    old_value = old_values.get(fieldname, None)
+                    if new_value != old_value:
+                        type = table[fieldname].type
+                        if type == "integer" or \
+                           type.startswith("reference"):
+                            if new_value:
+                                new_value = int(new_value)
+                            if new_value == old_value:
+                                continue
+                        represent = table[fieldname].represent
+                        if represent:
+                            new_value = represent(new_value)
+                        label = table[fieldname].label or fieldname
+                        if old_value:
+                            if represent:
+                                old_value = represent(old_value)
+                            changed[fieldname] = "%s changed from %s to %s" % \
+                                (label, old_value, new_value)
+                        else:
+                            changed[fieldname] = "%s changed to %s" % \
+                                (label, new_value)
+                diff = []
+                dappend = diff.append
+                for fieldname in changed:
+                    dappend(changed[fieldname])
+
+            elif method == "delete":
+                old_value = record.old_value
+                if not old_value:
+                    continue
+                diff = []
+                dappend = diff.append
+                for v in old_value:
+                    fieldname, value = v.split(":", 1)
+                    represent = table[fieldname].represent
+                    if represent:
+                        value = represent(value)
+                    label = table[fieldname].label or fieldname
+                    dappend("%s was %s" % (label, value))
+
+            oappend("\n".join(diff))
+
+        return output
 
 # =============================================================================
 class S3RoleManager(S3Method):

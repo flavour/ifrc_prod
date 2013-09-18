@@ -29,6 +29,7 @@
 
 import datetime
 import os
+import re
 import sys
 import time
 import types
@@ -64,6 +65,8 @@ from gluon.tools import callback
 
 from s3resource import S3Resource
 from s3utils import S3MarkupStripper, s3_unicode
+
+REGEX_FILTER = re.compile(".+\..+|.*\(.+\).*")
 
 DEBUG = False
 if DEBUG:
@@ -138,10 +141,6 @@ class S3RequestManager(object):
         # Errors
         self.error = None
 
-        # Toolkits
-        self.audit = current.s3_audit
-        self.auth = auth = current.auth
-
         # Register
         current.manager = self
 
@@ -153,7 +152,7 @@ class S3RequestManager(object):
         self.search = S3Method()
 
         # Hooks
-        self.permit = auth.s3_has_permission
+        self.permit = current.auth.s3_has_permission
         self.messages = None
         self.import_prep = None
         self.log = None
@@ -492,8 +491,8 @@ class S3Request(object):
             self.function, ext = self.function.split(".", 1)
             if extension is None:
                 extension = ext
-        auth = manager.auth
         if c or f:
+            auth = current.auth
             if not auth.permission.has_permission("read",
                                                   c=self.controller,
                                                   f=self.function):
@@ -2258,7 +2257,8 @@ class S3Method(object):
             @param vars: the URL vars as dict
         """
 
-        return dict([(k, v) for k, v in vars.items() if "." not in k])
+        return Storage((k, v) for k, v in vars.iteritems()
+                              if not REGEX_FILTER.match(k))
 
     # -------------------------------------------------------------------------
     @staticmethod

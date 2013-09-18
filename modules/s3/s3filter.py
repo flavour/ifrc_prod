@@ -656,6 +656,8 @@ class S3LocationFilter(S3FilterWidget):
     """
         Hierarchical Location Filter Widget
         @see: L{Configuration Options<S3FilterWidget.__init__>}
+
+        NB This will show records linked to all child locations of the Lx
     """
 
     _class = "location-filter"
@@ -1411,6 +1413,8 @@ class S3FilterForm(object):
         attr["_id"] = form_id
 
         opts = self.opts
+
+        # Form style
         formstyle = opts.get("formstyle", None)
         if not formstyle:
             formstyle = self._formstyle
@@ -1426,44 +1430,65 @@ class S3FilterForm(object):
         if controls:
             rows.append(formstyle(None, "", controls, ""))
 
-        # Submit button
+        # Submit elements
+        ajax = opts.get("ajax", False)
         submit = opts.get("submit", False)
         if submit:
-            _class = "filter-submit"
-            ajax = opts.get("ajax", False)
-            if ajax:
-                _class = "%s filter-ajax" % _class
+
+            settings = current.deployment_settings
+            
+            # Auto-submit
+            auto_submit = settings.get_ui_filter_auto_submit()
+            if auto_submit and opts.get("auto_submit", True):
+                script = """S3.search.filterFormAutoSubmit('%s', %s)""" % \
+                         (form_id, auto_submit)
+                current.response.s3.jquery_ready.append(script)
+
+            # Custom label and class
+            _class = None
             if submit is True:
                 label = current.T("Search")
             elif isinstance(submit, (list, tuple)):
-                label = submit[0]
-                _class = "%s %s" % (submit[1], _class)
+                label, _class = submit
             else:
                 label = submit
+
+            # Submit button
+            submit_button = INPUT(_type="button",
+                                  _value=label,
+                                  _class="filter-submit")
+            #if auto_submit:
+                #submit_button.add_class("hide")
+            if _class:
+                submit_button.add_class(_class)
+
             # Where to request filtered data from:
             submit_url = opts.get("url", URL(vars={}))
+            
             # Where to request updated options from:
             ajax_url = opts.get("ajaxurl", URL(args=["filter.options"], vars={}))
-            submit = TAG[""](
-                        INPUT(_type="button",
-                              _value=label,
-                              _class=_class),
-                        INPUT(_type="hidden",
-                              _class="filter-ajax-url",
-                              _value=ajax_url),
-                        INPUT(_type="hidden",
-                              _class="filter-submit-url",
-                              _value=submit_url))
 
+            # Submit row elements
+            submit = TAG[""](submit_button,
+                             INPUT(_type="hidden",
+                                   _class="filter-ajax-url",
+                                   _value=ajax_url),
+                             INPUT(_type="hidden",
+                                   _class="filter-submit-url",
+                                   _value=submit_url))
             if ajax and target:
                 submit.append(INPUT(_type="hidden",
                                     _class="filter-submit-target",
                                     _value=target))
 
-            rows.append(formstyle(None, "", submit, ""))
+            # Append submit row
+            submit_row = formstyle(None, "", submit, "")
+            if auto_submit and hasattr(submit_row, "add_class"):
+                submit_row.add_class("hide")
+            rows.append(submit_row)
 
         # Filter Manager (load/apply/save filters)
-        fm = current.deployment_settings.get_search_filter_manager()
+        fm = settings.get_search_filter_manager()
         if fm and opts.get("filter_manager", resource is not None):
             filter_manager = self._render_filters(resource, form_id)
             if filter_manager:
@@ -1484,6 +1509,10 @@ class S3FilterForm(object):
             else:
                 form = FORM(DIV(rows), **attr)
             form.add_class("filter-form")
+            if ajax:
+                form.add_class("filter-ajax")
+        else:
+            return ""
 
         # Put a copy of formstyle into the form for access by the view
         form.formstyle = formstyle
@@ -1901,11 +1930,17 @@ class S3Filter(S3Method):
         if query is not None:
             filter_data["query"] = json.dumps(query)
 
+        url = data.get("url")
+        if url is not None:
+            filter_data["url"] = url
+
         # Store record
         onaccept = None
+        form = Storage(vars=filter_data)
         if record:
             success = db(table.id == record_id).update(**filter_data)
             if success:
+                current.audit("update", "pr", "filter", form, record_id, "json")
                 info = {"updated": record_id}
                 onaccept = s3db.get_config(table, "update_onaccept",
                            s3db.get_config(table, "onaccept"))
@@ -1913,13 +1948,14 @@ class S3Filter(S3Method):
             success = table.insert(**filter_data)
             if success:
                 record_id = success
+                current.audit("create", "pr", "filter", form, record_id, "json")
                 info = {"created": record_id}
                 onaccept = s3db.get_config(table, "update_onaccept",
                            s3db.get_config(table, "onaccept"))
 
         if onaccept is not None:
-            filter_data["id"] = record_id
-            callback(onaccept, Storage(vars=filter_data))
+            form.vars["id"] = record_id
+            callback(onaccept, form)
 
         # Success/Error response
         xml = current.xml
@@ -2029,14 +2065,10 @@ class S3FilterString(object):
 
         self.resource = resource
         self.get_vars = get_vars
-        
+
     # -------------------------------------------------------------------------
     def represent(self):
-        """
-            Render the query representation for the given resource
-
-            @param resource: the S3Resource
-        """
+        """ Render the query representation for the given resource """
 
         default = ""
 
@@ -2047,13 +2079,24 @@ class S3FilterString(object):
         else:
             queries = S3URLQuery.parse(resource, get_vars)
 
+        # Get alternative field labels
+        labels = {}
+        get_config = resource.get_config
+        prefix = resource.prefix_selector
+        for config in ("list_fields", "notify_fields"):
+            fields = get_config(config, set())
+            for f in fields:
+                if type(f) is tuple:
+                    labels[prefix(f[1])] = f[0]
+
         # Iterate over the sub-queries
+        render = self._render
         substrings = []
         append = substrings.append
         for alias, subqueries in queries.iteritems():
 
             for subquery in subqueries:
-                s = self._render(resource, alias, subquery)
+                s = render(resource, alias, subquery, labels=labels)
                 if s:
                     append(s)
 
@@ -2068,7 +2111,7 @@ class S3FilterString(object):
 
     # -------------------------------------------------------------------------
     @classmethod
-    def _render(cls, resource, alias, query, invert=False):
+    def _render(cls, resource, alias, query, invert=False, labels=None):
         """
             Recursively render a human-readable representation of a
             S3ResourceQuery.
@@ -2087,8 +2130,8 @@ class S3FilterString(object):
 
         l = query.left
         r = query.right
-        render = lambda q, invert=False, resource=resource, alias=alias: \
-                        cls._render(resource, alias, q, invert=invert)
+        render = lambda q, r=resource, a=alias, invert=False, labels=labels: \
+                        cls._render(r, a, q, invert=invert, labels=labels)
 
         if op == query.AND:
             # Recurse AND
@@ -2129,8 +2172,13 @@ class S3FilterString(object):
                 values = r
 
             # Alias
-            tlabel = " ".join(s.capitalize() for s in rfield.tname.split("_")[1:])
-            rfield.label = "%s %s" % (tlabel, rfield.label)
+            selector = l.name
+            if labels and selector in labels:
+                rfield.label = labels[selector]
+            # @todo: for duplicate labels, show the table name
+            #else:
+                #tlabel = " ".join(s.capitalize() for s in rfield.tname.split("_")[1:])
+                #rfield.label = "(%s) %s" % (tlabel, rfield.label)
 
             # Represent the values
             if values is None:
@@ -2248,14 +2296,14 @@ class S3FilterString(object):
             query.EQ: (query.NE, vor, T("%(label)s is %(values)s")),
             query.GE: (query.LT, vand, "%(label)s >= %(values)s"),
             query.GT: (query.LE, vand, "%(label)s > %(values)s"),
-            query.NE: (query.EQ, vor, T("%(label)s is not %(values)s")),
-            query.LIKE: ("notlike", vor, T("%(label)s is like %(values)s")),
-            query.BELONGS: (query.NE, vor, T("%(label)s is %(values)s")),
+            query.NE: (query.EQ, vor, T("%(label)s != %(values)s")),
+            query.LIKE: ("notlike", vor, T("%(label)s like %(values)s")),
+            query.BELONGS: (query.NE, vor, T("%(label)s = %(values)s")),
             query.CONTAINS: ("notall", vand, T("%(label)s contains %(values)s")),
             query.ANYOF: ("notany", vor, T("%(label)s contains any of %(values)s")),
             "notall": (query.CONTAINS, vand, T("%(label)s does not contain %(values)s")),
             "notany": (query.ANYOF, vor, T("%(label)s does not contain %(values)s")),
-            "notlike": (query.LIKE, vor, T("%(label)s is not like %(values)s"))
+            "notlike": (query.LIKE, vor, T("%(label)s not like %(values)s"))
         }
 
         # Quote values as necessary

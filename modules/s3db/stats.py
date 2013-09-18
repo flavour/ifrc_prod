@@ -73,6 +73,7 @@ class S3StatsModel(S3Model):
                            stats_demographic = T("Demographic"),
                            stats_resident_type = T("Types of Residents"),
                            stats_trained_type = T("Types of Trained People"),
+                           supply_distribution_item = T("Distribution Item"),
                            vulnerability_indicator = T("Vulnerability Indicator"),
                            vulnerability_aggregated_indicator = T("Vulnerability Aggregated Indicator"),
                            #survey_question_type = T("Survey Question Type"),
@@ -98,6 +99,7 @@ class S3StatsModel(S3Model):
                            stats_demographic_data = T("Demographic Data"),
                            stats_resident = T("Residents"),
                            stats_trained = T("Trained People"),
+                           supply_distribution = T("Distribution"),
                            vulnerability_data = T("Vulnerability Data"),
                            #survey_answer = T("Survey Answer"),
                            #climate_data = T("Climate Data"),
@@ -1119,6 +1121,7 @@ class S3StatsResidentModel(S3Model):
         tablename = "stats_resident_type"
         table = define_table(tablename,
                              # Instance
+                             super_link("doc_id", "doc_entity"),
                              super_link("parameter_id", "stats_parameter"),
                              Field("name",
                                    label=T("Name"),
@@ -1145,7 +1148,7 @@ class S3StatsResidentModel(S3Model):
 
         # Resource Configuration
         configure(tablename,
-                  super_entity = "stats_parameter",
+                  super_entity = ("doc_entity", "stats_parameter"),
                   deduplicate = self.stats_resident_type_duplicate,
                   )
 
@@ -1203,7 +1206,7 @@ class S3StatsResidentModel(S3Model):
             msg_record_deleted=T("Resident deleted"),
             msg_list_empty=T("No Residents defined"))
 
-        filter_widgets = [S3OptionsFilter("stats_resident_group.group_id",
+        filter_widgets = [S3OptionsFilter("resident_group.group_id",
                                           label=T("Coalition"),
                                           represent="%(name)s",
                                           widget="multiselect",
@@ -1216,7 +1219,7 @@ class S3StatsResidentModel(S3Model):
                           ]
 
         configure(tablename,
-                  super_entity=["doc_entity", "stats_data"],
+                  super_entity = ("doc_entity", "stats_data"),
                   filter_widgets = filter_widgets,
                   )
 
@@ -1404,7 +1407,7 @@ class S3StatsTrainedPeopleModel(S3Model):
                           ]
 
         configure(tablename,
-                  super_entity=["doc_entity", "stats_data"],
+                  super_entity = ("doc_entity", "stats_data"),
                   filter_widgets = filter_widgets,
                   )
 

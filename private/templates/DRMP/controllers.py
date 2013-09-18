@@ -14,10 +14,9 @@ from gluon import current
 from gluon.html import *
 from gluon.storage import Storage
 
-from s3.s3crud import S3CRUD
 from s3.s3filter import S3DateFilter, S3LocationFilter, S3OptionsFilter, S3TextFilter, S3FilterForm
-from s3.s3resource import S3FieldSelector
-from s3.s3utils import s3_avatar_represent, S3CustomController
+#from s3.s3utils import s3_avatar_represent, S3CustomController
+from s3.s3utils import S3CustomController
 
 THEME = "DRMP"
 
@@ -36,55 +35,35 @@ class index(S3CustomController):
         # Image Carousel
         s3.jquery_ready.append('''$('#myCarousel').carousel()''')
 
-        # Latest 4 Events
-        resource = current.s3db.resource("cms_post")
-        def latest_4_posts(series_filter, layout):
-            resource.add_filter(S3FieldSelector("series_id$name") == series_filter)
-            list_fields = ["series_id",
-                           "location_id",
-                           "date",
-                           "body",
-                           "created_by",
-                           "created_by$organisation_id",
-                           "document.file",
-                           "event_post.event_id",
-                           ]
-            orderby = resource.table.date
-            resource.add_filter(resource.table.date >= current.request.now)
-            datalist, numrows, ids = resource.datalist(fields=list_fields,
-                                                       start=None,
-                                                       limit=4,
-                                                       listid="news_datalist",
-                                                       orderby=orderby,
-                                                       layout=layout)
-            if numrows == 0:
-                # Empty table or just no match?
-                table = resource.table
-                if "deleted" in table:
-                    available_records = current.db(table.deleted != True)
-                else:
-                    available_records = current.db(table._id > 0)
-                if available_records.select(table._id,
-                                            limitby=(0, 1)).first():
-                    msg = DIV(S3CRUD.crud_string(resource.tablename,
-                                                 "msg_no_match"),
-                              _class="empty")
-                else:
-                    msg = DIV(S3CRUD.crud_string(resource.tablename,
-                                                 "msg_list_empty"),
-                              _class="empty")
-                data = msg
-            else:
-                # Render the list
-                dl = datalist.html()
-                data = dl
-            return data
-
+        # Latest 4 Events and Alerts
+        from s3.s3resource import S3FieldSelector
+        s3db = current.s3db
         layout = s3.render_posts
+        listid = "news_datalist"
+        limit = 4
+        list_fields = ["series_id",
+                       "location_id",
+                       "date",
+                       "body",
+                       "created_by",
+                       "created_by$organisation_id",
+                       "document.file",
+                       "event_post.event_id",
+                       ]
 
-        output["events"] = latest_4_posts("Event", layout)
+        resource = s3db.resource("cms_post")
+        resource.add_filter(S3FieldSelector("series_id$name") == "Event")
+        # Only show Future Events
+        resource.add_filter(resource.table.date >= current.request.now)
+        # Order with next Event first
+        orderby = "date"
+        output["events"] = latest_records(resource, layout, listid, limit, list_fields, orderby)
 
-        output["alerts"] = latest_4_posts("Alert", layout)
+        resource = s3db.resource("cms_post")
+        resource.add_filter(S3FieldSelector("series_id$name") == "Alert")
+        # Order with most recent Alert first
+        orderby = "date desc"
+        output["alerts"] = latest_records(resource, layout, listid, limit, list_fields, orderby)
 
         self._view(THEME, "index.html")
         return output
@@ -153,6 +132,17 @@ def _newsfeed():
     response = current.response
     s3 = response.s3
 
+    # Ensure that filtered views translate into options which update the Widget
+    if "~.series_id$name" in request.get_vars:
+        series_name = request.vars["~.series_id$name"]
+        table = s3db.cms_series
+        series = current.db(table.name == series_name).select(table.id,
+                                                              limitby=(0, 1)).first()
+        if series:
+            series_id = str(series.id)
+            request.get_vars.pop("~.series_id$name")
+            request.get_vars["~.series_id__belongs"] = series_id
+
     current.deployment_settings.ui.customize_cms_post()
 
     list_layout = s3.render_posts
@@ -203,7 +193,8 @@ def _newsfeed():
                                     (T("Date"), "date"),
                                     (T("Location"), "location_id"),
                                     (T("Description"), "body"),
-                                   ]
+                                   ],
+                   notify_template = "notify_post",
                    )
 
     s3.dl_pagelength = 6  # 5 forces an AJAX call
@@ -271,43 +262,56 @@ def _newsfeed():
         
         # Latest 5 Disasters
         resource = s3db.resource("event_event")
+        layout = render_events
+        listid = "event_datalist"
+        limit = 5
+        orderby = "zero_hour desc"
         list_fields = ["name",
                        "event_type_id$name",
                        "zero_hour",
                        "closed",
                        ]
-        orderby = resource.get_config("list_orderby",
-                                      ~resource.table.created_on)
-        datalist, numrows, ids = resource.datalist(fields=list_fields,
-                                                   start=None,
-                                                   limit=5,
-                                                   listid="event_datalist",
-                                                   orderby=orderby,
-                                                   layout=render_events)
-        if numrows == 0:
-            # Empty table or just no match?
-            table = resource.table
-            if "deleted" in table:
-                available_records = current.db(table.deleted != True)
-            else:
-                available_records = current.db(table._id > 0)
-            if available_records.select(table._id,
-                                        limitby=(0, 1)).first():
-                msg = DIV(S3CRUD.crud_string(resource.tablename,
-                                             "msg_no_match"),
-                          _class="empty")
-            else:
-                msg = DIV(S3CRUD.crud_string(resource.tablename,
-                                             "msg_list_empty"),
-                          _class="empty")
-            data = msg
-        else:
-            # Render the list
-            dl = datalist.html()
-            data = dl
-        output["disasters"] = data
+        output["disasters"] = latest_records(resource, layout, listid, limit, list_fields, orderby)
 
     return output
+
+# =============================================================================
+def latest_records(resource, layout, listid, limit, list_fields, orderby):
+    """
+        Display a dataList of the latest records for a resource
+    """
+
+    #orderby = resource.table[orderby]
+    datalist, numrows, ids = resource.datalist(fields=list_fields,
+                                               start=None,
+                                               limit=limit,
+                                               listid=listid,
+                                               orderby=orderby,
+                                               layout=layout)
+    if numrows == 0:
+        # Empty table or just no match?
+        from s3.s3crud import S3CRUD
+        table = resource.table
+        if "deleted" in table:
+            available_records = current.db(table.deleted != True)
+        else:
+            available_records = current.db(table._id > 0)
+        if available_records.select(table._id,
+                                    limitby=(0, 1)).first():
+            msg = DIV(S3CRUD.crud_string(resource.tablename,
+                                         "msg_no_match"),
+                      _class="empty")
+        else:
+            msg = DIV(S3CRUD.crud_string(resource.tablename,
+                                         "msg_list_empty"),
+                      _class="empty")
+        data = msg
+    else:
+        # Render the list
+        dl = datalist.html()
+        data = dl
+
+    return data
 
 # -----------------------------------------------------------------------------
 def filter_formstyle(row_id, label, widget, comment, hidden=False):
@@ -422,6 +426,7 @@ def render_events(listid, resource, rfields, record, **attr):
 def render_cms_events(listid, resource, rfields, record, **attr):
     """
         Custom dataList item renderer for 'Events' on the Home page
+        - unused
 
         @param listid: the HTML ID for this list
         @param resource: the S3Resource to render
@@ -634,13 +639,16 @@ class subscriptions(S3CustomController):
         filters = [S3OptionsFilter("series_id",
                                    label=T("Subscribe to"),
                                    represent="%(name)s",
-                                   widget="groupedopts",
+                                   options=self._options("series_id"),
+                                   #widget="groupedopts",
+                                   widget="multiselect",
                                    cols=2,
                                    resource="cms_post",
                                    _name="type-filter"),
                    S3LocationFilter("location_id",
                                     label=T("Location(s)"),
                                     levels=["L1"],
+                                    options=self._options("location_id"),
                                     widget="multiselect",
                                     cols=3,
                                     resource="cms_post",
@@ -664,6 +672,34 @@ class subscriptions(S3CustomController):
         
         return dict(title=title, form=form)
         
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def _options(fieldname):
+        """
+            Lookup the full set of options for a Filter Widget
+            - for Subscriptions we don't want to see just the options available in current data
+        """
+
+        db = current.db
+        if fieldname == "series_id":
+            table = current.s3db.cms_series
+            query = (table.deleted == False)
+            rows = db(query).select(table.id,
+                                    table.name)
+            options = {}
+            for row in rows:
+                options[row.id] = row.name
+
+        elif fieldname == "location_id":
+            table = current.s3db.gis_location
+            query = (table.deleted == False) & \
+                    (table.level == "L1")
+            # IDs converted inside widget's _options() function
+            rows = db(query).select(table.id)
+            options = [row.id for row in rows]
+
+        return options
+
     # -------------------------------------------------------------------------
     def _manage_subscriptions(self, resources, filters):
         """
@@ -779,20 +815,9 @@ class subscriptions(S3CustomController):
         form.append(fieldset)
 
         # Script (to extract filters on submit and toggle options visibility)
-        script = """
-$('#notification-options').click(function() {
-  $(this).siblings().toggle();
-  $(this).children().toggle();
-});
-$('#notification-options').siblings().toggle();
-$('#notification-options').children().toggle();
-$('#subscription-form').submit(function() {
-  $('input[name="subscription-filters"]')
-  .val(JSON.stringify(S3.search.getCurrentFilters($(this))));
-});
-"""
+        script = URL(c="static", f="themes", args=[THEME, "js", "subscriptions.js"])
         response = current.response
-        response.s3.jquery_ready.append(script)
+        response.s3.scripts.append(script)
 
         # Accept form
         if form.accepts(current.request.post_vars,

@@ -96,6 +96,9 @@ settings.base.guided_tour = True
 # NB This requires Verification/Approval to be Off
 # @ToDo: Extend to all optional Profile settings: Homepage, Twitter, Facebook, Mobile Phone, Image
 #settings.auth.registration_volunteer = True
+# Terms of Service to be able to Register on the system
+# uses <template>/views/tos.html
+#settings.auth.terms_of_service = True
 # Uncomment this to allow users to Login using Gmail's SMTP
 #settings.auth.gmail_domains = ["gmail.com"]
 # Uncomment this to allow users to Login using OpenID
@@ -215,6 +218,8 @@ settings.L10n.decimal_separator = "."
 # lon<0 have a duplicate at lon+360
 # lon>0 have a duplicate at lon-360
 #settings.gis.duplicate_features = True
+# Uncomment to use CMS to provide Metadata on Map Layers
+#settings.gis.layer_metadata = True
 # Uncomment to hide Layer Properties tool
 #settings.gis.layer_properties = False
 # Uncomment to hide the Base Layers folder in the LayerTree
@@ -269,6 +274,12 @@ settings.L10n.decimal_separator = "."
 # False = owned by any authenticated user
 #settings.security.strict_ownership = False
 
+# Audit
+# - can be a callable for custom hooks (return True to also perform normal logging, or False otherwise)
+# NB Auditing (especially Reads) slows system down & consumes diskspace
+#settings.security.audit_read = True
+#settings.security.audit_write = True
+
 # Lock-down access to Map Editing
 #settings.security.map = True
 # Allow non-MapAdmins to edit hierarchy locations? Defaults to True if not set.
@@ -304,7 +315,7 @@ settings.L10n.decimal_separator = "."
 
 # -----------------------------------------------------------------------------
 # Persons
-# Uncomment to hide fields in S3AddPersonWidget
+# Uncomment to hide fields in S3AddPersonWidget[2]
 #settings.pr.request_dob = False
 #settings.pr.request_gender = False
 #settings.pr.select_existing = False
@@ -559,9 +570,6 @@ settings.L10n.decimal_separator = "."
 # Maximum number of search results for an Autocomplete Widget
 #settings.search.max_results = 200
 
-# Terms of Service to be able to Register on the system
-#settings.options.terms_of_service = T("Terms of Service\n\nYou have to be eighteen or over to register as a volunteer.")
-
 # Comment/uncomment modules here to disable/enable them
 # @ToDo: Have the system automatically enable migrate if a module is enabled
 # Modules menu is defined in modules/eden/menu.py
@@ -739,8 +747,6 @@ settings.modules = OrderedDict([
        restricted = True,
        module_type = 10,
        #access = "|DVI|",      # Only users with the DVI role can see this module in the default menu & access the controller
-       #audit_read = True,     # Can enable Audit for just an individual module here
-       #audit_write = True
     )),
     ("dvr", Storage(
        name_nice = T("Disaster Victim Registry"),
@@ -789,7 +795,7 @@ settings.modules = OrderedDict([
     #       restricted = True,
     #       module_type = 1,
     #   )),
-    #("flood", Storage(
+    #("water", Storage(
     #        name_nice = T("Flood Warnings"),
     #        #description = "Flood Gauges show water levels in various parts of the country",
     #        restricted = True,

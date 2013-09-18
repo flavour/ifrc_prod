@@ -388,7 +388,7 @@ class S3Importer(S3CRUD):
             db.commit()
 
             extension = ofilename.rsplit(".", 1).pop()
-            if extension not in ("csv", "xls"):
+            if extension not in ("csv", "xls", "xlsx"):
                 if self.ajax:
                     return {"Error": self.messages.invalid_file_format}
                 response.flash = None
@@ -537,7 +537,11 @@ class S3Importer(S3CRUD):
 
         # @todo: manage different file formats
         # @todo: find file format from request.extension
-        fileFormat = "csv"
+        extension = source.rsplit(".", 1).pop()
+        if extension not in ("csv, ""xls", "xlsx"):
+            fileFormat = "csv"
+        else:
+            fileFormat = extension
 
         # Insert data in the table and get the ID
         try:
@@ -938,6 +942,13 @@ class S3Importer(S3CRUD):
         if fileFormat == "csv" or fileFormat == "comma-separated-values":
 
             fmt = "csv"
+            src = openFile
+
+        # ---------------------------------------------------------------------
+        # XLS
+        elif fileFormat == "xls" or fileFormat == "xlsx":
+
+            fmt = "xls"
             src = openFile
 
         # ---------------------------------------------------------------------
@@ -2111,6 +2122,10 @@ class S3ImportItem(object):
             # already committed
             return True
 
+        # If the parent item gets skipped, then skip this item as well
+        if self.parent is not None and self.parent.skip:
+            return True
+
         # Globals
         db = current.db
         xml = current.xml
@@ -2138,10 +2153,6 @@ class S3ImportItem(object):
 
         # Make item mtime TZ-aware
         self.mtime = xml.as_utc(self.mtime)
-        
-        # If the parent item gets skipped, then skip this item as well
-        if self.parent is not None and self.parent.skip:
-            return True
 
         _debug("Committing item %s" % self)
 
@@ -2263,6 +2274,8 @@ class S3ImportItem(object):
         # Log this item
         if manager.log is not None:
             manager.log(self)
+
+        tablename = self.tablename
 
         # Update existing record
         if method == UPDATE:
@@ -2390,9 +2403,9 @@ class S3ImportItem(object):
 
             if not self.skip and not self.conflict:
 
-                resource = s3db.resource(self.tablename, id=self.id)
+                resource = s3db.resource(tablename, id=self.id)
 
-                ondelete = s3db.get_config(self.tablename, "ondelete")
+                ondelete = s3db.get_config(tablename, "ondelete")
                 success = resource.delete(ondelete=ondelete,
                                           cascade=True)
                 if resource.error:
@@ -2400,7 +2413,7 @@ class S3ImportItem(object):
                     self.skip = True
                     return ignore_errors
 
-            _debug("Success: %s, id=%s %sd" % (self.tablename, self.id,
+            _debug("Success: %s, id=%s %sd" % (tablename, self.id,
                                                self.skip and "skippe" or \
                                                method))
             return True
@@ -2432,7 +2445,7 @@ class S3ImportItem(object):
                                         .first()
                 if row:
                     original_id = row[table._id]
-                    resource = s3db.resource(self.tablename,
+                    resource = s3db.resource(tablename,
                                              id = [original_id, self.id])
                     try:
                         success = resource.merge(original_id, self.id)
@@ -2445,7 +2458,7 @@ class S3ImportItem(object):
                 else:
                     self.skip = True
 
-            _debug("Success: %s, id=%s %sd" % (self.tablename, self.id,
+            _debug("Success: %s, id=%s %sd" % (tablename, self.id,
                                                self.skip and "skippe" or \
                                                method))
             return True
@@ -2458,15 +2471,13 @@ class S3ImportItem(object):
             form = Storage()
             form.method = method
             form.vars = self.data
-            tablename = self.tablename
             prefix, name = tablename.split("_", 1)
             if self.id:
                 form.vars.id = self.id
-            if manager.audit is not None:
-                manager.audit(method, prefix, name,
-                              form=form,
-                              record=self.id,
-                              representation="xml")
+            current.audit(method, prefix, name,
+                          form=form,
+                          record=self.id,
+                          representation="xml")
             # Update super entity links
             s3db.update_super(table, form.vars)
             if method == CREATE:
@@ -2480,10 +2491,9 @@ class S3ImportItem(object):
                                                   force_update=True)
             # Onaccept
             key = "%s_onaccept" % method
-            onaccept = s3db.get_config(tablename, key,
-                       s3db.get_config(tablename, "onaccept"))
+            onaccept = current.deployment_settings.get_import_callback(tablename, key)
             if onaccept:
-                callback(onaccept, form, tablename=self.tablename)
+                callback(onaccept, form, tablename=tablename)
 
         # Update referencing items
         if self.update and self.id:
@@ -2502,7 +2512,7 @@ class S3ImportItem(object):
                 else:
                     item._update_reference(field, self.id)
 
-        _debug("Success: %s, id=%s %sd" % (self.tablename, self.id,
+        _debug("Success: %s, id=%s %sd" % (tablename, self.id,
                                            self.skip and "skippe" or \
                                            method))
         return True
@@ -3974,7 +3984,7 @@ class S3BulkImporter(object):
 
         db = current.db
         s3db = current.s3db
-        audit = current.manager.audit
+        audit = current.audit
         table = s3db[tablename]
         idfield = table[idfield]
         base_query = (table.deleted != True)
