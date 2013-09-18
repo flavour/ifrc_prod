@@ -28,6 +28,8 @@
 """
 
 __all__ = ["S3ContentModel",
+           "S3ContentMapModel",
+           #"S3ContentOrgGroupModel",
            "cms_index",
            "cms_rheader",
            "S3CMS",
@@ -48,6 +50,7 @@ class S3ContentModel(S3Model):
              "cms_post",
              "cms_post_id",
              "cms_post_module",
+             #"cms_post_record",
              "cms_tag",
              "cms_tag_post",
              "cms_comment",
@@ -61,6 +64,7 @@ class S3ContentModel(S3Model):
         configure = self.configure
         crud_strings = current.response.s3.crud_strings
         define_table = self.define_table
+        settings = current.deployment_settings
 
         # ---------------------------------------------------------------------
         # Series
@@ -114,7 +118,8 @@ class S3ContentModel(S3Model):
             msg_list_empty = T("No series currently defined"))
 
         # Reusable field
-        represent = S3Represent(lookup=tablename)
+        translate = settings.get_L10n_translate_cms_series()
+        represent = S3Represent(lookup=tablename, translate=translate)
         series_id = S3ReusableField("series_id", table,
                                     readable = False,
                                     writable = False,
@@ -204,8 +209,7 @@ class S3ContentModel(S3Model):
                                                 IS_ONE_OF(db, "cms_post.id",
                                                           represent)),
                                   represent = represent,
-                                  comment = S3AddResourceLink(c="cms",
-                                                              f="post",
+                                  comment = S3AddResourceLink(c="cms", f="post",
                                                               title=ADD_POST,
                                                               tooltip=T("A block of rich text which could be embedded into a page, viewed as a complete page or viewed as a list of news items.")),
                                   ondelete = "CASCADE")
@@ -244,17 +248,19 @@ class S3ContentModel(S3Model):
                                        actuate="hide"))
 
         # ---------------------------------------------------------------------
-        # Modules <> Posts link table
+        # Modules/Resources <> Posts link table
         #
         tablename = "cms_post_module"
         table = define_table(tablename,
-                             post_id(),
+                             post_id(empty=False),
                              Field("module",
                                    comment=T("If you specify a module then this will be used as the text in that module's index page"),
-                                   label=T("Module")),
+                                   label=T("Module")
+                                   ),
                              Field("resource",
                                    comment=T("If you specify a resource then this will be used as the text in that resource's summary page"),
-                                   label=T("Resource")),
+                                   label=T("Resource")
+                                   ),
                              *s3_meta_fields())
 
         # CRUD Strings
@@ -271,6 +277,18 @@ class S3ContentModel(S3Model):
             msg_record_modified = T("Post updated"),
             msg_record_deleted = T("Post removed"),
             msg_list_empty = T("No posts currently set as module/resource homepages"))
+
+        # ---------------------------------------------------------------------
+        # Records <> Posts link table
+        # - used to handle record history
+        #
+        #tablename = "cms_post_record"
+        #table = define_table(tablename,
+        #                     post_id(empty=False),
+        #                     Field("tablename"),
+        #                     Field("record", "integer"),
+        #                     Field("url"),
+        #                     *s3_meta_fields())
 
         # ---------------------------------------------------------------------
         # Tags
@@ -308,7 +326,7 @@ class S3ContentModel(S3Model):
         #
         tablename = "cms_tag_post"
         table = define_table(tablename,
-                             post_id(),
+                             post_id(empty=False),
                              Field("tag_id", "reference cms_tag"),
                              *s3_meta_fields())
 
@@ -346,7 +364,7 @@ class S3ContentModel(S3Model):
                                    requires = IS_NULL_OR(
                                                 IS_ONE_OF(db, "cms_comment.id")),
                                    readable=False),
-                             post_id(),
+                             post_id(empty=False),
                              Field("body", "text", notnull=True,
                                    label = T("Comment")),
                              *s3_meta_fields())
@@ -362,9 +380,8 @@ class S3ContentModel(S3Model):
         # ---------------------------------------------------------------------
         # Pass names back to global scope (s3.*)
         #
-        return Storage(
-                cms_post_id = post_id,
-            )
+        return dict(cms_post_id = post_id,
+                    )
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -389,8 +406,8 @@ class S3ContentModel(S3Model):
     @staticmethod
     def cms_post_onaccept(form):
         """
-           Handle the case where the page is for a Module home page or
-           Resource Summary page
+           Handle the case where the page is for a Module home page,
+           Resource Summary page or Map Layer
         """
 
         vars = current.request.get_vars
@@ -415,7 +432,69 @@ class S3ContentModel(S3Model):
                              resource=resource,
                              )
 
+        layer_id = vars.get("layer_id", None)
+        if layer_id:
+            post_id = form.vars.id
+            table = current.s3db.cms_post_layer
+            query = (table.layer_id == layer_id)
+            result = current.db(query).update(post_id=post_id)
+            if not result:
+                table.insert(post_id=post_id,
+                             layer_id=layer_id,
+                             )
+
         return
+
+# =============================================================================
+class S3ContentMapModel(S3Model):
+    """
+        Use of the CMS to provide extra data about Map Layers
+    """
+
+    names = ["cms_post_layer",
+             ]
+
+    def model(self):
+
+        # ---------------------------------------------------------------------
+        # Layers <> Posts link table
+        #
+        tablename = "cms_post_layer"
+        table = self.define_table(tablename,
+                                  self.cms_post_id(empty=False),
+                                  self.super_link("layer_id", "gis_layer_entity"),
+                                  *s3_meta_fields())
+
+        # ---------------------------------------------------------------------
+        # Pass names back to global scope (s3.*)
+        #
+        return dict()
+
+# =============================================================================
+class S3ContentOrgGroupModel(S3Model):
+    """
+        Link Posts to Organisation Groups (Coalitions)
+        - currently unused
+    """
+
+    names = ["cms_post_organisation_group",
+             ]
+
+    def model(self):
+
+        # ---------------------------------------------------------------------
+        # Organisation Groups <> Posts link table
+        #
+        tablename = "cms_post_organisation_group"
+        table = self.define_table(tablename,
+                                  self.cms_post_id(empty=False),
+                                  self.org_group_id(empty=False),
+                                  *s3_meta_fields())
+
+        # ---------------------------------------------------------------------
+        # Pass names back to global scope (s3.*)
+        #
+        return dict()
 
 # =============================================================================
 def cms_rheader(r, tabs=[]):
@@ -592,6 +671,12 @@ class S3CMS(S3Method):
         request = current.request
         module = request.controller
         resource = request.function
+        
+        return self.resource_content(module, resource, widget_id)
+
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def resource_content(module, resource, widget_id=None):
         db = current.db
         table = current.s3db.cms_post
         ltable = db.cms_post_module
@@ -610,8 +695,6 @@ class S3CMS(S3Method):
         if _item:
             if ADMIN:
                 item = DIV(XML(_item.body),
-                           # @ToDo: Replace with CSS
-                           BR(),
                            A(current.T("Edit"),
                              _href=URL(c="cms", f="post",
                                        args=[_item.id, "update"],

@@ -318,11 +318,11 @@ def s3_fullname(person=None, pe_id=None, truncate=True):
     record = None
     query = None
     if isinstance(person, (int, long)) or str(person).isdigit():
-        query = (ptable.id == person) & (ptable.deleted != True)
+        query = (ptable.id == person)# & (ptable.deleted != True)
     elif person is not None:
         record = person
     elif pe_id is not None:
-        query = (ptable.pe_id == pe_id) & (ptable.deleted != True)
+        query = (ptable.pe_id == pe_id)# & (ptable.deleted != True)
 
     if not record and query is not None:
         record = db(query).select(ptable.first_name,
@@ -792,84 +792,6 @@ def s3_populate_browser_compatibility(request):
             browser[feature[0]][feature[1]] = feature[2]
 
     return browser
-
-# =============================================================================
-def s3_register_validation():
-    """
-        JavaScript client-side validation for Register form
-        - needed to check for passwords being same, etc
-    """
-
-    T = current.T
-    request = current.request
-    settings = current.deployment_settings
-    s3 = current.response.s3
-    appname = current.request.application
-    auth = current.auth
-
-    # Static Scripts
-    scripts_append = s3.scripts.append
-    if s3.debug:
-        scripts_append("/%s/static/scripts/jquery.validate.js" % appname)
-        scripts_append("/%s/static/scripts/jquery.pstrength.2.1.0.js" % appname)
-        scripts_append("/%s/static/scripts/S3/s3.register_validation.js" % appname)
-    else:
-        scripts_append("/%s/static/scripts/jquery.validate.min.js" % appname)
-        scripts_append("/%s/static/scripts/jquery.pstrength.2.1.0.min.js" % appname)
-        scripts_append("/%s/static/scripts/S3/s3.register_validation.min.js" % appname)
-
-    # Configuration
-    js_global = []
-    js_append = js_global.append
-    if request.cookies.has_key("registered"):
-        # If we have already registered on this site from this PC then the login form is default
-        # .password:last
-        js_append('''S3.password_position=2''')
-    else:
-        # If we haven't already registered on this site from this PC then the registration form is default
-        # .password:first
-        js_append('''S3.password_position=1''')
-
-    if settings.get_auth_registration_mobile_phone_mandatory():
-        js_append('''S3.auth_registration_mobile_phone_mandatory=1''')
-
-    if settings.get_auth_registration_organisation_required():
-        js_append('''S3.get_auth_registration_organisation_required=1''')
-        js_append('''i18n.enter_your_organisation="%s"''' % T("Enter your organization"))
-
-    if request.controller != "admin":
-        if settings.get_auth_registration_organisation_hidden():
-            js_append('''S3.get_auth_registration_hide_organisation=1''')
-
-        # Check for Whitelists
-        table = current.s3db.auth_organisation
-        query = (table.organisation_id != None) & \
-                (table.domain != None)
-        whitelists = current.db(query).select(table.organisation_id,
-                                              table.domain)
-        if whitelists:
-            domains = []
-            domains_append = domains.append
-            for whitelist in whitelists:
-                domains_append("'%s':%s" % (whitelist.domain,
-                                            whitelist.organisation_id))
-            domains = ''','''.join(domains)
-            domains = '''S3.whitelists={%s}''' % domains
-            js_append(domains)
-
-    js_append('''i18n.enter_first_name="%s"''' % T("Enter your first name"))
-    js_append('''i18n.provide_password="%s"''' % T("Provide a password"))
-    js_append('''i18n.repeat_your_password="%s"''' % T("Repeat your password"))
-    js_append('''i18n.enter_same_password="%s"''' % T("Enter the same password as above"))
-    js_append('''i18n.please_enter_valid_email="%s"''' % T("Please enter a valid email address"))
-
-    js_append('''S3.password_min_length=%i''' % settings.get_auth_password_min_length())
-
-    script = '''\n'''.join(js_global)
-    s3.js_global.append(script)
-
-    # Call script after Global config done
-    s3.jquery_ready.append('''s3_register_validation()''')
 
 # =============================================================================
 def s3_filename(filename):
@@ -1423,6 +1345,22 @@ def URL2(a=None, c=None, r=None):
     #other = ""
     url = "/%s/%s" % (application, controller)
     return url
+
+# =============================================================================
+class S3CustomController(object):
+
+    @classmethod
+    def _view(cls, theme, name):
+
+        view = os.path.join(current.request.folder,
+                            "private", "templates", theme, "views", name)
+        try:
+            # Pass view as file not str to work in compiled mode
+            current.response.view = open(view, "rb")
+        except IOError:
+            from gluon.http import HTTP
+            raise HTTP("404", "Unable to open Custom View: %s" % view)
+        return
 
 # =============================================================================
 class S3DateTime(object):

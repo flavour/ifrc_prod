@@ -89,6 +89,27 @@
         // Initial population of dropdown(s)
         if (L0) {
             lx_select(fieldname, 0, L0);
+        } else {
+            // Show the Country row
+            L0_row.show();
+            // Populate with values
+            var values = [];
+            for (var i in l) {
+                v = l[i];
+                if (v['l'] == 0) {
+                    v['i'] = i;
+                    values.push(v);
+                }
+            }
+            values.sort(nameSort);
+            var _id, location, option, selected;
+            var select = $(selector + '_L0');
+            for (var i=0, len=values.length; i < len; i++) {
+                location = values[i];
+                _id = location['i'];
+                option = '<option value="' + _id + '">' + location['n'] + '</option>';
+                select.append(option);
+            }
         }
         if (L1) {
             lx_select(fieldname, 1, L1);
@@ -118,6 +139,7 @@
         } else {
             $(selector + '_map_icon').click(function() {
                 showMap(fieldname);
+                return false;
             });
         }
 
@@ -161,18 +183,48 @@
             $(selector + '_L' + level).val(id);
         } else {
             // Read the selected value from the dropdown
-            id = $(selector + '_L' + level).val();
+            id = parseInt($(selector + '_L' + level).val());
         }
-        //if (level === 0) {
-            // @ToDo: This data structure doesn't exist yet (not required for TLDRMP)
+        if (level === 0) {
             // Set Labels
-            //var h = hdata[id];
-            //$(selector + '_L1__row label').html(h.l1 + ':');
-            //$(selector + '_L2__row label').html(h.l2 + ':');
-            //$(selector + '_L3__row label').html(h.l3 + ':');
-            //$(selector + '_L4__row label').html(h.l4 + ':');
-            //$(selector + '_L5__row label').html(h.l5 + ':');
-        //}
+            var hi = h[id];
+            if (hi == undefined) {
+                // Read the values from server
+                var url = S3.Ap.concat('/gis/hdata/' + id);
+                $.ajax({
+                    async: false,
+                    url: url,
+                    dataType: 'script'
+                }).done(function(data) {
+                    // Copy the elements across
+                    hi = {};
+                    for (var prop in n) {
+                        hi[prop] = n[prop];
+                    }
+                    h[id] =  hi;
+                    // Clear the memory
+                    n = null;
+                }).fail(function(request, status, error) {
+                    if (error == 'UNAUTHORIZED') {
+                        msg = i18n.gis_requires_login;
+                    } else {
+                        msg = request.responseText;
+                    }
+                });
+            }
+            // Use default values as fallback if no value specified
+            var d = h['d'];
+            var label = hi['1'] || d['1'];
+            $(selector + '_L1__row label').html(label + ':');
+            label = hi['2'] || d['2'];
+            $(selector + '_L2__row label').html(label + ':');
+            label = hi['3'] || d['3'];
+            $(selector + '_L3__row label').html(label + ':');
+            label = hi['4'] || d['4'];
+            $(selector + '_L4__row label').html(label + ':');
+            label = hi['5'] || d['5'];
+            $(selector + '_L5__row label').html(label + ':');
+        }
         if (id) {
             // Hide all lower levels
             // & remove their values
@@ -387,24 +439,30 @@
         $(selector + '_address__row').show();
         $(selector + '_postcode__row').show();
 
-        // Listen for changes
-        $(selector + '_address').change(function() {
-            var real_input = $(selector);
-            var manually_geocoded = real_input.data('manually_geocoded');
-            if (manually_geocoded) {
-                // Show a button to allow the user to do a new automatic Geocode
-                $(selector + '_geocode button').removeClass('hide')
-                                               .show()
-                                               .click(function() {
+        var geocode_button = $(selector + '_geocode button');
+        if (geocode_button.length) {
+            // Listen for changes
+            $(selector + '_address').change(function() {
+                var real_input = $(selector);
+                var manually_geocoded = real_input.data('manually_geocoded');
+                if (manually_geocoded) {
+                    // Show a button to allow the user to do a new automatic Geocode
+                    $(selector + '_geocode .geocode_success').hide();
+                    $(selector + '_geocode .geocode_fail').hide();
+                    geocode_button.removeClass('hide')
+                                  .show()
+                                  .click(function() {
+                        $(this).hide();
+                        geocode(fieldname);
+                        resetHidden(fieldname);
+                    });
+                } else {
+                    // Do an Automatic Geocode
                     geocode(fieldname);
-                    resetHidden(fieldname);
-                });
-            } else {
-                // Do an Automatic Geocode
-                geocode(fieldname);
-            }
-            resetHidden(fieldname);
-        });
+                }
+                resetHidden(fieldname);
+            });
+        }
     }
 
     /**
@@ -545,15 +603,19 @@
                     $(selector + '_L1').val(data.L1);
                 }
                 if (data.L2) {
+                    $(selector + '_L2_input').val(data.L2);
                     $(selector + '_L2').val(data.L2);
                 }
                 if (data.L3) {
+                    $(selector + '_L3_input').val(data.L3);
                     $(selector + '_L3').val(data.L3);
                 }
                 if (data.L4) {
+                    $(selector + '_L4_input').val(data.L4);
                     $(selector + '_L4').val(data.L4);
                 }
                 if (data.L5) {
+                    $(selector + '_L5_input').val(data.L5);
                     $(selector + '_L5').val(data.L5);
                 }
                 // Notify results
@@ -563,7 +625,7 @@
                 // Notify results
                 throbber.hide();
                 fail.removeClass('hide').show();
-                s3_debug(data);
+                //s3_debug(data);
             }
         }).fail(function(request, status, error) {
             if (error == 'UNAUTHORIZED') {
@@ -669,7 +731,7 @@
             for (var i=0, len=controls.length; i < len; i++) {
                 if (controls[i].CLASS_NAME == 'OpenLayers.Control.DrawFeature') {
                     control = controls[i];
-                    return false;
+                    break;
                 }
             }
             if (control) {

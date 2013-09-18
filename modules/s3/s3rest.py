@@ -29,6 +29,7 @@
 
 import datetime
 import os
+import re
 import sys
 import time
 import types
@@ -64,6 +65,8 @@ from gluon.tools import callback
 
 from s3resource import S3Resource
 from s3utils import S3MarkupStripper, s3_unicode
+
+REGEX_FILTER = re.compile(".+\..+|.*\(.+\).*")
 
 DEBUG = False
 if DEBUG:
@@ -138,10 +141,6 @@ class S3RequestManager(object):
         # Errors
         self.error = None
 
-        # Toolkits
-        self.audit = current.s3_audit
-        self.auth = auth = current.auth
-
         # Register
         current.manager = self
 
@@ -153,7 +152,7 @@ class S3RequestManager(object):
         self.search = S3Method()
 
         # Hooks
-        self.permit = auth.s3_has_permission
+        self.permit = current.auth.s3_has_permission
         self.messages = None
         self.import_prep = None
         self.log = None
@@ -267,12 +266,17 @@ class S3RequestManager(object):
                         if hasattr(r, "other") and \
                             hasattr(r.other, "set_self_id"):
                             r.other.set_self_id(self_id)
-            try:
-                value, error = field.validate(value)
-            except:
-                return (None, None)
+
+            if not hasattr(field, "validate"):
+                # Virtual Field
+                return (value, None)
             else:
-                return (value, error)
+                try:
+                    value, error = field.validate(value)
+                except:
+                    return (None, None)
+                else:
+                    return (value, error)
 
     # -------------------------------------------------------------------------
     def represent(self, field,
@@ -479,7 +483,7 @@ class S3Request(object):
 
         # Attached files
         self.files = Storage()
-
+        
         # Allow override of controller/function
         self.controller = c or self.controller
         self.function = f or self.function
@@ -487,14 +491,14 @@ class S3Request(object):
             self.function, ext = self.function.split(".", 1)
             if extension is None:
                 extension = ext
-        auth = manager.auth
         if c or f:
+            auth = current.auth
             if not auth.permission.has_permission("read",
                                                   c=self.controller,
                                                   f=self.function):
                 auth.permission.fail()
 
-        # Allow override of request attributes
+        # Allow override of request args/vars
         if args is not None:
             if isinstance(args, (list, tuple)):
                 self.args = args
@@ -515,7 +519,8 @@ class S3Request(object):
         if get_vars is None and post_vars is None and vars is not None:
             self.vars = vars
             self.get_vars = vars
-            self.post_vars = dict()
+            self.post_vars = Storage()
+            
         self.extension = extension or current.request.extension
         self.http = http or current.request.env.request_method
 
@@ -1544,25 +1549,23 @@ class S3Request(object):
         return s3_request(r=self, **args)
 
     # -------------------------------------------------------------------------
-    def __getattr__(self, name):
+    def __getattr__(self, key):
         """
-            Called upon r.<name>:
-                - returns the value of the attribute
-                - falls back to current.request if the attribute is not
-                  defined here.
-                This allows to seamlessly replace web2py's request object
-                with this instance, and to override certain attributes of it.
-
-            @param name: the attribute name
+            Called upon S3Request.<key> - looks up the value for the <key>
+            attribute. Falls back to current.request if the attribute is
+            not defined in this S3Request.
+            
+            @param key: the key to lookup
         """
 
-        request = current.request
-        if name in self.__dict__:
-            return self.__dict__[name]
-        elif name in (request or {}):
-            return request[name]
-        else:
+        if key in self.__dict__:
+            return self.__dict__[key]
+            
+        sentinel = object()
+        value = getattr(current.request, key, sentinel)
+        if value is sentinel:
             raise AttributeError
+        return value
 
     # -------------------------------------------------------------------------
     def transformable(self, method=None):
@@ -2254,7 +2257,8 @@ class S3Method(object):
             @param vars: the URL vars as dict
         """
 
-        return dict([(k, v) for k, v in vars.items() if "." not in k])
+        return Storage((k, v) for k, v in vars.iteritems()
+                              if not REGEX_FILTER.match(k))
 
     # -------------------------------------------------------------------------
     @staticmethod

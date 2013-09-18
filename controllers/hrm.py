@@ -30,7 +30,8 @@ def index():
 def human_resource():
     """
         HR Controller
-        - combined (unused, except for Imports)
+        - combined
+        Used for Imports and S3AddPersonWidget2
     """
 
     tablename = "hrm_human_resource"
@@ -41,7 +42,7 @@ def human_resource():
     s3.filter = (_type == 1)
 
     def prep(r):
-        if r.method == "form":
+        if r.method in ("form", "lookup"):
             return True
         if r.interactive:
             if r.method == "create" and not r.component:
@@ -247,7 +248,7 @@ def person():
     if settings.has_module("asset"):
         # Assets as component of people
         s3db.add_component("asset_asset",
-                            pr_person="assigned_to_id")
+                           pr_person="assigned_to_id")
         # Edits should always happen via the Asset Log
         # @ToDo: Allow this method too, if we can do so safely
         configure("asset_asset",
@@ -255,22 +256,23 @@ def person():
                   editable = False,
                   deletable = False)
 
-    group = request.get_vars.get("group", "staff")
-    hr_id = request.get_vars.get("human_resource.id", None)
+    get_vars = request.get_vars
+    group = get_vars.get("group", "staff")
+    hr_id = get_vars.get("human_resource.id", None)
     if not str(hr_id).isdigit():
         hr_id = None
 
     # Configure human resource table
     table = s3db.hrm_human_resource
     table.type.default = 1
-    request.get_vars.update(xsltmode="staff")
+    get_vars["xsltmode"] = "staff"
     if hr_id:
         hr = db(table.id == hr_id).select(table.type,
                                           limitby=(0, 1)).first()
         if hr:
             group = hr.type == 2 and "volunteer" or "staff"
             # Also inform the back-end of this finding
-            request.get_vars["group"] = group
+            get_vars["group"] = group
 
     # Configure person table
     table = db.pr_person
@@ -319,7 +321,7 @@ def person():
                 title_upload = T("Import Staff"),
                 title_display = T("Staff Member Details"),
                 title_update = T("Staff Member Details")
-            )
+                )
     # Upload for configuration (add replace option)
     s3.importerPrep = lambda: dict(ReplaceOption=T("Remove existing data before import"))
 
@@ -385,6 +387,7 @@ def person():
 
                 # Organisation Dependent Fields
                 set_org_dependent_field = settings.set_org_dependent_field
+                set_org_dependent_field("pr_person", "middle_name")
                 set_org_dependent_field("pr_person_details", "father_name")
                 set_org_dependent_field("pr_person_details", "mother_name")
                 set_org_dependent_field("pr_person_details", "affiliations")
@@ -431,8 +434,8 @@ def person():
 
             resource = r.resource
             if mode is not None:
-                r.resource.build_query(id=s3_logged_in_person())
-            elif r.method != "deduplicate":
+                resource.build_query(id=s3_logged_in_person())
+            elif r.method not in ("deduplicate", "search_ac"):
                 if not r.id and not hr_id:
                     # pre-action redirect => must retain prior errors
                     if response.error:
@@ -495,7 +498,7 @@ def person():
                                                   ],
                                 # Better in the native person controller:
                                 deduplicate="",
-                               )
+                                )
     return output
 
 # -----------------------------------------------------------------------------
@@ -886,10 +889,9 @@ def staff_for_site():
         append = result.append
         for row in rows:
             id = row.hrm_human_resource.id
-            append({
-                    "id"   : id,
+            append({"id"   : id,
                     "name" : s3_fullname(row.pr_person)
-                })
+                    })
         result = json.dumps(result)
 
     response.headers["Content-Type"] = "application/json"

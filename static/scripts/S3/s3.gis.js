@@ -142,7 +142,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                 strategy.features = layer.features;
                 // Re-Cluster
                 strategy.recluster();
-                return false;
+                break;
             }
         }
         // Disable this event
@@ -211,11 +211,21 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
 
     // Build the OpenLayers map
     var addMap = function(map_id, options) {
+
+        if (i18n.gis_name_map) {
+            // prevent the savePanel clickout handler from getting swallowed by the map
+            var fallThrough = true;
+        } else {
+            // Keep Defaults where we can
+            var fallThrough = false;
+        }
+
         var map_options = {
             // We will add these ourselves later for better control
             controls: [],
             displayProjection: proj4326,
             projection: options.projection_current,
+            fallThrough: fallThrough,
             // Use Manual stylesheet download (means can be done in HEAD to not delay pageload)
             theme: null,
             // This means that Images get hidden by scrollbars
@@ -247,20 +257,6 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
             this.s3.plugins.push(plugin);
         }
 
-        map.showThrobber = function(id) {
-            // @ToDo: Allow separate throbbers / map
-            $('.layer_throbber').show().removeClass('hide');
-            this.s3.layers_loading.pop(id); // we never want 2 pushed
-            this.s3.layers_loading.push(id);
-        }
-
-        map.hideThrobber = function(id) {
-            this.s3.layers_loading.pop(id);
-            if (this.s3.layers_loading.length === 0) {
-                $('.layer_throbber').hide().addClass('hide');
-            }
-        }
-
         // Layers
         addLayers(map);
 
@@ -277,8 +273,9 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
 
         var mapPanel = new GeoExt.MapPanel({
             //cls: 'mappanel',
-            height: options.map_height,
-            width: options.map_width,
+            // Ignored
+            //height: options.map_height,
+            //width: options.map_width,
             xtype: 'gx_mappanel',
             map: map,
             center: options.center,
@@ -294,13 +291,17 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         portal.map = mapPanel;
         s3.portal = portal;
 
-        if (i18n.gis_legend || options.layers_wms) {
+        if (options.legend || options.layers_wms) {
             var layers = map.layers;
             var mp_items = mapPanel.layers.data.items;
             for (var i = 0; i < layers.length; i++) {
                 // Ensure that legendPanel knows about the Markers for our Feature layers
                 if (layers[i].legendURL) {
                     mp_items[i].data.legendURL = layers[i].legendURL;
+                }
+                // Add any Custom Legend Titles
+                if (layers[i].legendTitle) {
+                    mp_items[i].data.title = layers[i].legendTitle;
                 }
                 // Ensure that mapPanel knows about whether our WMS layers are queryable
                 if (layers[i].queryable) {
@@ -327,21 +328,27 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         }
 
         // Legend Panel
-        if (i18n.gis_legend) {
-           var legendPanel = new GeoExt.LegendPanel({
-                //cls: 'legendpanel',
-                title: i18n.gis_legend,
-                defaults: {
-                    //labelCls: 'mylabel'
-                    //style: 'padding:4px'
-                },
-                //bodyStyle: 'padding:4px',
-                autoScroll: true,
-                collapsible: true,
-                collapseMode: 'mini',
-                lines: false
-            });
-            west_panel_items.push(legendPanel);
+        if (options.legend) {
+            if (options.legend == 'float') {
+                // Floating
+                addLegendPanel(map); 
+            } else {
+                // Integrated in West Panel
+                var legendPanel = new GeoExt.LegendPanel({
+                    //cls: 'legendpanel',
+                    title: i18n.gis_legend,
+                    defaults: {
+                        //labelCls: 'mylabel'
+                        //style: 'padding:4px'
+                    },
+                    //bodyStyle: 'padding:4px',
+                    autoScroll: true,
+                    collapsible: true,
+                    collapseMode: 'mini'
+                    //lines: false
+                });
+                west_panel_items.push(legendPanel);
+            }
         }
 
         // Plugins
@@ -370,7 +377,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                     this.on('checkchange', function(event, checked) {
                         if (!checked) {
                             // Cancel any associated throbber
-                            map.hideThrobber(this.layer.s3_layer_id);
+                            hideThrobber(this.layer);
                         }
                     });
                 } else {
@@ -380,7 +387,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                             this.on('checkchange', function(event, checked) {
                                 if (!checked) {
                                     // Cancel any associated throbber
-                                    map.hideThrobber(this.layer.s3_layer_id);
+                                    hideThrobber(this.layer);
                                 }
                             });
                         }
@@ -403,13 +410,15 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         var mapPanelContainer = addMapPanelContainer(map);
 
         var mapWin = new Ext.Panel({
-            renderTo: options.renderTo,
-            autoScroll: true,
             //cls: 'gis-map-panel',
+            renderTo: options.renderTo,
+            //autoScroll: true, // Having this on adds scrollbars which make map navigation awkward as the map size is always large enough to trigger these :/
+                                // Having this off means the map is completely unresponsive
+            autoWidth: true,
             //maximizable: true,
             titleCollapse: true,
             height: options.map_height,
-            width: options.map_width,
+            //width: options.map_width,
             layout: 'border',
             items: [
                 westPanelContainer,
@@ -474,24 +483,44 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         var west_collapsed = s3.options.west_collapsed || false;
 
         var mapWestPanel = new Ext.Panel({
-            cls: 'map_tools',
+            //cls: 'map_tools',
             header: false,
             border: false,
             split: true,
             items: s3.west_panel_items
         });
+
+        if (Ext.isChrome) {
+            // Chrome is buggy with autoWidth :/
+            autoWidth = false;
+        } else {
+            autoWidth = true;
+        }
+
         var westPanelContainer = new Ext.Panel({
             region: 'west',
-            header: false,
+            //header: true,
+            header: false, // Can't collapse Panel if this is hidden unless we create custom control
             border: true,
+            //autoScroll: true,
+            autoWidth: autoWidth,
             width: 250,
-            autoScroll: true,
             collapsible: true,
             collapseMode: 'mini',
             collapsed: west_collapsed,
             items: [
                 mapWestPanel
-            ]
+            ]/*, @ToDo: Provide custom control to collapse westPanel without a header
+            listeners: {
+                collapse: function(panel) {
+                    console.log('collapsed');
+                    //'<div class="x-layout-cmini-east x-layout-mini"></div>'
+                    //onClick() { toggleCollapse()};
+                },
+                expand: function(panel) {
+                    console.log('expanded');
+                }
+            }*/
         });
         // Pass to Global Scope for s3.gis.fullscreen.js
         s3.westPanelContainer = westPanelContainer;
@@ -524,6 +553,9 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                     var active = false;
                 }
                 addPolygonControl(map, null, active, true);
+            }
+            if (options.save) {
+                addSavePanel(map);
             }
         }
 
@@ -565,53 +597,134 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
     // Add LayerTree (to be called after the layers are added)
     var addLayerTree = function(map) {
 
-        var layerStore = map.s3.mapPanel.layers;
+        var s3 = map.s3;
+        var options = s3.options;
+        if (options.hide_base) {
+            var base = false;
+        } else {
+            var base = true;
+        }
+        if (options.hide_overlays) {
+            var overlays = false;
+        } else {
+            var overlays = true;
+        }
+        // @ToDo: Make this a per-Folder config
+        if (options.folders_closed) {
+            var expanded = false;
+        } else {
+            var expanded = true;
+        }
+        // @ToDo: Make this a per-Folder config
+        if (options.folders_radio) {
+            var folders_radio = true;
+        } else {
+            var folders_radio = false;
+        }
+        if (options.wms_browser_url || (options.legend && options.legend != 'float')) {
+            var collapsible = true;
+        } else {
+            var collapsible = false;
+        }
 
-        // Default Folder for Base Layers
-        var layerTreeBase = {
-            text: i18n.gis_base_layers,
-            nodeType: 'gx_baselayercontainer',
-            layerStore: layerStore,
-            loader: {
-                filter: function(record) {
-                    var layer = record.getLayer();
-                    return layer.displayInLayerSwitcher === true &&
-                           layer.isBaseLayer === true &&
-                           (layer.dir === undefined || layer.dir === '');
+        var layerStore = s3.mapPanel.layers;
+        var nodesArr = [];
+
+        var leaf_listeners = {
+            click: function(node) {
+                // Provide a bigger click target area, by allowing click on layer name as well as checkbox/radio
+                if (node.attributes.checked) {
+                    node.ui.checkbox.checked = false;
+                    node.fireEvent('checkchange', node);
+                } else {
+                    // Can't simply do this as otherwise it refires the Event with the checkbox changed!
+                    //node.ui.toggleCheck();
+                    node.ui.checkbox.checked = true;
+                    node.layer.setVisibility(true);
                 }
-            },
-            leaf: false,
-            expanded: true
+            }
         };
 
-        // Default Folder for Overlays
-        var layerTreeOverlays = {
-            text: i18n.gis_overlays,
-            nodeType: 'gx_overlaylayercontainer',
-            layerStore: layerStore,
-            loader: {
-                filter: function(record) {
-                    var layer = record.getLayer();
-                    return layer.displayInLayerSwitcher === true &&
-                           layer.isBaseLayer === false &&
-                           (layer.dir === undefined || layer.dir === '');
-                }
-            },
-            leaf: false,
-            expanded: true
+        // @ToDo: Run this when clicking on + as well as title
+        var folder_listeners = {
+            click: function(node) {
+                // Trigger a layout update on the westPanelContainer
+                var westPanelContainer = s3.westPanelContainer;
+                westPanelContainer.fireEvent('collapse');
+                window.setTimeout(function() {
+                    westPanelContainer.fireEvent('expand')
+                }, 300);
+            }
         };
 
-        var nodesArr = [ layerTreeBase, layerTreeOverlays ];
+        if (base) {
+            // Default Folder for Base Layers
+            var layerTreeBase = {
+                text: i18n.gis_base_layers,
+                nodeType: 'gx_baselayercontainer',
+                layerStore: layerStore,
+                loader: {
+                    baseAttrs: {
+                        listeners: leaf_listeners
+                    },
+                    filter: function(record) {
+                        var layer = record.getLayer();
+                        return layer.displayInLayerSwitcher === true &&
+                               layer.isBaseLayer === true &&
+                               (layer.dir === undefined || layer.dir === '');
+                    }
+                },
+                leaf: false,
+                listeners: folder_listeners,
+                singleClickExpand: true,
+                expanded: expanded
+            };
+            nodesArr.push(layerTreeBase)
+        }
+
+        if (overlays) {
+            // Default Folder for Overlays
+            var layerTreeOverlays = {
+                text: i18n.gis_overlays,
+                nodeType: 'gx_overlaylayercontainer',
+                layerStore: layerStore,
+                loader: {
+                    baseAttrs: {
+                        listeners: leaf_listeners
+                    },
+                    filter: function(record) {
+                        var layer = record.getLayer();
+                        return layer.displayInLayerSwitcher === true &&
+                               layer.isBaseLayer === false &&
+                               (layer.dir === undefined || layer.dir === '');
+                    }
+                },
+                leaf: false,
+                listeners: folder_listeners,
+                singleClickExpand: true,
+                expanded: expanded
+            };
+            nodesArr.push(layerTreeOverlays)
+        }
 
         // User-specified Folders
         var dirs = map.s3.dirs;
+        var baseAttrs, child, folder;
         for (var i = 0; i < dirs.length; i++) {
-            var folder = dirs[i];
-            var child = {
+            folder = dirs[i];
+            baseAttrs = {
+                listeners: leaf_listeners
+            }
+            // @ToDo: Allow per-folder configuration
+            if (folders_radio) {
+                baseAttrs['checkedGroup'] = dirs[i];
+            }
+            child = {
                 text: dirs[i],
                 nodeType: 'gx_layercontainer',
                 layerStore: layerStore,
                 loader: {
+                    baseAttrs: baseAttrs,
                     filter: (function(folder) {
                         return function(read) {
                             if (read.data.layer.dir !== 'undefined')
@@ -620,7 +733,9 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                     })(folder)
                 },
                 leaf: false,
-               expanded: true
+                listeners: folder_listeners,
+                singleClickExpand: true,
+                expanded: expanded
             };
             nodesArr.push(child);
         }
@@ -638,18 +753,31 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         }
 
         var layerTree = new Ext.tree.TreePanel({
-            //cls: 'treepanel',
             title: i18n.gis_layers,
             loader: new Ext.tree.TreeLoader({applyLoader: false}),
             root: treeRoot,
             rootVisible: false,
             split: true,
             autoScroll: true,
-            collapsible: true,
+            collapsible: collapsible,
             collapseMode: 'mini',
             lines: false,
             tbar: tbar,
-            enableDD: true
+            enableDD: false
+        });
+        new Ext.tree.TreeSorter(layerTree, {
+            sortType: function(value, node) {
+                if (node.attributes.nodeType == 'gx_baselayercontainer') {
+                    // Base layers always first
+                    return ' ';
+                } else if (node.attributes.nodeType == 'gx_overlaylayercontainer') {
+                    // Default Overlays always second
+                    return '!';
+                } else {
+                    // Alpha-sort the rest
+                    return node.text;
+                }
+            }
         });
 
         // Add/Remove Layers
@@ -712,6 +840,44 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
     // @ToDo: Rewrite with layers as inheriting classes
 
     /**
+     * Callback for all layers on 'loadstart'
+     * - show Throbber
+     */
+    var layer_loadstart = function(event) {
+        var layer = event.object;
+        var s3 = layer.map.s3;
+        $('#' + s3.id + ' .layer_throbber').show().removeClass('hide');
+        var layer_id = layer.s3_layer_id;
+        var layers_loading = s3.layers_loading;
+        layers_loading.pop(layer_id); // we never want 2 pushed
+        layers_loading.push(layer_id);
+    }
+
+    /**
+     * Callback for all layers on 'loadend'
+     * - cancel Throbber (unless other layers have a lock on it still)
+     */
+    var hideThrobber = function(layer) {
+        var s3 = layer.map.s3;
+        var layers_loading = s3.layers_loading;
+        layers_loading.pop(layer.s3_layer_id);
+        if (layers_loading.length === 0) {
+            $('#' + s3.id + ' .layer_throbber').hide().addClass('hide');
+        }
+    }
+    var layer_loadend = function(event) {
+        hideThrobber(event.object);
+    }
+
+    /**
+     * Callback for all layers on 'visibilitychanged'
+     * - show legendPanel if not displayed
+     */
+    var layer_visibilitychanged = function(event) {
+        showLegend(event.object.map);
+    }
+
+    /**
      * Add Layers from the Catalogue
      * - private function called from addMap()
      *
@@ -736,11 +902,11 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         s3.layers_loading = [];
 
         // @ToDo: Strategy to allow common clustering of multiple layers
-        s3.common_cluster_strategy = new OpenLayers.Strategy.AttributeClusterMultiple({
-            attribute: 'colour',
-            distance: cluster_distance_default,
-            threshold: cluster_threshold_default
-        })
+        //s3.common_cluster_strategy = new OpenLayers.Strategy.AttributeClusterMultiple({
+        //    attribute: 'colour',
+        //    distance: cluster_distance_default,
+        //    threshold: cluster_threshold_default
+        //})
 
         var i;
         /* Base Layers */
@@ -848,11 +1014,6 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         }
         // KML
         if (options.layers_kml) {
-            map.s3.format_kml = new OpenLayers.Format.KML({
-                extractStyles: true,
-                extractAttributes: true,
-                maxDepth: 2
-            });
             var layers_kml = options.layers_kml;
             for (i = layers_kml.length; i > 0; i--) {
                 addKMLLayer(map, layers_kml[i - 1]);
@@ -1115,6 +1276,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
             var cluster_attribute = layer.cluster_attribute;
         } else {
             // Default to global settings
+            //var cluster_attribute = cluster_attribute_default;
             var cluster_attribute = 'colour';
         }
         if (undefined != layer.cluster_distance) {
@@ -1146,11 +1308,68 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
             // Feature Layers
             var layer_type = 'feature';
         }
+        var legendTitle = '<div class="gis_layer_legend"><div class="gis_legend_title">' + name + '</div>';
+        if (undefined != layer.desc) {
+            legendTitle += '<div class="gis_legend_desc">' + layer.desc + '</div>';
+        }
+        if ((undefined != layer.src) || (undefined != layer.src_url)) {
+            var source = '<div class="gis_legend_src">';
+            if (undefined != layer.src_url) {
+                source += '<a href="' + layer.src_url + '" target="_blank">'
+                if (undefined != layer.src) {
+                    source += layer.src;
+                } else {
+                    source += layer.src_url;
+                }
+                source += '</a>';
+            } else {
+                source += layer.src;
+            }
+            source += '</div>';
+            legendTitle += source;
+        }
+        legendTitle += '</div>';
 
         // Styling
         var response = createStyleMap(map, layer);
         var featureStyleMap = response[0];
         var marker_url = response[1];
+
+        // Strategies
+        var strategies = [
+            // Need to be uniquely instantiated
+            new OpenLayers.Strategy.BBOX({
+                // load features for a wider area than the visible extent to reduce calls
+                ratio: 1.5
+                // don't fetch features after every resolution change
+                //resFactor: 1
+            })
+        ]
+        if (refresh) {
+            strategies.push(new OpenLayers.Strategy.Refresh({
+                force: true,
+                interval: refresh * 1000 // milliseconds
+                // Close any open Popups to prevent them getting orphaned
+                // - annoying to have this happen automatically, so we handle it in onPopupClose() instead
+                //refresh: function() {
+                //    if (this.layer && this.layer.refresh) {
+                //        while (this.layer.map.popups.length) {
+                //            this.layer.map.removePopup(this.layer.map.popups[0]);
+                //        }
+                //    this.layer.refresh({force: this.force});
+                //    }
+                //}
+            }));
+        }
+        if (cluster_threshold) {
+            // Common Cluster Strategy for all layers
+            //map.s3.common_cluster_strategy
+            strategies.push(new OpenLayers.Strategy.AttributeCluster({
+                attribute: cluster_attribute,
+                distance: cluster_distance,
+                threshold: cluster_threshold
+            }))
+        }
 
         // Instantiate Layer
         var geojsonLayer = new OpenLayers.Layer.Vector(
@@ -1161,36 +1380,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                     url: url,
                     format: format_geojson
                 }),
-                strategies: [
-                    // Need to be uniquely instantiated
-                    new OpenLayers.Strategy.BBOX({
-                        // load features for a wider area than the visible extent to reduce calls
-                        ratio: 1.5
-                        // don't fetch features after every resolution change
-                        //resFactor: 1
-                    }),
-                    new OpenLayers.Strategy.Refresh({
-                        force: true,
-                        interval: refresh * 1000 // milliseconds
-                        // Close any open Popups to prevent them getting orphaned
-                        // - annoying to have this happen automatically, so we handle it in onPopupClose() instead
-                        //refresh: function() {
-                        //    if (this.layer && this.layer.refresh) {
-                        //        while (this.layer.map.popups.length) {
-                        //            this.layer.map.removePopup(this.layer.map.popups[0]);
-                        //        }
-                        //    this.layer.refresh({force: this.force});
-                        //    }
-                        //}
-                    }),
-                    // Common Cluster Strategy for all layers
-                    //map.s3.common_cluster_strategy
-                    new OpenLayers.Strategy.AttributeCluster({
-                        attribute: cluster_attribute,
-                        distance: cluster_distance,
-                        threshold: cluster_threshold
-                    })
-                ],
+                strategies: strategies,
                 // This gets picked up after mapPanel instantiates & copied to it's layerRecords
                 legendURL: marker_url,
                 styleMap: featureStyleMap,
@@ -1200,16 +1390,15 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                 s3_style: layer.style
             }
         );
+        // This gets picked up after mapPanel instantiates & copied to it's layerRecords
+        geojsonLayer.legendTitle = legendTitle;
         geojsonLayer.setVisibility(visibility);
         geojsonLayer.events.on({
             'featureselected': onFeatureSelect,
             'featureunselected': onFeatureUnselect,
-            'loadstart': function(event) {
-                map.showThrobber(event.object.s3_layer_id);
-            },
-            'loadend': function(event) {
-                map.hideThrobber(event.object.s3_layer_id);
-            }
+            'loadstart': layer_loadstart,
+            'loadend': layer_loadend,
+            'visibilitychanged': layer_visibilitychanged  
         });
         map.addLayer(geojsonLayer);
         // Ensure Highlight & Popup Controls act on this layer
@@ -1480,12 +1669,9 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         gpxLayer.events.on({
             'featureselected': onFeatureSelect,
             'featureunselected': onFeatureUnselect,
-            'loadstart': function(event) {
-                map.showThrobber(event.object.s3_layer_id);
-            },
-            'loadend': function(event) {
-                map.hideThrobber(event.object.s3_layer_id);
-            }
+            'loadstart': layer_loadstart,
+            'loadend': layer_loadend,
+            'visibilitychanged': layer_visibilitychanged
         });
         map.addLayer(gpxLayer);
         // Ensure Highlight & Popup Controls act on this layer
@@ -1539,10 +1725,49 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
             var cluster_threshold = cluster_threshold_default;
         }
 
-        // Styling
+        // Styling: Base
         var response = createStyleMap(map, layer);
         var featureStyleMap = response[0];
-        var marker_url = response[1];
+        //var marker_url = response[1];
+
+        // Needs to be uniquely instantiated
+        var format = new OpenLayers.Format.KML({
+            extractStyles: true,
+            extractAttributes: true,
+            maxDepth: 2
+        });
+
+        // Strategies
+        // Need to be uniquely instantiated
+        var strategies = [
+            new OpenLayers.Strategy.Fixed()
+        ]
+        if (refresh) {
+            strategies.push(new OpenLayers.Strategy.Refresh({
+                force: true,
+                interval: refresh * 1000 // milliseconds
+                // Close any open Popups to prevent them getting orphaned
+                // - annoying to have this happen automatically, so we handle it in onPopupClose() instead
+                //refresh: function() {
+                //    if (this.layer && this.layer.refresh) {
+                //        while (this.layer.map.popups.length) {
+                //            this.layer.map.removePopup(this.layer.map.popups[0]);
+                //        }
+                //    this.layer.refresh({force: this.force});
+                //    }
+                //}
+            }));
+        }
+        if (cluster_threshold) {
+            // Common Cluster Strategy for all layers
+            //map.s3.common_cluster_strategy
+            //strategies.push(new OpenLayers.Strategy.AttributeCluster({
+            strategies.push(new OpenLayers.Strategy.Cluster({
+                //attribute: cluster_attribute,
+                distance: cluster_distance,
+                threshold: cluster_threshold
+            }))
+        }
 
         var kmlLayer = new OpenLayers.Layer.Vector(
             name, {
@@ -1550,22 +1775,13 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                 projection: proj4326,
                 protocol: new OpenLayers.Protocol.HTTP({
                     url: url,
-                    format: s3.format_kml
+                    format: format
                 }),
-                // Need to be uniquely instantiated
-                strategies: [
-                    new OpenLayers.Strategy.Fixed(),
-                    new OpenLayers.Strategy.Cluster({
-                        distance: cluster_distance,
-                        threshold: cluster_threshold
-                    }),
-                    new OpenLayers.Strategy.Refresh({
-                        force: true,
-                        interval: refresh * 1000 // milliseconds
-                    })
-                ],
+                strategies: strategies,
                 // This gets picked up after mapPanel instantiates & copied to it's layerRecords
-                legendURL: marker_url,
+                // This is just fallback style, so use VectorLegend.js instead
+                // @ToDo: Get that working with KML's dynamic styles
+                //legendURL: marker_url,
                 styleMap: featureStyleMap,
                 // This is used to Save State
                 s3_layer_id: layer.id,
@@ -1580,12 +1796,9 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         kmlLayer.events.on({
             'featureselected': onFeatureSelect,
             'featureunselected': onFeatureUnselect,
-            'loadstart': function(event) {
-                map.showThrobber(event.object.s3_layer_id);
-            },
-            'loadend': function(event) {
-                map.hideThrobber(event.object.s3_layer_id);
-            }
+            'loadstart': layer_loadstart,
+            'loadend': layer_loadend,
+            'visibilitychanged': layer_visibilitychanged
         });
         map.addLayer(kmlLayer);
         // Ensure Highlight & Popup Controls act on this layer
@@ -1690,12 +1903,9 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
             layer.events.on({
                 'featureselected': layer.onSelect,
                 'featureunselected': layer.onUnselect,
-                'loadstart': function(event) {
-                    map.showThrobber(event.object.s3_layer_id);
-                },
-                'loadend': function(event) {
-                    map.hideThrobber(event.object.s3_layer_id);
-                }
+                'loadstart': layer_loadstart,
+                'loadend': layer_loadend,
+                'visibilitychanged': layer_visibilitychanged
             });
             map.addLayer(layer);
             // Ensure Highlight & Popup Controls act on this layer
@@ -1714,12 +1924,9 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
             layer.events.on({
                 'featureselected': layer.onSelect,
                 'featureunselected': layer.onUnselect,
-                'loadstart': function(event) {
-                    map.showThrobber(event.object.s3_layer_id);
-                },
-                'loadend': function(event) {
-                    map.hideThrobber(event.object.s3_layer_id);
-                }
+                'loadstart': layer_loadstart,
+                'loadend': layer_loadend,
+                'visibilitychanged': layer_visibilitychanged
             });
             map.addLayer(layer);
             // Ensure Highlight & Popup Controls act on this layer
@@ -1792,8 +1999,16 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         }
         var title = layer.title;
         var featureType = layer.featureType;
-        var featureNS = layer.featureNS;
-        var schema = layer.schema;
+        if (undefined != layer.featureNS) {
+            var featureNS = layer.featureNS;
+        } else {
+            var featureNS = null;
+        }
+        if (undefined != layer.schema) {
+            var schema = layer.schema;
+        } else {
+            var schema = null;
+        }
         //var editable = layer.editable;
         if (undefined != layer.version) {
             var version = layer.version;
@@ -1821,6 +2036,13 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
             // Default folder
             var dir = '';
         }
+        if (undefined != layer.cluster_attribute) {
+            var cluster_attribute = layer.cluster_attribute;
+        } else {
+            // Default to global settings
+            //var cluster_attribute = cluster_attribute_default;
+            var cluster_attribute = 'colour';
+        }
         if (undefined != layer.cluster_distance) {
             var cluster_distance = layer.cluster_distance;
         } else {
@@ -1831,6 +2053,50 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         } else {
             var cluster_threshold = cluster_threshold_default;
         }
+        if (undefined != layer.refresh) {
+            var refresh = layer.refresh;
+        } else {
+            // Default to Off as 'External Source' which is uneditable
+            var refresh = false;
+        }
+        // Strategies
+        var strategies = [
+            // Need to be uniquely instantiated
+            new OpenLayers.Strategy.BBOX({
+                // load features for a wider area than the visible extent to reduce calls
+                ratio: 1.5
+                // don't fetch features after every resolution change
+                //resFactor: 1
+            })
+        ]
+        if (refresh) {
+            strategies.push(new OpenLayers.Strategy.Refresh({
+                force: true,
+                interval: refresh * 1000 // milliseconds
+                // Close any open Popups to prevent them getting orphaned
+                // - annoying to have this happen automatically, so we handle it in onPopupClose() instead
+                //refresh: function() {
+                //    if (this.layer && this.layer.refresh) {
+                //        while (this.layer.map.popups.length) {
+                //            this.layer.map.removePopup(this.layer.map.popups[0]);
+                //        }
+                //    this.layer.refresh({force: this.force});
+                //    }
+                //}
+            }));
+        }
+        if (cluster_threshold) {
+            // Common Cluster Strategy for all layers
+            //map.s3.common_cluster_strategy
+            strategies.push(new OpenLayers.Strategy.AttributeCluster({
+                attribute: cluster_attribute,
+                distance: cluster_distance,
+                threshold: cluster_threshold
+            }))
+        }
+        // @ToDo: if Editable
+        //strategies.push(saveStrategy);
+
         if (undefined != layer.projection) {
             var projection = layer.projection;
             var srsName = 'EPSG:' + projection;
@@ -1848,6 +2114,28 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
             // Needed for WFS-T
             schema: schema
         });
+
+        var legendTitle = '<div class="gis_layer_legend"><div class="gis_legend_title">' + name + '</div>';
+        if (undefined != layer.desc) {
+            legendTitle += '<div class="gis_legend_desc">' + layer.desc + '</div>';
+        }
+        if ((undefined != layer.src) || (undefined != layer.src_url)) {
+            var source = '<div class="gis_legend_src">';
+            if (undefined != layer.src_url) {
+                source += '<a href="' + layer.src_url + '" target="_blank">'
+                if (undefined != layer.src) {
+                    source += layer.src;
+                } else {
+                    source += layer.src_url;
+                }
+                source += '</a>';
+            } else {
+                source += layer.src;
+            }
+            source += '</div>';
+            legendTitle += source;
+        }
+        legendTitle += '</div>';
 
         // Styling
         var response = createStyleMap(map, layer);
@@ -1877,20 +2165,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
             name, {
             // limit the number of features to avoid browser freezes
             maxFeatures: 1000,
-            strategies: [
-                new OpenLayers.Strategy.BBOX({
-                    // load features for a wider area than the visible extent to reduce calls
-                    ratio: 1.5
-                    // don't fetch features after every resolution change
-                    //resFactor: 1
-                }),
-                new OpenLayers.Strategy.Cluster({
-                    distance: cluster_distance,
-                    threshold: cluster_threshold
-                })//,
-                // if Editable
-                //saveStrategy
-            ],
+            strategies: strategies,
             dir: dir,
             // This gets picked up after mapPanel instantiates & copied to it's layerRecords
             legendURL: marker_url,
@@ -1905,17 +2180,16 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
             s3_style: layer.style
         });
 
+        // This gets picked up after mapPanel instantiates & copied to it's layerRecords
+        wfsLayer.legendTitle = legendTitle;
         wfsLayer.title = title;
         wfsLayer.setVisibility(visibility);
         wfsLayer.events.on({
             'featureselected': onFeatureSelect,
             'featureunselected': onFeatureUnselect,
-            'loadstart': function(event) {
-                map.showThrobber(event.object.s3_layer_id);
-            },
-            'loadend': function(event) {
-                map.hideThrobber(event.object.s3_layer_id);
-            }
+            'loadstart': layer_loadstart,
+            'loadend': layer_loadend,
+            'visibilitychanged': layer_visibilitychanged
         });
         map.addLayer(wfsLayer);
         // Ensure Highlight & Popup Controls act on this layer
@@ -2003,6 +2277,53 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         } else {
             var queryable = 1;
         }
+        var legendTitle = '<div class="gis_layer_legend"><div class="gis_legend_title">' + name + '</div>';
+        if (undefined != layer.desc) {
+            legendTitle += '<div class="gis_legend_desc">' + layer.desc + '</div>';
+        }
+        if (map.s3.options.metadata) {
+            // Use CMS to display Metadata
+            if (undefined != layer.post_id) {
+                // Link to the existing page
+                if (i18n.gis_metadata) {
+                    // Read-only view for end-users
+                    var label = i18n.gis_metadata;
+                    var murl = S3.Ap.concat('/cms/page/' + layer.post_id);
+                } else {
+                    // Edit view for Map Admins
+                    var label = i18n.gis_metadata_edit;
+                    var murl = S3.Ap.concat('/cms/post/' + layer.post_id + '/update?layer_id=' + layer.id);
+                }
+            } else if (i18n.gis_metadata_create) {
+                // Link to create new page
+                var label = i18n.gis_metadata_create;
+                var murl = S3.Ap.concat('/cms/post/create?layer_id=' + layer.id);
+            } else {
+                // Skip
+                var label = '';
+            }
+            if (label) {
+                source = '<div class="gis_legend_src"><a href="' + murl + '" target="_blank">' + label + '</a></div>';
+                legendTitle += source;
+            }
+        } else if ((undefined != layer.src) || (undefined != layer.src_url)) {
+            // Link to external source direct
+            var source = '<div class="gis_legend_src">';
+            if (undefined != layer.src_url) {
+                source += '<a href="' + layer.src_url + '" target="_blank">';
+                if (undefined != layer.src) {
+                    source += layer.src;
+                } else {
+                    source += layer.src_url;
+                }
+                source += '</a>';
+            } else {
+                source += layer.src;
+            }
+            source += '</div>';
+            legendTitle += source;
+        }
+        legendTitle += '</div>';
         if (undefined != layer.legendURL) {
             var legendURL = layer.legendURL;
         } else{
@@ -2053,10 +2374,17 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                 wmsLayer.buffer = 0;
             }
         }
+        // This gets picked up after mapPanel instantiates & copied to it's layerRecords
+        wmsLayer.legendTitle = legendTitle;
         if (legendURL) {
             // This gets picked up after mapPanel instantiates & copied to it's layerRecords
             wmsLayer.legendURL = legendURL;
         }
+        wmsLayer.events.on({
+            'loadstart': layer_loadstart,
+            'loadend': layer_loadend,
+            'visibilitychanged': layer_visibilitychanged
+        });
         map.addLayer(wmsLayer);
         if (layer._base) {
             map.setBaseLayer(wmsLayer);
@@ -3169,6 +3497,49 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         }
     }
 
+    // Legend Panel as floating DIV
+    var addLegendPanel = function(map, legendPanel) {
+        var map_id = map.s3.id;
+        var div = '<div class="map_legend_div"><div class="map_legend_tab right"></div><div class="map_legend_panel"></div></div>';
+        $('#' + map_id).append(div);
+        var legendPanel = new GeoExt.LegendPanel({
+            title: i18n.gis_legend,
+            // Ext 4.x option
+            //maxHeight: 600,
+            autoScroll: true,
+            border: false
+        });
+        var jquery_obj = $('#' + map_id + ' .map_legend_panel');
+        var el = Ext.get(jquery_obj[0]);
+        legendPanel.render(el);
+
+        // Show/Hide Legend when clicking on Tab 
+        $('#' + map_id + ' .map_legend_tab').click(function() {
+            if ($(this).hasClass('right')) {
+                hideLegend(map);
+            } else {
+                showLegend(map);
+            }
+        });
+    }
+    var hideLegend = function(map) {
+        var map_id = map.s3.id;
+        var outerWidth = $('#' + map_id + ' .map_legend_panel').outerWidth();
+        $('#' + map_id + ' .map_legend_div').animate({
+            marginRight: '-' + outerWidth + 'px'
+        });
+        $('#' + map_id + ' .map_legend_tab').removeClass('right')
+                                            .addClass('left');
+    }
+    var showLegend = function(map) {
+        var map_id = map.s3.id;
+        $('#' + map_id + ' .map_legend_div').animate({
+            marginRight: 0
+        });
+        $('#' + map_id + ' .map_legend_tab').removeClass('left')
+                                            .addClass('right');
+    }
+
     // Navigation History
     var addNavigationControl = function(toolbar) {
         var nav = new OpenLayers.Control.NavigationHistory();
@@ -3358,55 +3729,219 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         toolbar.addButton(potlatchButton);
     }
 
-    // Save button to save the Viewport settings
+    // Save button on Toolbar to save the Viewport settings
     var addSaveButton = function(toolbar) {
-        var map = toolbar.map;
-        var config_id = map.s3.options.config_id;
         // Toolbar Button
         var saveButton = new Ext.Toolbar.Button({
             iconCls: 'save',
             tooltip: i18n.gis_save,
             handler: function() {
-                // Read current settings from map
-                var state = getState(map);
-                var encode = Ext.util.JSON.encode;
-                var layersStr = encode(state.layers);
-                var pluginsStr = encode(state.plugins);
-                // Use AJAX to send back
-                var url;
-                if (config_id) {
-                    url = S3.Ap.concat('/gis/config/' + config_id + '.url/update');
-                } else {
-                    url = S3.Ap.concat('/gis/config.url/create');
-                }
-                // @ToDo: Switch to jQuery
-                Ext.Ajax.request({
-                    url: url,
-                    method: 'POST',
-                    // @ToDo: Make the return value visible to the user
-                    success: function(response, opts) {
-                        var obj = Ext.decode(response.responseText);
-                        var id = obj.message.split('=', 2)[1];
-                        if (id) {
-                            // Ensure that future saves are updates, not creates
-                            config_id = id;
-                            // Change the Menu link
-                            var url = S3.Ap.concat('/gis/config/', id, '/layer_entity');
-                            $('#gis_menu_config').attr('href', url);
-                        }
-                    },
-                    params: {
-                        lat: state.lat,
-                        lon: state.lon,
-                        zoom: state.zoom,
-                        layers: layersStr,
-                        plugins: pluginsStr
-                    }
-                });
+                saveConfig(toolbar.map);
             }
         });
         toolbar.addSeparator();
         toolbar.addButton(saveButton);
+    }
+
+    // Save button as floating DIV to save the Viewport settings
+    var addSavePanel = function(map) {
+        var s3 = map.s3;
+        var map_id = s3.id;
+        if ($('#' + map_id + ' .map_save_panel').length) {
+            // We already have a Panel
+            // (this happens when switching between full-screen & embedded)
+            return;
+        }
+        var name_display = '<div class="fleft"><div class="map_save_name">';
+        var config_name = s3.options.config_name;
+        // Don't show if this is the default map
+        if (config_name) {
+            name_display += config_name;
+        }
+        name_display += '</div></div>';
+        var div = '<div class="map_save_panel off">' + name_display + '<div class="map_save_button"><div class="map_save_label">' + i18n.gis_save_map + '</div></div></div>';
+        $('#' + map_id).append(div);
+        if (config_name) {
+            $('#' + map_id + ' .map_save_panel').removeClass('off');
+        }
+        // Click Handler
+        $('#' + map_id + ' .map_save_button').click(function() {
+            saveClickHandler(map);
+        });
+    }
+
+    // Save Click Handler
+    var saveClickHandler = function(map) {
+        var map_id = map.s3.id;
+        $('#' + map_id + ' .map_save_panel').removeClass('off');
+        // Remove any 'saved' notification
+        $('#' + map_id + ' .map_save_panel .saved').remove();
+        // Show the Input
+        $('#' + map_id + ' .map_save_panel .fleft').show();
+        // Rename the Save button
+        $('#' + map_id + ' .map_save_label').html(i18n.save);
+        nameConfig(map);
+    }
+
+    // Name the Config
+    var nameConfig = function(map) {
+        var s3 = map.s3;
+        var map_id = s3.id;
+        var options = s3.options;
+        var config_id = options.config_id;
+        
+        if (options.config_name) {
+            var name = options.config_name;
+        } else {
+            var name = '';
+        }
+        var save_button = $('#' + map_id + ' .map_save_button');
+        // Prompt user for the name
+        var input_id = map_id + '_save';
+        var name_input = $('#' + input_id);
+        if (!name_input.length) {
+            var name_input = '<input id="' + input_id + '" value="' + name + '">';
+            var hint = '<label for="' + input_id + '">' + i18n.gis_name_map + '</label>';
+            name_input = '<div class="hint">' + hint + name_input + '</div>';
+            if (config_id) {
+                var disabled = ''
+            } else {
+                var disabled = ' disabled="disabled" checked="checked"'
+            }
+            var checkbox = '<div class="new_map"><input type="checkbox" class="checkbox"' + disabled + '>' + i18n.gis_new_map + '</div>';
+            $('#' + map_id + ' .map_save_panel .fleft').html(name_input + checkbox);
+            $('#' + map_id + ' .map_save_panel label').labelOver('over');
+        }
+        // Click Handler
+        save_button.unbind('click')
+                   .click(function() {
+            saveConfig(map);
+            //save_button.hide();
+            // Update Map name
+            var name = $('#' + map_id + '_save').val();
+            $('#' + map_id + ' .map_save_name').html(name);
+            options.config_name = name;
+            if (options.pe_id) {
+                // Normal user
+                var pe_url = '/?~.pe_id=' + options.pe_id;
+            } else {
+                // Map Admin
+                var pe_url = '';
+            }
+            var div = '<div class="saved"><p><i>' + i18n.saved + '</i></p><p><a href="' + S3.Ap.concat('/gis/config') + pe_url + '">' + i18n.gis_my_maps + '</a></p></div>';
+            $('#' + map_id + ' .map_save_panel .fleft').hide()
+                                                       .before(div);
+            // Enable the 'Save as New Map' checkbox
+            $('#' + map_id + ' .map_save_panel .checkbox').prop('checked', false)
+                                                          .prop('disabled', false);
+            // Restore original click handler
+            save_button.unbind('click')
+                       .click(function() {
+                saveClickHandler(map);
+            });
+        });
+        // Cancel Handler
+        var savePanel = $('#' + map_id + ' .map_save_panel');
+        $('html').unbind('click.cancelSave')
+                 .bind('click.cancelSave', function() {
+            savePanel.addClass('off');
+            // Restore original click handler
+            save_button.unbind('click')
+                       .click(function() {
+                savePanel.removeClass('off')
+                         .unbind('click');
+                nameConfig(map);
+            });
+        });
+        savePanel.click(function(event) {
+            // Don't activate if clicking inside
+            event.stopPropagation();
+        });
+    }
+
+    // Save the Config
+    var saveConfig = function(map) {
+        // Read current settings from map
+        var state = getState(map);
+        var encode = Ext.util.JSON.encode;
+        var layersStr = encode(state.layers);
+        var pluginsStr = encode(state.plugins);
+        var json_data = {
+            lat: state.lat,
+            lon: state.lon,
+            zoom: state.zoom,
+            layers: layersStr,
+            plugins: pluginsStr
+        }
+        var s3 = map.s3;
+        var options = s3.options;
+        if (options.pe_id) {
+            json_data['pe_id'] = options.pe_id;
+        }
+        var map_id = s3.id;
+        var name_input = $('#' + map_id + '_save');
+        var config_id = options.config_id;
+        if (name_input.length) {
+            // Floating Save Panel
+            json_data['name'] = name_input.val();
+            if (config_id) {
+                // Is this a new one or are we updating?
+                var update = !$('#' + map_id + ' .map_save_panel input[type="checkbox"]').prop('checked');
+            } else {
+                var update = false;
+            }
+        } else if (config_id) {
+            var update = true;
+        } else {
+            var update = false;
+        }
+        // Use AJAX to send back
+        var url;
+        if (update) {
+            url = S3.Ap.concat('/gis/config/' + config_id + '.url/update');
+        } else {
+            url = S3.Ap.concat('/gis/config.url/create');
+        }
+        // @ToDo: Switch to jQuery
+        Ext.Ajax.request({
+            url: url,
+            method: 'POST',
+            // @ToDo: Make the return value visible to the user
+            success: function(response, opts) {
+                var obj = Ext.decode(response.responseText);
+                var id = obj.message.split('=', 2)[1];
+                if (id) {
+                    // Ensure that future saves are updates, not creates
+                    options.config_id = id;
+                    // Change the browser URL (if-applicable)
+                    if (history.pushState) {
+                        // Browser supports URL changing without page refresh
+                        if (document.location.search) {
+                            // We have vars
+                            var pairs = document.location.search.split('?')[1].split('&');
+                            var pair = [];
+                            for (var i=0; i < pairs.length; i++) {
+                                pair = pairs[i].split('=');
+                                if ((decodeURIComponent(pair[0]) == 'config') && decodeURIComponent(pair[1]) != id) {
+                                    pairs[i] = 'config=' + id;
+                                    var url = document.location.pathname + '?' + pairs.join('&');
+                                    window.history.pushState({}, document.title, url);
+                                    break;
+                                }
+                            }
+                        } else if ((document.location.pathname == S3.Ap.concat('/gis/index')) || (document.location.pathname == S3.Ap.concat('/gis/map_viewing_client'))) {
+                            // Main map
+                            var url = document.location.pathname + '?config=' + id;
+                            window.history.pushState({}, document.title, url);
+                        }
+                    }
+                    // Change the Menu link (if-applicable)
+                    var url = S3.Ap.concat('/gis/config/', id, '/layer_entity');
+                    $('#gis_menu_config').attr('href', url);
+                }
+            },
+            params: json_data
+        });
     }
 
     // Get the State of the Map
@@ -3803,10 +4338,557 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
             image.width = w;
         };
 
-        // Pre-cache this image
-        var image = new Image();
-        image.onload = scaleImage;
-        image.src = marker_url;
+        if (marker_url) {
+            // Pre-cache this image
+            var image = new Image();
+            image.onload = scaleImage;
+            image.src = marker_url;
+        }
+
+        // Feature Styles based on either a common JSON style or per-Feature attributes (Queries)
+        // - also used as fallback (e.g. Cluster) for Rules-based Styles
+        var styleArray = {
+            label: '${label}',
+            labelAlign: 'cm',
+            pointRadius: '${radius}',
+            fillColor: '${fill}',
+            fillOpacity: '${fillOpacity}',
+            strokeColor: '${stroke}',
+            strokeWidth: '${strokeWidth}',
+            strokeOpacity: '${strokeOpacity}',
+            graphicWidth: '${graphicWidth}',
+            graphicHeight: '${graphicHeight}',
+            graphicXOffset: '${graphicXOffset}',
+            graphicYOffset: '${graphicYOffset}',
+            graphicOpacity: opacity,
+            graphicName: '${graphicName}',
+            externalGraphic: '${externalGraphic}'
+        };
+        var styleOptions = {
+            context: {
+                graphicWidth: function(feature) {
+                    // We get JS errors if we don't return a number
+                    var pix = 1;
+                    if (feature.cluster) {
+                        // Clustered Point
+                        // Doesn't usually use a Graphic
+                    } else if (feature.attributes.marker_width) {
+                        // Use marker_width from feature
+                        pix = feature.attributes.marker_width;
+                    } else {
+                        if (undefined != marker_width) {
+                            // per-Layer Marker for Unclustered Point
+                            pix = marker_width;
+                        }
+                    }
+                    return pix;
+                },
+                graphicHeight: function(feature) {
+                    // We get JS errors if we don't return a number
+                    var pix = 1;
+                    if (feature.cluster) {
+                        // Clustered Point
+                        // Doesn't usually use a Graphic
+                    } else if (feature.attributes.marker_height) {
+                        // Use marker_height from feature (Query)
+                        pix = feature.attributes.marker_height;
+                    } else {
+                        if (undefined != marker_height) {
+                            // per-Layer Marker for Unclustered Point
+                            pix = marker_height;
+                        }
+                    }
+                    return pix;
+                },
+                graphicXOffset: function(feature) {
+                    // We get JS errors if we don't return a number
+                    var pix = -1;
+                    if (feature.cluster) {
+                        // Clustered Point
+                        // Doesn't usually use a Graphic
+                    } else if (feature.attributes.marker_width) {
+                        // Use marker_width from feature (e.g. FeatureQuery)
+                        pix = -(feature.attributes.marker_width / 2);
+                    } else {
+                        if (undefined != marker_width) {
+                            // per-Layer Marker for Unclustered Point
+                            pix = -(marker_width / 2);
+                        }
+                    }
+                    return pix;
+                },
+                graphicYOffset: function(feature) {
+                    // We get JS errors if we don't return a number
+                    var pix = -1;
+                    if (feature.cluster) {
+                        // Clustered Point
+                        // Doesn't usually use a Graphic
+                    } else if (feature.attributes.marker_height) {
+                        // Use marker_height from feature (e.g. FeatureQuery)
+                        pix = -feature.attributes.marker_height;
+                    } else {
+                        if (undefined != marker_height) {
+                            // per-Layer Marker for Unclustered Point
+                            pix = -marker_height;
+                        }
+                    }
+                    return pix;
+                },
+                graphicName: function(feature) {
+                    // default to a Circle
+                    var graphic = 'circle';
+                    if (feature.cluster) {
+                        // Clustered Point
+                        // use default circle
+                    } else if (feature.attributes.shape) {
+                        // Use graphic from feature (e.g. FeatureQuery)
+                        graphic = feature.attributes.shape;
+                    } else if (style) {
+                        if (!style_array) {
+                            // Common Style for all features in layer
+                            if (undefined != style.graphic) {
+                                graphic = style.graphic;
+                            }
+                        } else {
+                            // Lookup from rule
+                            /* Done within OpenLayers.Rule
+                            var prop, value;
+                            $.each(style, function(index, elem) {
+                                if (undefined != elem.prop) {
+                                    prop = elem.prop;
+                                } else {
+                                    // Default (e.g. for Theme Layers)
+                                    prop = 'value';
+                                }
+                                value = feature.attributes[prop];
+                                if (undefined != elem.cat) {
+                                    // Category-based style
+                                    if (value == elem.cat) {
+                                        if (undefined != elem.graphic) {
+                                            graphic = style.graphic;
+                                        }
+                                        break;
+                                    }
+                                } else {
+                                    // Range-based style
+                                    if ((value >= elem.low) && (value < elem.high)) {
+                                        if (undefined != elem.graphic) {
+                                            graphic = style.graphic;
+                                        }
+                                        break;
+                                    }
+                                }
+                            }); */
+                        }
+                    }
+                    return graphic;
+                },
+                externalGraphic: function(feature) {
+                    var url = '';
+                    if (feature.cluster) {
+                        // Clustered Point
+                        // Just show shape not marker
+                        // @ToDo: Make this configurable per-Layer & within-Layer as to which gets shown
+                        // e.g. http://openflights.org/blog/2009/10/21/customized-openlayers-cluster-strategies/
+                    } else if (feature.attributes.marker_url) {
+                        // Use marker from feature (Query)
+                        url = feature.attributes.marker_url;
+                    } else if (style) {
+                        if (!style_array) {
+                            // Common Style for all features in layer
+                            if (undefined != style.externalGraphic) {
+                                url = S3.Ap.concat('/static/' + style.externalGraphic);
+                            }
+                        } else {
+                            // Lookup from rule
+                            /* Done within OpenLayers.Rule
+                            var prop, value;
+                            $.each(style, function(index, elem) {
+                                if (undefined != elem.prop) {
+                                    prop = elem.prop;
+                                } else {
+                                    // Default (e.g. for Theme Layers)
+                                    prop = 'value';
+                                }
+                                value = feature.attributes[prop];
+                                if (undefined != elem.cat) {
+                                    // Category-based style
+                                    if (value == elem.cat) {
+                                        if (undefined != elem.externalGraphic) {
+                                            url = S3.Ap.concat('/static/' + elem.externalGraphic);
+                                        }
+                                        break;
+                                    }
+                                } else {
+                                    // Range-based style
+                                    if ((value >= elem.low) && (value < elem.high)) {
+                                        if (undefined != elem.externalGraphic) {
+                                            url = S3.Ap.concat('/static/' + elem.externalGraphic);
+                                        }
+                                        break;
+                                    }
+                                }
+                            }); */
+                        }
+                    } else {
+                        // Use Layer Marker
+                        return marker_url;
+                    }
+                    return url;
+                },
+                radius: function(feature) {
+                    // default Size for Unclustered Point
+                    var pix = 10;
+                    if (feature.cluster) {
+                        // Size for Clustered Point
+                        pix = Math.min(feature.attributes.count / 2, 8) + 10;
+                    } else if (feature.attributes.size) {
+                        // Use size from feature (e.g. FeatureQuery)
+                        pix = feature.attributes.size;
+                    } else if (style) {
+                        if (!style_array) {
+                            // Common Style for all features in layer
+                            pix = style.size;
+                        } else {
+                            // Lookup from rule
+                            /* Done within OpenLayers.Rule
+                            var prop, value;
+                            $.each(style, function(index, elem) {
+                                if (undefined != elem.prop) {
+                                    prop = elem.prop;
+                                } else {
+                                    // Default (e.g. for Theme Layers)
+                                    prop = 'value';
+                                }
+                                value = feature.attributes[prop];
+                                if (undefined != elem.cat) {
+                                    // Category-based style
+                                    if (value == elem.cat) {
+                                        pix = elem.size;
+                                        break;
+                                    }
+                                } else {
+                                    // Range-based style
+                                    if ((value >= elem.low) && (value < elem.high)) {
+                                        pix = elem.size;
+                                        break;
+                                    }
+                                }
+                            }); */
+                        }
+                    }
+                    return pix;
+                },
+                fill: function(feature) {
+                    var color;
+                    if (feature.cluster) {
+                        if (feature.cluster[0].attributes.colour) {
+                            // Use colour from features (e.g. FeatureQuery)
+                            color = feature.cluster[0].attributes.colour;
+                        } else {
+                            // default fillColor for Clustered Point
+                            color = '#8087ff';
+                        }
+                    } else if (feature.attributes.colour) {
+                        // Feature Query: Use colour from feature (e.g. FeatureQuery)
+                        color = feature.attributes.colour;
+                    } else if (style) {
+                        if (!style_array) {
+                            // Common Style for all features in layer
+                            color = style.fill;
+                        } else {
+                            // Lookup from rule
+                            /* Done within OpenLayers.Rule
+                            var prop, value;
+                            $.each(style, function(index, elem) {
+                                if (undefined != elem.prop) {
+                                    prop = elem.prop;
+                                } else {
+                                    // Default (e.g. for Theme Layers)
+                                    prop = 'value';
+                                }
+                                value = feature.attributes[prop];
+                                if (undefined != elem.cat) {
+                                    // Category-based style
+                                    if (value == elem.cat) {
+                                        color = elem.fill;
+                                        break;
+                                    }
+                                } else {
+                                    // Range-based style
+                                    if ((value >= elem.low) && (value < elem.high)) {
+                                        color = elem.fill;
+                                        break;
+                                    }
+                                }
+                            }); */
+                        }
+                        if (undefined != color) {
+                            color = '#' + color;
+                        } else {
+                            // default fillColor
+                            color = '#000000';
+                        }
+                    } else {
+                        // default fillColor for Unclustered Point
+                        color = DEFAULT_FILL;
+                    }
+                    return color;
+                },
+                fillOpacity: function(feature) {
+                    var fillOpacity;
+                    if (feature.cluster) {
+                        if (feature.cluster[0].attributes.opacity) {
+                            // Use opacity from features (e.g. FeatureQuery)
+                            fillOpacity = feature.cluster[0].attributes.opacity;
+                        } else {
+                            // default fillOpacity for Clustered Point
+                            fillOpacity = opacity;
+                        }
+                    } else if (feature.attributes.opacity) {
+                        // Use opacity from feature (e.g. FeatureQuery)
+                        fillOpacity = feature.attributes.opacity;
+                    } else if (style) {
+                        if (!style_array) {
+                            // Common Style for all features in layer
+                            fillOpacity = style.fillOpacity;
+                        } else {
+                            // Lookup from rule
+                            /* Done within OpenLayers.Rule
+                            var prop, value;
+                            $.each(style, function(index, elem) {
+                                if (undefined != elem.prop) {
+                                    prop = elem.prop;
+                                } else {
+                                    // Default (e.g. for Theme Layers)
+                                    prop = 'value';
+                                }
+                                value = feature.attributes[prop];
+                                if (undefined != elem.cat) {
+                                    // Category-based style
+                                    if (value == elem.cat) {
+                                        fillOpacity = elem.fillOpacity;
+                                        break;
+                                    }
+                                } else {
+                                    // Range-based style
+                                    if ((value >= elem.low) && (value < elem.high)) {
+                                        fillOpacity = elem.fillOpacity;
+                                        break;
+                                    }
+                                }
+                            }); */
+                        }
+                    }
+                    // default to layer's opacity
+                    return fillOpacity || opacity;
+                },
+                stroke: function(feature) {
+                    var color;
+                    if (feature.cluster) {
+                        if (feature.cluster[0].attributes.colour) {
+                            // Use colour from features (e.g. FeatureQuery)
+                            color = feature.cluster[0].attributes.colour;
+                        } else {
+                            // default strokeColor for Clustered Point
+                            color = '#2b2f76';
+                        }
+                    } else if (feature.attributes.colour) {
+                        // Use colour from feature (e.g. FeatureQuery)
+                        color = feature.attributes.colour;
+                    } else if (style) {
+                        if (!style_array) {
+                            // Common Style for all features in layer
+                            color = style.stroke || style.fill;
+                        } else {
+                            // Lookup from rule
+                            /* Done within OpenLayers.Rule
+                            var prop, value;
+                            $.each(style, function(index, elem) {
+                                if (undefined != elem.prop) {
+                                    prop = elem.prop;
+                                } else {
+                                    // Default (e.g. for Theme Layers)
+                                    prop = 'value';
+                                }
+                                value = feature.attributes[prop];
+                                if (undefined != elem.cat) {
+                                    // Category-based style
+                                    if (value == elem.cat) {
+                                        color = elem.stroke || elem.fill;
+                                        break;
+                                    }
+                                } else {
+                                    // Range-based style
+                                    if ((value >= elem.low) && (value < elem.high)) {
+                                        color = elem.stroke || elem.fill;
+                                        break;
+                                    }
+                                }
+                            }); */
+                        }
+                        if (undefined != color) {
+                            color = '#' + color;
+                        } else {
+                            // default fillColor
+                            color = '#000000';
+                        }
+                    } else {
+                        // default strokeColor for Unclustered Point
+                        color = DEFAULT_FILL;
+                    }
+                    return color;
+                },
+                strokeOpacity: function(feature) {
+                    var strokeOpacity;
+                    if (feature.cluster) {
+                        if (feature.cluster[0].attributes.opacity) {
+                            // Use opacity from features (e.g. FeatureQuery)
+                            strokeOpacity = feature.cluster[0].attributes.opacity;
+                        } else {
+                            // default fillOpacity for Clustered Point
+                            strokeOpacity = opacity;
+                        }
+                    } else if (feature.attributes.opacity) {
+                        // Use opacity from feature (e.g. FeatureQuery)
+                        strokeOpacity = feature.attributes.opacity;
+                    } else if (style) {
+                        if (!style_array) {
+                            // Common Style for all features in layer
+                            strokeOpacity = style.strokeOpacity;
+                        } else {
+                            // Lookup from rule
+                            /* Done within OpenLayers.Rule
+                            var prop, value;
+                            $.each(style, function(index, elem) {
+                                if (undefined != elem.prop) {
+                                    prop = elem.prop;
+                                } else {
+                                    // Default (e.g. for Theme Layers)
+                                    prop = 'value';
+                                }
+                                value = feature.attributes[prop];
+                                if (undefined != elem.cat) {
+                                    // Category-based style
+                                    if (value == elem.cat) {
+                                        strokeOpacity = elem.strokeOpacity;
+                                        break;
+                                    }
+                                } else {
+                                    // Range-based style
+                                    if ((value >= elem.low) && (value < elem.high)) {
+                                        strokeOpacity = elem.strokeOpacity;
+                                        break;
+                                    }
+                                }
+                            }); */
+                        }
+                    }
+                    // default to layer's opacity
+                    return strokeOpacity || opacity;
+                },
+                strokeWidth: function(feature) {
+                    // default strokeWidth
+                    var width = 2;
+                    if (feature.cluster) {
+                        if (feature.cluster[0].attributes.strokeWidth) {
+                            // Use colour from features (e.g. FeatureQuery)
+                            width = feature.cluster[0].attributes.strokeWidth;
+                        }
+                    //} else if (feature.attributes.strokeWidth) {
+                    //    // Use strokeWidth from feature (e.g. FeatureQuery)
+                    //    width = feature.attributes.strokeWidth;
+                    } else if (style) {
+                        if (!style_array) {
+                            // Common Style for all features in layer
+                            width = style.strokeWidth;
+                        } else {
+                            // Lookup from rule
+                            /* Done within OpenLayers.Rule
+                            var prop, value;
+                            $.each(style, function(index, elem) {
+                                if (undefined != elem.prop) {
+                                    prop = elem.prop;
+                                } else {
+                                    // Default (e.g. for Theme Layers)
+                                    prop = 'value';
+                                }
+                                value = feature.attributes[prop];
+                                if (undefined != elem.cat) {
+                                    // Category-based style
+                                    if (value == elem.cat) {
+                                        width = elem.strokeWidth;
+                                        break;
+                                    }
+                                } else {
+                                    // Range-based style
+                                    if ((value >= elem.low) && (value < elem.high)) {
+                                        width = elem.strokeWidth;
+                                        break;
+                                    }
+                                }
+                            }); */
+                        }
+                    }
+                    // Defalt width: 2
+                    return width || 2;
+                },
+                label: function(feature) {
+                    // Label For Unclustered Point
+                    var label;
+                    // Label For Clustered Point
+                    if (feature.cluster) {
+                        if (feature.attributes.count > 1) {
+                            label = feature.attributes.count;
+                        }
+                    } else if (feature.layer && (undefined != feature.layer.s3_style)) {
+                        var style = feature.layer.s3_style;
+                        if (!style_array) {
+                            // Common Style for all features in layer
+                            if (style.show_label) {
+                                label = style.label;
+                            }
+                        } else {
+                            // Lookup from rule
+                            /* Done within OpenLayers.Rule
+                            var prop, value;
+                            $.each(style, function(index, elem) {
+                                if (undefined != elem.prop) {
+                                    prop = elem.prop;
+                                } else {
+                                    // Default (e.g. for Theme Layers)
+                                    prop = 'value';
+                                }
+                                value = feature.attributes[prop];
+                                if (undefined != elem.cat) {
+                                    // Category-based style
+                                    if (value == elem.cat) {
+                                        if (elem.show_label) {
+                                            label = elem.label;
+                                        }
+                                        break;
+                                    }
+                                } else {
+                                    // Range-based style
+                                    if ((value >= elem.low) && (value < elem.high)) {
+                                        if (elem.show_label) {
+                                            label = elem.label;
+                                        }
+                                        break;
+                                    }
+                                }
+                            }); */
+                        }
+                    }
+                    return label || '';
+                }
+            }
+        };
+        // Needs to be uniquely instantiated
+        var featureStyle = new OpenLayers.Style(
+            styleArray,
+            styleOptions
+        );
 
         // If there is a style, is this common to all features or variable?
         if (Object.prototype.toString.call(style) === '[object Array]') {
@@ -3818,30 +4900,11 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         if (style_array) {
             // Style Features according to rules in JSON style (currently Shapefile or Theme Layer)
             // Needs to be uniquely instantiated
-            // Base Style isn't set per-feature
-            var styleArray = {
-                label: '',
-                labelAlign: 'cm',
-                pointRadius: 10,
-                fillColor: DEFAULT_FILL,
-                fillOpacity: opacity,
-                strokeColor: DEFAULT_FILL,
-                strokeWidth: 2,
-                strokeOpacity: opacity,
-                graphicWidth: 1,
-                graphicHeight: 1,
-                graphicXOffset: -1,
-                graphicYOffset: -1,
-                graphicOpacity: opacity,
-                graphicName: 'square',
-                externalGraphic: ''
-            };
-            var featureStyle = new OpenLayers.Style(
-                styleArray
-            );
-
             var rules = [];
-            var prop, externalGraphic, fill, fillOpacity, filter, rule, size, strokeWidth, symbolizer, title, value;
+            var prop, filter, rule, symbolizer, title, value,
+                externalGraphic, graphicHeight, graphicWidth,
+                graphicXOffset, graphicYOffset,
+                fill, fillOpacity, size, strokeOpacity, strokeWidth;
             $.each(style, function(index, elem) {
                 if (undefined != elem.prop) {
                     prop = elem.prop;
@@ -3870,8 +4933,19 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                 }
                 if (undefined != elem.externalGraphic) {
                     externalGraphic = S3.Ap.concat('/static/' + elem.externalGraphic);
+                    var image = new Image();
+                    //image.onload = scaleImage;
+                    image.src = externalGraphic;
+                    graphicHeight = image.height;
+                    graphicWidth = image.width;
+                    graphicXOffset = -(graphicWidth / 2);
+                    graphicYOffset = -graphicHeight;
                 } else {
                     externalGraphic = '';
+                    graphicHeight = 1;
+                    graphicWidth = 1;
+                    graphicXOffset = -1;
+                    graphicYOffset = -1;
                 }
                 if (undefined != elem.fill) {
                     // Polygon/Point
@@ -3884,6 +4958,11 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                     fillOpacity = elem.fillOpacity;
                 } else {
                     fillOpacity = 1;
+                }
+                if (undefined != elem.strokeOpacity) {
+                    strokeOpacity = elem.strokeOpacity;
+                } else {
+                    strokeOpacity = 1;
                 }
                 if (undefined != elem.graphic) {
                     graphic = elem.graphic;
@@ -3908,521 +4987,46 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                         fillColor: fill, // Used for Legend on LineStrings
                         fillOpacity: fillOpacity,
                         strokeColor: fill,
-                        //strokeOpacity: strokeOpacity,
+                        strokeOpacity: strokeOpacity,
                         strokeWidth: strokeWidth,
                         graphicName: graphic,
+                        graphicHeight: graphicHeight,
+                        graphicWidth: graphicWidth,
+                        graphicXOffset: graphicXOffset,
+                        graphicYOffset: graphicYOffset,
                         pointRadius: size
                     },
                     title: title
                 });
                 rules.push(rule);
             });
+            if (layer.cluster_threshold != 0) {
+                // Default Rule (e.g. for Clusters)
+                rule = new OpenLayers.Rule({
+                    elseFilter: true,
+                    title: ' '
+                });
+                rules.push(rule);
+            }
             featureStyle.addRules(rules);
-        } else {
-            // Features Styles based on either a common JSON style or per-Feature attributes (Queries)
-            var styleArray = {
-                label: '${label}',
-                labelAlign: 'cm',
-                pointRadius: '${radius}',
-                fillColor: '${fill}',
-                fillOpacity: '${fillOpacity}',
-                strokeColor: '${stroke}',
-                strokeWidth: '${strokeWidth}',
-                strokeOpacity: opacity,
-                graphicWidth: '${graphicWidth}',
-                graphicHeight: '${graphicHeight}',
-                graphicXOffset: '${graphicXOffset}',
-                graphicYOffset: '${graphicYOffset}',
-                graphicOpacity: opacity,
-                graphicName: '${graphicName}',
-                externalGraphic: '${externalGraphic}'
-            };
-            var styleOptions = {
-                context: {
-                    graphicWidth: function(feature) {
-                        // We get JS errors if we don't return a number
-                        var pix = 1;
-                        if (feature.cluster) {
-                            // Clustered Point
-                            // Doesn't usually use a Graphic
-                        } else if (feature.attributes.marker_width) {
-                            // Use marker_width from feature
-                            pix = feature.attributes.marker_width;
-                        } else {
-                            if (undefined != marker_width) {
-                                // per-Layer Marker for Unclustered Point
-                                pix = marker_width;
-                            }
-                        }
-                        return pix;
-                    },
-                    graphicHeight: function(feature) {
-                        // We get JS errors if we don't return a number
-                        var pix = 1;
-                        if (feature.cluster) {
-                            // Clustered Point
-                            // Doesn't usually use a Graphic
-                        } else if (feature.attributes.marker_height) {
-                            // Use marker_height from feature (Query)
-                            pix = feature.attributes.marker_height;
-                        } else {
-                            if (undefined != marker_height) {
-                                // per-Layer Marker for Unclustered Point
-                                pix = marker_height;
-                            }
-                        }
-                        return pix;
-                    },
-                    graphicXOffset: function(feature) {
-                        // We get JS errors if we don't return a number
-                        var pix = -1;
-                        if (feature.cluster) {
-                            // Clustered Point
-                            // Doesn't usually use a Graphic
-                        } else if (feature.attributes.marker_width) {
-                            // Use marker_width from feature (e.g. FeatureQuery)
-                            pix = -(feature.attributes.marker_width / 2);
-                        } else {
-                            if (undefined != marker_width) {
-                                // per-Layer Marker for Unclustered Point
-                                pix = -(marker_width / 2);
-                            }
-                        }
-                        return pix;
-                    },
-                    graphicYOffset: function(feature) {
-                        // We get JS errors if we don't return a number
-                        var pix = -1;
-                        if (feature.cluster) {
-                            // Clustered Point
-                            // Doesn't usually use a Graphic
-                        } else if (feature.attributes.marker_height) {
-                            // Use marker_height from feature (e.g. FeatureQuery)
-                            pix = -feature.attributes.marker_height;
-                        } else {
-                            if (undefined != marker_height) {
-                                // per-Layer Marker for Unclustered Point
-                                pix = -marker_height;
-                            }
-                        }
-                        return pix;
-                    },
-                    graphicName: function(feature) {
-                        // default to a Circle
-                        var graphic = 'circle';
-                        if (feature.cluster) {
-                            // Clustered Point
-                            // use default circle
-                        } else if (feature.attributes.shape) {
-                            // Use graphic from feature (e.g. FeatureQuery)
-                            graphic = feature.attributes.shape;
-                        } else if (style) {
-                            if (!style_array) {
-                                // Common Style for all features in layer
-                                if (undefined != style.graphic) {
-                                    graphic = style.graphic;
-                                }
-                            } else {
-                                // Lookup from rule
-                                /* Done within OpenLayers.Rule
-                                var prop, value;
-                                $.each(style, function(index, elem) {
-                                    if (undefined != elem.prop) {
-                                        prop = elem.prop;
-                                    } else {
-                                        // Default (e.g. for Theme Layers)
-                                        prop = 'value';
-                                    }
-                                    value = feature.attributes[prop];
-                                    if (undefined != elem.cat) {
-                                        // Category-based style
-                                        if (value == elem.cat) {
-                                            if (undefined != elem.graphic) {
-                                                graphic = style.graphic;
-                                            }
-                                            return false;
-                                        }
-                                    } else {
-                                        // Range-based style
-                                        if ((value >= elem.low) && (value < elem.high)) {
-                                            if (undefined != elem.graphic) {
-                                                graphic = style.graphic;
-                                            }
-                                            return false;
-                                        }
-                                    }
-                                }); */
-                            }
-                        }
-                        return graphic;
-                    },
-                    externalGraphic: function(feature) {
-                        var url = '';
-                        if (feature.cluster) {
-                            // Clustered Point
-                            // Just show shape not marker
-                            // @ToDo: Make this configurable per-Layer & within-Layer as to which gets shown
-                            // e.g. http://openflights.org/blog/2009/10/21/customized-openlayers-cluster-strategies/
-                        } else if (feature.attributes.marker_url) {
-                            // Use marker from feature (Query)
-                            url = feature.attributes.marker_url;
-                        } else if (style) {
-                            if (!style_array) {
-                                // Common Style for all features in layer
-                                if (undefined != style.externalGraphic) {
-                                    url = S3.Ap.concat('/static/' + style.externalGraphic);
-                                }
-                            } else {
-                                // Lookup from rule
-                                /* Done within OpenLayers.Rule
-                                var prop, value;
-                                $.each(style, function(index, elem) {
-                                    if (undefined != elem.prop) {
-                                        prop = elem.prop;
-                                    } else {
-                                        // Default (e.g. for Theme Layers)
-                                        prop = 'value';
-                                    }
-                                    value = feature.attributes[prop];
-                                    if (undefined != elem.cat) {
-                                        // Category-based style
-                                        if (value == elem.cat) {
-                                            if (undefined != elem.externalGraphic) {
-                                                url = S3.Ap.concat('/static/' + elem.externalGraphic);
-                                            }
-                                            return false;
-                                        }
-                                    } else {
-                                        // Range-based style
-                                        if ((value >= elem.low) && (value < elem.high)) {
-                                            if (undefined != elem.externalGraphic) {
-                                                url = S3.Ap.concat('/static/' + elem.externalGraphic);
-                                            }
-                                            return false;
-                                        }
-                                    }
-                                }); */
-                            }
-                        } else {
-                            // Use Layer Marker
-                            return marker_url;
-                        }
-                        return url;
-                    },
-                    radius: function(feature) {
-                        // default Size for Unclustered Point
-                        var pix = 10;
-                        if (feature.cluster) {
-                            // Size for Clustered Point
-                            pix = Math.min(feature.attributes.count / 2, 8) + 10;
-                        } else if (feature.attributes.size) {
-                            // Use size from feature (e.g. FeatureQuery)
-                            pix = feature.attributes.size;
-                        } else if (style) {
-                            if (!style_array) {
-                                // Common Style for all features in layer
-                                pix = style.size;
-                            } else {
-                                // Lookup from rule
-                                /* Done within OpenLayers.Rule
-                                var prop, value;
-                                $.each(style, function(index, elem) {
-                                    if (undefined != elem.prop) {
-                                        prop = elem.prop;
-                                    } else {
-                                        // Default (e.g. for Theme Layers)
-                                        prop = 'value';
-                                    }
-                                    value = feature.attributes[prop];
-                                    if (undefined != elem.cat) {
-                                        // Category-based style
-                                        if (value == elem.cat) {
-                                            pix = elem.size;
-                                            return false;
-                                        }
-                                    } else {
-                                        // Range-based style
-                                        if ((value >= elem.low) && (value < elem.high)) {
-                                            pix = elem.size;
-                                            return false;
-                                        }
-                                    }
-                                }); */
-                            }
-                        }
-                        return pix;
-                    },
-                    fill: function(feature) {
-                        var color;
-                        if (feature.cluster) {
-                            if (feature.cluster[0].attributes.colour) {
-                                // Use colour from features (e.g. FeatureQuery)
-                                color = feature.cluster[0].attributes.colour;
-                            } else {
-                                // default fillColor for Clustered Point
-                                color = '#8087ff';
-                            }
-                        } else if (feature.attributes.colour) {
-                            // Feature Query: Use colour from feature (e.g. FeatureQuery)
-                            color = feature.attributes.colour;
-                        } else if (style) {
-                            if (!style_array) {
-                                // Common Style for all features in layer
-                                color = style.fill;
-                            } else {
-                                // Lookup from rule
-                                /* Done within OpenLayers.Rule
-                                var prop, value;
-                                $.each(style, function(index, elem) {
-                                    if (undefined != elem.prop) {
-                                        prop = elem.prop;
-                                    } else {
-                                        // Default (e.g. for Theme Layers)
-                                        prop = 'value';
-                                    }
-                                    value = feature.attributes[prop];
-                                    if (undefined != elem.cat) {
-                                        // Category-based style
-                                        if (value == elem.cat) {
-                                            color = elem.fill;
-                                            return false;
-                                        }
-                                    } else {
-                                        // Range-based style
-                                        if ((value >= elem.low) && (value < elem.high)) {
-                                            color = elem.fill;
-                                            return false;
-                                        }
-                                    }
-                                }); */
-                            }
-                            if (undefined != color) {
-                                color = '#' + color;
-                            } else {
-                                // default fillColor
-                                color = '#000000';
-                            }
-                        } else {
-                            // default fillColor for Unclustered Point
-                            color = DEFAULT_FILL;
-                        }
-                        return color;
-                    },
-                    fillOpacity: function(feature) {
-                        var fillOpacity;
-                        if (feature.cluster) {
-                            if (feature.cluster[0].attributes.opacity) {
-                                // Use opacity from features (e.g. FeatureQuery)
-                                fillOpacity = feature.cluster[0].attributes.opacity;
-                            } else {
-                                // default fillOpacity for Clustered Point
-                                fillOpacity = opacity;
-                            }
-                        } else if (feature.attributes.opacity) {
-                            // Use opacity from feature (e.g. FeatureQuery)
-                            fillOpacity = feature.attributes.opacity;
-                        } else if (style) {
-                            if (!style_array) {
-                                // Common Style for all features in layer
-                                fillOpacity = style.fillOpacity;
-                            } else {
-                                // Lookup from rule
-                                /* Done within OpenLayers.Rule
-                                var prop, value;
-                                $.each(style, function(index, elem) {
-                                    if (undefined != elem.prop) {
-                                        prop = elem.prop;
-                                    } else {
-                                        // Default (e.g. for Theme Layers)
-                                        prop = 'value';
-                                    }
-                                    value = feature.attributes[prop];
-                                    if (undefined != elem.cat) {
-                                        // Category-based style
-                                        if (value == elem.cat) {
-                                            fillOpacity = elem.fillOpacity;
-                                            return false;
-                                        }
-                                    } else {
-                                        // Range-based style
-                                        if ((value >= elem.low) && (value < elem.high)) {
-                                            fillOpacity = elem.fillOpacity;
-                                            return false;
-                                        }
-                                    }
-                                }); */
-                            }
-                        }
-                        // default to layer's opacity
-                        return fillOpacity || opacity;
-                    },
-                    stroke: function(feature) {
-                        var color;
-                        if (feature.cluster) {
-                            if (feature.cluster[0].attributes.colour) {
-                                // Use colour from features (e.g. FeatureQuery)
-                                color = feature.cluster[0].attributes.colour;
-                            } else {
-                                // default strokeColor for Clustered Point
-                                color = '#2b2f76';
-                            }
-                        } else if (feature.attributes.colour) {
-                            // Use colour from feature (e.g. FeatureQuery)
-                            color = feature.attributes.colour;
-                        } else if (style) {
-                            if (!style_array) {
-                                // Common Style for all features in layer
-                                color = style.stroke || style.fill;
-                            } else {
-                                // Lookup from rule
-                                /* Done within OpenLayers.Rule
-                                var prop, value;
-                                $.each(style, function(index, elem) {
-                                    if (undefined != elem.prop) {
-                                        prop = elem.prop;
-                                    } else {
-                                        // Default (e.g. for Theme Layers)
-                                        prop = 'value';
-                                    }
-                                    value = feature.attributes[prop];
-                                    if (undefined != elem.cat) {
-                                        // Category-based style
-                                        if (value == elem.cat) {
-                                            color = elem.stroke || elem.fill;
-                                            return false;
-                                        }
-                                    } else {
-                                        // Range-based style
-                                        if ((value >= elem.low) && (value < elem.high)) {
-                                            color = elem.stroke || elem.fill;
-                                            return false;
-                                        }
-                                    }
-                                }); */
-                            }
-                            if (undefined != color) {
-                                color = '#' + color;
-                            } else {
-                                // default fillColor
-                                color = '#000000';
-                            }
-                        } else {
-                            // default strokeColor for Unclustered Point
-                            color = DEFAULT_FILL;
-                        }
-                        return color;
-                    },
-                    strokeWidth: function(feature) {
-                        // default strokeWidth
-                        var width = 2;
-                        if (feature.cluster) {
-                            if (feature.cluster[0].attributes.strokeWidth) {
-                                // Use colour from features (e.g. FeatureQuery)
-                                width = feature.cluster[0].attributes.strokeWidth;
-                            }
-                        //} else if (feature.attributes.strokeWidth) {
-                        //    // Use strokeWidth from feature (e.g. FeatureQuery)
-                        //    width = feature.attributes.strokeWidth;
-                        } else if (style) {
-                            if (!style_array) {
-                                // Common Style for all features in layer
-                                width = style.strokeWidth;
-                            } else {
-                                // Lookup from rule
-                                /* Done within OpenLayers.Rule
-                                var prop, value;
-                                $.each(style, function(index, elem) {
-                                    if (undefined != elem.prop) {
-                                        prop = elem.prop;
-                                    } else {
-                                        // Default (e.g. for Theme Layers)
-                                        prop = 'value';
-                                    }
-                                    value = feature.attributes[prop];
-                                    if (undefined != elem.cat) {
-                                        // Category-based style
-                                        if (value == elem.cat) {
-                                            width = elem.strokeWidth;
-                                            return false;
-                                        }
-                                    } else {
-                                        // Range-based style
-                                        if ((value >= elem.low) && (value < elem.high)) {
-                                            width = elem.strokeWidth;
-                                            return false;
-                                        }
-                                    }
-                                }); */
-                            }
-                        }
-                        // Defalt width: 2
-                        return width || 2;
-                    },
-                    label: function(feature) {
-                        // Label For Unclustered Point
-                        var label;
-                        // Label For Clustered Point
-                        if (feature.cluster) {
-                            if (feature.attributes.count > 1) {
-                                label = feature.attributes.count;
-                            }
-                        } else if (feature.layer && (undefined != feature.layer.s3_style)) {
-                            var style = feature.layer.s3_style;
-                            if (!style_array) {
-                                // Common Style for all features in layer
-                                if (style.show_label) {
-                                    label = style.label;
-                                }
-                            } else {
-                                // Lookup from rule
-                                /* Done within OpenLayers.Rule
-                                var prop, value;
-                                $.each(style, function(index, elem) {
-                                    if (undefined != elem.prop) {
-                                        prop = elem.prop;
-                                    } else {
-                                        // Default (e.g. for Theme Layers)
-                                        prop = 'value';
-                                    }
-                                    value = feature.attributes[prop];
-                                    if (undefined != elem.cat) {
-                                        // Category-based style
-                                        if (value == elem.cat) {
-                                            if (elem.show_label) {
-                                                label = elem.label;
-                                            }
-                                            return false
-                                        }
-                                    } else {
-                                        // Range-based style
-                                        if ((value >= elem.low) && (value < elem.high)) {
-                                            if (elem.show_label) {
-                                                label = elem.label;
-                                            }
-                                            return false
-                                        }
-                                    }
-                                }); */
-                            }
-                        }
-                        return label || '';
-                    }
-                }
-            };
-            // Needs to be uniquely instantiated
-            var featureStyle = new OpenLayers.Style(
-                styleArray,
-                styleOptions
-            );
         }
 
-        var featureStyleMap = new OpenLayers.StyleMap({
-            'default': featureStyle,
-            // @ToDo: Customise the Select Style too
-            'select': {
+        // @ToDo: Allow customisation of the Select Style
+        if (opacity != 1) {
+            // Simply make opaque onSelect
+            var selectStyle = {
+                graphicOpacity: 1
+            };
+        } else {
+            // Change colour onSelect
+            var selectStyle = {
                 fillColor: '#ffdc33',
                 strokeColor: '#ff9933'
-            }
+            };
+        }
+        var featureStyleMap = new OpenLayers.StyleMap({
+            'default': featureStyle,
+            'select': selectStyle
         });
         return [featureStyleMap, marker_url];
     }

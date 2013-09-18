@@ -1,4 +1,4 @@
-#[*- coding: utf-8 -*-
+# *- coding: utf-8 -*-
 
 """ Sahana Eden Project Model
 
@@ -115,7 +115,7 @@ class S3ProjectModel(S3Model):
         db = current.db
         auth = current.auth
 
-        #NONE = current.messages["NONE"]
+        NONE = current.messages["NONE"]
 
         human_resource_id = self.hrm_human_resource_id
 
@@ -200,7 +200,7 @@ class S3ProjectModel(S3Model):
                                     ),
                                 ),
                              Field("name", unique=True, length=255,
-                                   label = T("Name"),
+                                   label = T("Project Name"),
                                    # Require unique=True if using IS_NOT_ONE_OF like here (same table,
                                    # no filter) in order to allow both automatic indexing (faster)
                                    # and key-based de-duplication (i.e. before field validation)
@@ -249,6 +249,7 @@ class S3ProjectModel(S3Model):
                              Field("objectives", "text",
                                    readable = mode_3w,
                                    writable = mode_3w,
+                                   represent = lambda v: v or NONE,
                                    label = T("Objectives")),
                              human_resource_id(label=T("Contact Person")),
                              s3_comments(comment=DIV(_class="tooltip",
@@ -1132,6 +1133,7 @@ class S3ProjectActivityModel(S3Model):
         #
         tablename = "project_activity"
         table = define_table(tablename,
+                             # Instance
                              self.super_link("doc_id", "doc_entity"),
                              s3_datetime(),
                              self.project_project_id(),
@@ -1185,13 +1187,12 @@ class S3ProjectActivityModel(S3Model):
         )
 
         # Search Method
-        filter_widgets = [
-            S3OptionsFilter("activity_type_id",
-                            label=T("Type"),
-                            represent="%(name)s",
-                            widget="multiselect",
-                            ),
-            ]
+        filter_widgets = [S3OptionsFilter("activity_type_id",
+                                          label=T("Type"),
+                                          represent="%(name)s",
+                                          widget="multiselect",
+                                          ),
+                          ]
 
         # Resource Configuration
         report_fields = []
@@ -1280,6 +1281,16 @@ class S3ProjectActivityModel(S3Model):
                         autocomplete="name",
                         autodelete=False))
 
+        # Coalitions
+        add_component("org_group",
+                      project_activity=dict(link="project_activity_group",
+                                            joinby="activity_id",
+                                            key="group_id",
+                                            actuate="hide"))
+        # Format for InlineComponent/filter_widget
+        add_component("project_activity_group",
+                      project_activity="activity_id")
+
         # ---------------------------------------------------------------------
         # Activity Type - Activity Link Table
         #
@@ -1310,9 +1321,8 @@ class S3ProjectActivityModel(S3Model):
                       project_activity="activity_id")
 
         # Pass names back to global scope (s3.*)
-        return dict(
-            project_activity_id = activity_id,
-        )
+        return dict(project_activity_id = activity_id,
+                    )
 
     # -------------------------------------------------------------------------
     def defaults(self):
@@ -1322,9 +1332,8 @@ class S3ProjectActivityModel(S3Model):
                                 readable=False,
                                 writable=False)
 
-        return Storage(
-                project_activity_id = lambda: dummy("activity_id"),
-            )
+        return dict(project_activity_id = lambda: dummy("activity_id"),
+                    )
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -1520,9 +1529,9 @@ class S3ProjectActivityTypeModel(S3Model):
         )
 
         # Pass names back to global scope (s3.*)
-        return dict(
-            project_activity_type_id = activity_type_id,
-        )
+        return dict(project_activity_type_id = activity_type_id,
+                    )
+
 # =============================================================================
 class S3ProjectActivityOrganisationModel(S3Model):
     """
@@ -1533,20 +1542,25 @@ class S3ProjectActivityOrganisationModel(S3Model):
           but just this summary of Organisations
     """
 
-    names = ["project_activity_organisation"]
+    names = ["project_activity_organisation",
+             "project_activity_group",
+             ]
 
     def model(self):
 
         T = current.T
 
+        define_table = self.define_table
+        project_activity_id = self.project_activity_id
+
         # ---------------------------------------------------------------------
-        # Activity Organisations - Link table
+        # Activities <> Organisations - Link table
         #
         tablename = "project_activity_organisation"
-        table = self.define_table(tablename,
-                                  self.project_activity_id(),
-                                  self.org_organisation_id(),
-                                  *s3_meta_fields())
+        table = define_table(tablename,
+                             project_activity_id(empty=False),
+                             self.org_organisation_id(empty=False),
+                             *s3_meta_fields())
 
         # CRUD Strings
         ADD_ACTIVITY_ORG = T("Add Activity Organisation")
@@ -1565,9 +1579,17 @@ class S3ProjectActivityOrganisationModel(S3Model):
             msg_list_empty = T("No Activity Organisations Found")
         )
 
+        # ---------------------------------------------------------------------
+        # Activities <> Organisation Groups - Link table
+        #
+        tablename = "project_activity_group"
+        table = define_table(tablename,
+                             project_activity_id(empty=False),
+                             self.org_group_id(empty=False),
+                             *s3_meta_fields())
+
         # Pass names back to global scope (s3.*)
-        return dict(
-        )
+        return dict()
 
 # =============================================================================
 class S3ProjectAnnualBudgetModel(S3Model):
@@ -1636,8 +1658,7 @@ class S3ProjectAnnualBudgetModel(S3Model):
                        )
 
         # Pass names back to global scope (s3.*)
-        return dict(
-            )
+        return dict()
 
 # =============================================================================
 class S3ProjectBeneficiaryModel(S3Model):
@@ -1892,27 +1913,7 @@ class S3ProjectBeneficiaryModel(S3Model):
         #                                 ondelete = "SET NULL")
 
         # Pass names back to global scope (s3.*)
-        return dict(
-            )
-
-    # -------------------------------------------------------------------------
-    @staticmethod
-    def project_beneficiary_type_represent(id, row=None):
-        """ FK representation """
-
-        if row:
-            return row.name
-        if not id:
-            return current.messages["NONE"]
-
-        db = current.db
-        table = db.project_beneficiary_type
-        r = db(table.id == id).select(table.name,
-                                      limitby = (0, 1)).first()
-        try:
-            return current.T(r.name)
-        except:
-            return current.messages.UNKNOWN_OPT
+        return dict()
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -1972,7 +1973,7 @@ class S3ProjectBeneficiaryModel(S3Model):
         data = item.data
         if "parameter_id" in data and \
            "project_location_id" in data:
-            # Match beneficiary by type and activity_id
+            # Match beneficiary by type and project_location
             table = item.table
             parameter_id = data.parameter_id
             project_location_id = data.project_location_id
@@ -2311,6 +2312,9 @@ class S3ProjectCampaignModel(S3Model):
             msg_list_empty = T("No Response Summaries Found")
         )
 
+        # Pass names back to global scope (s3.*)
+        return dict()
+
 # =============================================================================
 class S3ProjectFrameworkModel(S3Model):
     """
@@ -2456,8 +2460,7 @@ class S3ProjectFrameworkModel(S3Model):
         )
 
         # Pass names back to global scope (s3.*)
-        return dict(
-        )
+        return dict()
 
 # =============================================================================
 class S3ProjectHazardModel(S3Model):
@@ -2554,8 +2557,7 @@ class S3ProjectHazardModel(S3Model):
                        )
 
         # Pass names back to global scope (s3.*)
-        return dict(
-            )
+        return dict()
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -2838,7 +2840,7 @@ class S3ProjectLocationModel(S3Model):
         # Components
         # Activity Types
         add_component("project_activity_type",
-                      project_location=Storage(
+                      project_location=dict(
                                 link="project_activity_type_location",
                                 joinby="project_location_id",
                                 key="activity_type_id",
@@ -2850,7 +2852,7 @@ class S3ProjectLocationModel(S3Model):
 
         # Contacts
         add_component("pr_person",
-                      project_location=Storage(
+                      project_location=dict(
                             name="contact",
                             link="project_location_contact",
                             joinby="project_location_id",
@@ -2858,9 +2860,13 @@ class S3ProjectLocationModel(S3Model):
                             actuate="hide",
                             autodelete=False))
 
+        # Distributions
+        add_component("supply_distribution",
+                      project_location="project_location_id")
+
         # Themes
         add_component("project_theme",
-                      project_location=Storage(
+                      project_location=dict(
                                 link="project_theme_location",
                                 joinby="project_location_id",
                                 key="theme_id",
@@ -2959,10 +2965,9 @@ class S3ProjectLocationModel(S3Model):
         # ---------------------------------------------------------------------
         # Pass names back to global scope (s3.*)
         #
-        return dict(
-                project_location_id = project_location_id,
-                project_location_represent = project_location_represent,
-            )
+        return dict(project_location_id = project_location_id,
+                    project_location_represent = project_location_represent,
+                    )
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -3063,7 +3068,7 @@ class S3ProjectOrganisationModel(S3Model):
                                         represent = lambda v: \
                                             IS_FLOAT_AMOUNT.represent(v, precision=2),
                                         widget = IS_FLOAT_AMOUNT.widget,
-                                        label = T("Funds Contributed by this Organization")),
+                                        label = T("Funds Contributed")),
                                   s3_currency(),
                                   s3_comments(),
                                   *s3_meta_fields())
@@ -3116,8 +3121,7 @@ class S3ProjectOrganisationModel(S3Model):
                        )
 
         # Pass names back to global scope (s3.*)
-        return dict(
-            )
+        return dict()
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -3283,6 +3287,9 @@ class S3ProjectOutputModel(S3Model):
                        deduplicate = self.project_output_deduplicate,
                        )
 
+        # Pass names back to global scope (s3.*)
+        return dict()
+
     # -------------------------------------------------------------------------
     @staticmethod
     def project_output_deduplicate(item):
@@ -3346,8 +3353,7 @@ class S3ProjectSectorModel(S3Model):
         )
 
         # Pass names back to global scope (s3.*)
-        return dict(
-            )
+        return dict()
 
 # =============================================================================
 class S3ProjectThemeModel(S3Model):
@@ -3546,8 +3552,7 @@ class S3ProjectThemeModel(S3Model):
         )
 
         # Pass names back to global scope (s3.*)
-        return dict(
-            )
+        return dict()
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -3649,7 +3654,7 @@ class S3ProjectDRRModel(S3Model):
                          *s3_meta_fields())
 
         # Pass names back to global scope (s3.*)
-        return {}
+        return dict()
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -3813,8 +3818,7 @@ class S3ProjectDRRPPModel(S3Model):
                        )
 
         # Pass names back to global scope (s3.*)
-        return dict(
-            )
+        return dict()
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -4168,8 +4172,13 @@ class S3ProjectTaskModel(S3Model):
                           hide_time=True,
                           hidden=True,
                           ),
-            S3RangeFilter("created_on",
+            S3RangeFilter("date_due",
                           label=T("Date Due"),
+                          hide_time=True,
+                          hidden=True,
+                          ),
+            S3RangeFilter("modified_on",
+                          label=T("Date Modified"),
                           hide_time=True,
                           hidden=True,
                           ),
@@ -4241,7 +4250,7 @@ class S3ProjectTaskModel(S3Model):
         configure(tablename,
                   super_entity = "doc_entity",
                   copyable = True,
-                  orderby = "project_task.priority",
+                  orderby = "project_task.priority,project_task.date_due asc",
                   realm_entity = self.project_task_realm_entity,
                   onvalidation = self.project_task_onvalidation,
                   #create_next = URL(f="task", args=["[id]"]),
@@ -4559,10 +4568,9 @@ class S3ProjectTaskModel(S3Model):
                                 readable=False,
                                 writable=False)
 
-        return Storage(
-            project_task_id = lambda: dummy("task_id"),
-            project_task_active_statuses = [],
-        )
+        return dict(project_task_id = lambda: dummy("task_id"),
+                    project_task_active_statuses = [],
+                    )
 
     # -------------------------------------------------------------------------
     @staticmethod

@@ -49,16 +49,16 @@ class S3Config(Storage):
 
     def __init__(self):
         self.auth = Storage()
-        self.auth.email_domains=[]
+        self.auth.email_domains = []
         self.base = Storage()
         self.database = Storage()
+        # @ToDo: Move to self.ui
         self.frontpage = Storage()
         self.frontpage.rss = []
         self.fin = Storage()
         self.L10n = Storage()
         self.mail = Storage()
         self.msg = Storage()
-        self.options = Storage()
         self.search = Storage()
         self.security = Storage()
         self.ui = Storage()
@@ -247,6 +247,14 @@ class S3Config(Storage):
             organisation_id = None
         return organisation_id
 
+    def get_auth_registration_requests_organisation_group(self):
+        " Have the registration form request the Organisation Group "
+        return self.auth.get("registration_requests_organisation_group", False)
+
+    def get_auth_registration_organisation_group_required(self):
+        " Make the selection of Organisation Group required during registration "
+        return self.auth.get("registration_organisation_group_required", False)
+
     def get_auth_registration_requests_site(self):
         " Have the registration form request the Site "
         return self.auth.get("registration_requests_site", False)
@@ -278,6 +286,13 @@ class S3Config(Storage):
         """
         return self.auth.get("registration_roles", [])
 
+    def get_auth_terms_of_service(self):
+        """
+            Force users to accept Terms of Servcie before Registering an account
+            - uses <template>/views/tos.html
+        """
+        return self.auth.get("terms_of_service", False)
+
     def get_auth_registration_volunteer(self):
         """ Redirect the newly-registered user to their volunteer details page """
         return self.auth.get("registration_volunteer", False)
@@ -287,7 +302,7 @@ class S3Config(Storage):
         return self.auth.get("record_approval", False)
     def get_auth_record_approval_required_for(self):
         """ Which tables record approval is required for """
-        return self.auth.get("record_approval_required_for", None)
+        return self.auth.get("record_approval_required_for", [])
 
     def get_auth_realm_entity(self):
         """ Hook to determine the owner entity of a record """
@@ -382,35 +397,82 @@ class S3Config(Storage):
             System Name (Short Version) - for the UI & Messaging
         """
         return self.base.get("system_name_short", "Sahana Eden")
+
     def get_base_debug(self):
+        """
+            Debug mode: Serve CSS/JS in separate uncompressed files
+        """
         return self.base.get("debug", False)
+
     def get_base_migrate(self):
         """ Whether to allow Web2Py to migrate the SQL database to the new structure """
         return self.base.get("migrate", True)
     def get_base_fake_migrate(self):
         """ Whether to have Web2Py create the .table files to match the expected SQL database structure """
         return self.base.get("fake_migrate", False)
+        
     def get_base_prepopulate(self):
         """ Whether to prepopulate the database &, if so, which set of data to use for this """
         return self.base.get("prepopulate", 1)
+
     def get_base_guided_tour(self):
         """ Whether the guided tours are enabled """
         return self.base.get("guided_tour", False)
+
     def get_base_public_url(self):
+        """
+            The Public URL for the site - for use in email links, etc
+        """
         return self.base.get("public_url", "http://127.0.0.1:8000")
+
     def get_base_cdn(self):
+        """
+            Should we use CDNs (Content Distribution Networks) to serve some common CSS/JS?
+        """
         return self.base.get("cdn", False)
+
     def get_base_session_memcache(self):
         """
             Should we store sessions in a Memcache service to allow sharing
             between multiple instances?
         """
         return self.base.get("session_memcache", False)
+
     def get_base_solr_url(self):
         """
             URL to connect to solr server
         """    
         return self.base.get("solr_url", False)
+
+    def get_import_callback(self, tablename, callback):
+        """
+            Lookup callback to use for imports in the following order:
+                - custom [create, update]_onxxxx
+                - default [create, update]_onxxxx
+                - custom onxxxx
+                - default onxxxx
+            NB: Currently only onaccept is actually used
+        """
+        callbacks = self.base.get("import_callbacks", [])
+        if tablename in callbacks:
+            callbacks = callbacks[tablename]
+            if callback in callbacks:
+                return callbacks[callback]
+
+        get_config = current.s3db.get_config
+        default = get_config(tablename, callback)
+        if default:
+            return default
+
+        if callback[:2] != "on":
+            callback = callback[7:]
+
+            if callback in callbacks:
+                return callbacks[callback]
+
+            default = get_config(tablename, callback)
+            if default:
+                return default
 
     # -------------------------------------------------------------------------
     # Database settings
@@ -510,6 +572,10 @@ class S3Config(Storage):
         " Edit Location Groups "
         return self.gis.get("edit_GR", False)
 
+    def get_gis_geocode_imported_addresses(self):
+        " Should Addresses imported from CSV be passed to a Geocoder to try and automate Lat/Lon? "
+        return self.gis.get("geocode_imported_addresses", False)
+
     def get_gis_geoserver_url(self):
         return self.gis.get("geoserver_url", "")
     def get_gis_geoserver_username(self):
@@ -520,6 +586,30 @@ class S3Config(Storage):
     def get_gis_latlon_selector(self):
         " Display Lat/Lon form fields when selecting Locations "
         return self.gis.get("latlon_selector", True)
+
+    def get_gis_layer_metadata(self):
+        " Use CMS to provide Metadata on Map Layers "
+        return self.has_module("cms") and self.gis.get("layer_metadata", False)
+
+    def get_gis_layer_properties(self):
+        " Display Layer Properties Tool above Map's Layer Tree "
+        return self.gis.get("layer_properties", True)
+
+    def get_gis_layer_tree_base(self):
+        " Display Base Layers folder in the Map's Layer Tree "
+        return self.gis.get("layer_tree_base", True)
+
+    def get_gis_layer_tree_overlays(self):
+        " Display Overlays folder in the Map's Layer Tree "
+        return self.gis.get("layer_tree_overlays", True)
+
+    def get_gis_layer_tree_expanded(self):
+        " Display folders in the Map's Layer Tree Open by default "
+        return self.gis.get("layer_tree_expanded", True)
+
+    def get_gis_layer_tree_radio(self):
+        " Use a radio button for custom folders in the Map's Layer Tree "
+        return self.gis.get("layer_tree_radio", False)
 
     def get_gis_map_height(self):
         """
@@ -547,6 +637,15 @@ class S3Config(Storage):
     def get_gis_marker_max_width(self):
         return self.gis.get("marker_max_width", 30)
 
+    def get_gis_legend(self):
+        """
+            Should we display a Legend on the Map?
+            - set to True to show a GeoExt Legend (default)
+            - set to False to not show a Legend
+            - set to "float" to use a floating DIV
+        """
+        return self.gis.get("legend", True)
+
     def get_gis_menu(self):
         """
             Should we display a menu of GIS configurations?
@@ -570,6 +669,12 @@ class S3Config(Storage):
             Should the Map Toolbar display Navigation Controls?
         """
         return self.gis.get("nav_controls", True)
+
+    def get_gis_label_overlays(self):
+        """
+            Label for the Map Overlays in the Layer Tree
+        """
+        return self.gis.get("label_overlays", "Overlays")
 
     def get_gis_overview(self):
         """
@@ -621,6 +726,12 @@ class S3Config(Storage):
             return False
         else:
             return self.gis.get("spatialdb", False)
+
+    def get_gis_toolbar(self):
+        """
+            Should the main Map display a Toolbar?
+        """
+        return self.gis.get("toolbar", True)
 
     def get_gis_zoomcontrol(self):
         """
@@ -720,6 +831,17 @@ class S3Config(Storage):
     def get_L10n_decimal_separator(self):
         return self.L10n.get("decimal_separator", ",")
 
+    def get_L10n_translate_cms_series(self):
+        """
+            Whether to translate CMS Series names
+        """
+        return self.L10n.get("translate_cms_series", False)
+    def get_L10n_translate_gis_location(self):
+        """
+            Whether to translate Location names
+        """
+        return self.L10n.get("translate_gis_location", False)
+
     # -------------------------------------------------------------------------
     # PDF settings
     def get_paper_size(self):
@@ -742,11 +864,6 @@ class S3Config(Storage):
                 excluded_fields_dict.get(resourcename, [])
 
         return excluded_fields
-
-    # -------------------------------------------------------------------------
-    # Options
-    def get_terms_of_service(self):
-        return self.options.get("terms_of_service", False)
 
     # -------------------------------------------------------------------------
     # UI Settings
@@ -811,7 +928,7 @@ class S3Config(Storage):
 
     def ui_customize(self, tablename, **attr):
         """
-            Customize field settings for a table
+            Customize a Controller
         """
         customize = self.ui.get("customize_%s" % tablename)
         if customize:
@@ -936,6 +1053,20 @@ class S3Config(Storage):
 
         return self.ui.get("summary", None)
 
+    def get_ui_filter_auto_submit(self):
+        """
+            Time in milliseconds after the last filter option change to
+            automatically update the filter target(s), set to 0 to disable
+        """
+        return self.ui.get("filter_auto_submit", 0)
+
+    def get_ui_report_auto_submit(self):
+        """
+            Time in milliseconds after the last filter option change to
+            automatically update the filter target(s), set to 0 to disable
+        """
+        return self.ui.get("report_auto_submit", 0)
+
     # =========================================================================
     # Messaging
     # -------------------------------------------------------------------------
@@ -959,9 +1090,12 @@ class S3Config(Storage):
     def get_mail_approver(self):
         """
             The default Address to send Requests for New Users to be Approved
+            OR
+            UUID of Role of users who should receive Requests for New Users to be Approved
             - unless overridden by per-domain entries in auth_organsiation
         """
         return self.mail.get("approver", "useradmin@example.org")
+
     def get_mail_limit(self):
         """
             A daily limit to the number of messages which can be sent
@@ -984,6 +1118,47 @@ class S3Config(Storage):
         return self.msg.get("twitter_oauth_consumer_secret", "")
 
     # -------------------------------------------------------------------------
+    # Notifications
+    def get_msg_notify_subject(self):
+        """
+            Template for the subject line in update notifications.
+
+            Available placeholders:
+                $S = System Name (long)
+                $s = System Name (short)
+                $r = Resource Name
+
+            Use {} to separate the placeholder from immediately following
+            identifier characters (like: ${placeholder}text).
+        """
+        return self.msg.get("notify_subject",
+                            "$s %s: $r" % current.T("Update Notification"))
+
+    def get_msg_notify_email_format(self):
+        """
+            The preferred email format for update notifications,
+            "text" or "html".
+        """
+        return self.msg.get("notify_email_format", "text")
+
+    def get_msg_notify_renderer(self):
+        """
+            Custom content renderer function for update notifications,
+            function()
+        """
+        return self.msg.get("notify_renderer", None)
+
+    # -------------------------------------------------------------------------
+    # Outbox settings
+    def get_msg_max_send_retries(self):
+        """
+            Maximum number of retries to send a message before
+            it is regarded as permanently failing; set to None
+            to retry forever.
+        """
+        return self.msg.get("max_send_retries", 9)
+    
+    # -------------------------------------------------------------------------
     # Save Search and Subscription
     def get_search_max_results(self):
         """
@@ -1001,11 +1176,29 @@ class S3Config(Storage):
         """
         return self.search.get("save_widget", True)
 
+    # -------------------------------------------------------------------------
+    # Filter Manager Widget
+    def get_search_filter_manager(self):
+        """ Enable the filter manager widget """
+        return self.search.get("filter_manager", True)
+
+    def get_search_filter_manager_save(self):
+        """ Text for saved filter save-button """
+        return self.search.get("filter_manager_save", None)
+
+    def get_search_filter_manager_update(self):
+        """ Text for saved filter update-button """
+        return self.search.get("filter_manager_update", None)
+
+    def get_search_filter_manager_load(self):
+        """ Text for saved filter load-button """
+        return self.search.get("filter_manager_load", None)
+
     # =========================================================================
     # Modules
 
     # -------------------------------------------------------------------------
-    # Alert
+    # CAP
     def get_cap_identifier_prefix(self):
         """
             Prefix to be prepended to identifiers of CAP alerts
@@ -1459,17 +1652,19 @@ class S3Config(Storage):
     def get_pr_request_dob(self):
         """ Include Date of Birth in the AddPersonWidget """
         return self.pr.get("request_dob", True)
+
     def get_pr_request_gender(self):
         """ Include Gender in the AddPersonWidget """
         return self.pr.get("request_gender", True)
+
     def get_pr_select_existing(self):
         """
             Whether the AddPersonWidget allows selecting existing PRs
             - set to True if Persons can be found in multiple contexts
             - set to False if just a single context
-            @ToDo: Fix (form fails to submit)
         """
         return self.pr.get("select_existing", True)
+
     def get_pr_import_update_requires_email(self):
         """
             During imports, records are only updated if the import

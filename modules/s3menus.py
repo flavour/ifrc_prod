@@ -1373,7 +1373,7 @@ class S3OptionsMenu(object):
                         M("Add Disaster Assessments", m="create"),
                         M("List All"),
                     ),
-                    M("Administration", f="complete", restrict=[ADMIN])(
+                    M("Administration", f="admin", restrict=[ADMIN])(
                         #M("New", m="create"),
                         #M("List All"),
                         M("Import Templates", f="question_list",
@@ -1444,13 +1444,19 @@ class S3OptionsMenu(object):
                     M("Email InBox", f="email_inbox"),
                     M("RSS Feeds", f="rss_feed"),
                     M("Twilio SMS InBox", f="twilio_inbox"),
-                    M("Log", f="log"),
+                    M("Message Log", f="message"),
                     M("Outbox", f="outbox"),
                     M("Search Twitter Tags", f="twitter_search")(
                        M("Keywords", f="keyword"),
                        M("Senders", f="sender"),
                        M("Queries", f="twitter_search"),
                        M("Results", f="twitter_search_results")
+                    ),
+                    M("Twitter Search", f="twitter_result")(
+                       M("Twitter Settings", f="twitter_search_channel"),
+                       M("Twitter Queries", f="twitter_search_query"),
+                       M("Results", f="twitter_result"),
+                       # @ToDo KeyGraph Results
                     ),
                     M("Administration", restrict=[ADMIN])(settings_messaging)
                 )

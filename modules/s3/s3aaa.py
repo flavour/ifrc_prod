@@ -100,6 +100,8 @@ class AuthS3(Auth):
             - requires_membership
 
         - S3 extension for user registration:
+            - s3_registration_form
+            - s3_register_validation
             - s3_user_register_onaccept
 
         - S3 extension for user administration:
@@ -196,6 +198,7 @@ Thank you
         self.messages.registration_disabled = "Registration Disabled!"
         self.messages.registration_verifying = "You haven't yet Verified your account - please check your email"
         self.messages.label_organisation_id = "Organization"
+        self.messages.label_org_group_id = "Coalition"
         self.messages.label_utc_offset = "UTC Offset"
         self.messages.label_image = "Profile Image"
         self.messages.help_utc_offset = "The time difference between UTC and your timezone, specify as +HHMM for eastern or -HHMM for western timezones."
@@ -265,43 +268,35 @@ Thank you
         # User table
         utable = settings.table_user
         uname = settings.table_user_name
-        label_user_id = messages.label_user_id
         if not utable:
             utable_fields = [
                     Field("first_name", length=128, notnull=True,
                           default="",
-                          label=messages.label_first_name,
                           requires = \
                           IS_NOT_EMPTY(error_message=messages.is_empty),
                           ),
                     Field("last_name", length=128,
-                          default="",
-                          label=messages.label_last_name),
-                    Field("email", length=255,
-                          default="",
-                          label=messages.label_email,
-                          unique=True),
+                          default=""),
+                    Field("email", length=255, unique=True,
+                          default=""),
                     Field("language", length=16,
                           default = deployment_settings.get_L10n_default_language()),
                     Field("utc_offset", length=16,
-                          readable=False, writable=False,
-                          label=messages.label_utc_offset),
+                          readable=False, writable=False),
                     Field("organisation_id", "integer",
-                          readable=False, writable=False,
-                          label=messages.label_organisation_id),
+                          readable=False, writable=False),
+                    Field("org_group_id", "integer",
+                          readable=False, writable=False),
                     Field("site_id", "integer",
-                          readable=False, writable=False,
-                          label=deployment_settings.get_org_site_label()),
+                          readable=False, writable=False),
                     Field("link_user_to", "list:string",
                           readable=False, writable=False),
                     Field("registration_key", length=512,
                           default="",
-                          readable=False, writable=False,
-                          label=messages.label_registration_key),
+                          readable=False, writable=False),
                     Field("reset_password_key", length=512,
                           default="",
-                          readable=False, writable=False,
-                          label=messages.label_registration_key),
+                          readable=False, writable=False),
                     Field("deleted", "boolean",
                           default=False,
                           readable=False, writable=False),
@@ -348,7 +343,6 @@ Thank you
         # Group table (roles)
         gtable = settings.table_group
         gname = settings.table_group_name
-        label_group_id = messages.label_group_id
         if not gtable:
             gtable = define_table(gname,
                 # Group unique ID, must be notnull+unique:
@@ -388,45 +382,45 @@ Thank you
                 Field("user_id", utable,
                       requires = IS_IN_DB(db, "%s.id" % uname,
                                           "%(id)s: %(first_name)s %(last_name)s"),
-                      label=label_user_id),
+                      label=messages.label_user_id),
                 Field("group_id", gtable,
                       requires = IS_IN_DB(db, "%s.id" % gname,
                                           "%(id)s: %(role)s"),
                       represent = S3Represent(lookup=gname, fields=["role"]),
-                      label=label_group_id),
+                      label=messages.label_group_id),
                 # Realm
                 Field("pe_id", "integer"),
                 migrate = migrate,
                 fake_migrate=fake_migrate,
                 *(s3_uid() + s3_timestamp() + s3_deletion_status()))
 
-        security_policy = deployment_settings.get_security_policy()
         # Define Eden permission table
         self.permission.define_table(migrate=migrate,
                                      fake_migrate=fake_migrate)
 
-        if security_policy not in (1, 2, 3, 4, 5, 6, 7, 8) and \
-           not settings.table_permission:
-            # Permissions table (group<->permission)
-            # NB This Web2Py table is deprecated / replaced in Eden by S3Permission
-            settings.table_permission = define_table(
-                settings.table_permission_name,
-                Field("group_id", gtable,
-                      requires = IS_IN_DB(db, "%s.id" % gname,
-                                          "%(id)s: %(role)s"),
-                      label=label_group_id),
-                Field("name", default="default", length=512,
-                      requires = IS_NOT_EMPTY(),
-                      label=messages.label_name),
-                Field("table_name", length=512,
-                      # Needs to be defined after all tables created
-                      #requires = IS_IN_SET(db.tables),
-                      label=messages.label_table_name),
-                Field("record_id", "integer",
-                      requires = IS_INT_IN_RANGE(0, 10 ** 9),
-                      label=messages.label_record_id),
-                migrate = migrate,
-                fake_migrate=fake_migrate)
+        #security_policy = deployment_settings.get_security_policy()
+        #if security_policy not in (1, 2, 3, 4, 5, 6, 7, 8) and \
+        #   not settings.table_permission:
+        #    # Permissions table (group<->permission)
+        #    # NB This Web2Py table is deprecated / replaced in Eden by S3Permission
+        #    settings.table_permission = define_table(
+        #        settings.table_permission_name,
+        #        Field("group_id", gtable,
+        #              requires = IS_IN_DB(db, "%s.id" % gname,
+        #                                  "%(id)s: %(role)s"),
+        #              label=messages.label_group_id),
+        #        Field("name", default="default", length=512,
+        #              requires = IS_NOT_EMPTY(),
+        #              label=messages.label_name),
+        #        Field("table_name", length=512,
+        #              # Needs to be defined after all tables created
+        #              #requires = IS_IN_SET(db.tables),
+        #              label=messages.label_table_name),
+        #        Field("record_id", "integer",
+        #              requires = IS_INT_IN_RANGE(0, 10 ** 9),
+        #              label=messages.label_record_id),
+        #        migrate = migrate,
+        #        fake_migrate=fake_migrate)
 
         # Event table (auth_event)
         # Records Logins & ?
@@ -437,19 +431,22 @@ Thank you
                 settings.table_event_name,
                 Field("time_stamp", "datetime",
                       default=request.utcnow,
-                      label=messages.label_time_stamp),
+                      #label=messages.label_time_stamp
+                      ),
                 Field("client_ip",
                       default=request.client,
-                      label=messages.label_client_ip),
+                      #label=messages.label_client_ip
+                      ),
                 Field("user_id", utable, default=None,
                       requires = IS_IN_DB(db, "%s.id" % uname,
                                           "%(id)s: %(first_name)s %(last_name)s"),
-                      label=label_user_id),
+                      #label=messages.label_user_id
+                      ),
                 Field("origin", default="auth", length=512,
-                      label=messages.label_origin,
+                      #label=messages.label_origin,
                       requires = IS_NOT_EMPTY()),
                 Field("description", "text", default="",
-                      label=messages.label_description,
+                      #label=messages.label_description,
                       requires = IS_NOT_EMPTY()),
                 migrate = migrate,
                 fake_migrate=fake_migrate,
@@ -842,18 +839,13 @@ Thank you
 
         labels, required = s3_mark_required(utable)
 
-        if deployment_settings.get_terms_of_service():
-            submit_button = T("I accept. Create my account.")
-        else:
-            submit_button = T("Register")
-
         #formstyle = deployment_settings.get_ui_formstyle()
         form = SQLFORM(utable, hidden=dict(_next=request.vars._next),
                        labels = labels,
                        separator = "",
-                       showid=settings.showid,
-                       submit_button=submit_button,
-                       delete_label=messages.delete_label,
+                       showid = settings.showid,
+                       submit_button = T("Register"),
+                       delete_label = messages.delete_label,
                        #formstyle = formstyle
                        )
         for i, row in enumerate(form[0].components):
@@ -1105,6 +1097,11 @@ Thank you
             utable.utc_offset.readable = True
             utable.utc_offset.writable = True
 
+        utable.organisation_id.requires = \
+            current.s3db.org_organisation_requires(# Only allowed to select Orgs that the user has update access to
+                                                   updateable = True,
+                                                   )
+
         if next == DEFAULT:
             next = request.get_vars._next \
                 or request.post_vars._next \
@@ -1228,6 +1225,8 @@ Thank you
                     i.e. org_admin coming from admin.py/user()
         """
 
+        from s3validators import IS_ONE_OF
+
         T = current.T
         db = current.db
         s3db = current.s3db
@@ -1239,12 +1238,14 @@ Thank you
 
         utable = self.settings.table_user
 
+        utable.password.label = T("Password") #messages.label_password
+
         first_name = utable.first_name
-        first_name.label = T("First Name")
+        first_name.label = T("First Name") #messages.label_first_name
         first_name.requires = IS_NOT_EMPTY(error_message=messages.is_empty),
 
         last_name = utable.last_name
-        last_name.label = T("Last Name")
+        last_name.label = T("Last Name") #messages.label_last_name
         if deployment_settings.get_L10n_mandatory_lastname():
             last_name.notnull = True
             last_name.requires = IS_NOT_EMPTY(error_message=messages.is_empty)
@@ -1255,7 +1256,7 @@ Thank you
                                                    utable._tablename)
 
         email = utable.email
-        email.label = T("E-mail")
+        email.label = T("E-mail") #messages.label_email
         email.requires = [IS_EMAIL(error_message=messages.invalid_email),
                           IS_LOWER(),
                           IS_NOT_IN_DB(db,
@@ -1275,6 +1276,7 @@ Thank you
         language.default = T.accepted_language
 
         utc_offset = utable.utc_offset
+        utc_offset.label = messages.label_utc_offset
         utc_offset.comment = DIV(_class="tooltip",
                                  _title="%s|%s" % (messages.label_utc_offset,
                                                    messages.help_utc_offset)
@@ -1285,6 +1287,10 @@ Thank you
         except:
             pass
 
+        utable.registration_key.label = messages.label_registration_key
+        #utable.reset_password_key.label = messages.label_registration_key
+
+        # Organisation
         req_org = deployment_settings.get_auth_registration_requests_organisation()
         if req_org:
             if pe_ids:
@@ -1296,43 +1302,77 @@ Thank you
                 filterby = None
                 filter_opts = None
             organisation_id = utable.organisation_id
+            organisation_id.label = messages.label_organisation_id
             organisation_id.readable = organisation_id.writable = True
-            from s3validators import IS_ONE_OF
-            org_represent = s3db.org_organisation_represent
-            organisation_id.requires = IS_ONE_OF(db, "org_organisation.id",
-                                                 org_represent,
-                                                 filterby=filterby,
-                                                 filter_opts=filter_opts,
-                                                 orderby="org_organisation.name",
-                                                 sort=True)
-            organisation_id.represent = org_represent
             organisation_id.default = deployment_settings.get_auth_registration_organisation_id_default()
-            # no permissions for autocomplete on registration page yet
+            org_represent = s3db.org_organisation_represent
+            organisation_id.represent = org_represent
+            requires = IS_ONE_OF(db, "org_organisation.id",
+                                 org_represent,
+                                 filterby=filterby,
+                                 filter_opts=filter_opts,
+                                 orderby="org_organisation.name",
+                                 sort=True)
+            if deployment_settings.get_auth_registration_organisation_required():
+                organisation_id.requires = requires
+            else:
+                organisation_id.requires = IS_NULL_OR(requires)
+
+            from s3layouts import S3AddResourceLink
+            organisation_id.comment = S3AddResourceLink(c="org",
+                                                        f="organisation",
+                                                        label=s3db.crud_strings["org_organisation"].title_create,
+                                                        title=s3db.crud_strings["org_organisation"].title_list,)
             #from s3widgets import S3OrganisationAutocompleteWidget
             #organisation_id.widget = S3OrganisationAutocompleteWidget()
             #organisation_id.comment = DIV(_class="tooltip",
             #                              _title="%s|%s" % (T("Organization"),
             #                                                T("Enter some characters to bring up a list of possible matches")))
 
-            if not deployment_settings.get_auth_registration_organisation_required():
-                organisation_id.requires = IS_NULL_OR(organisation_id.requires)
+        # Organisation Group
+        if deployment_settings.get_auth_registration_requests_organisation_group():
+            org_group_id = utable.org_group_id
+            org_group_id.label = messages.label_org_group_id
+            org_group_id.readable = org_group_id.writable = True
+            org_group_represent = s3db.org_group_represent
+            org_group_id.represent = org_group_represent
+            requires = IS_ONE_OF(db, "org_group.id",
+                                 org_group_represent,
+                                 # @ToDo: Filter org groups to just those belonging to the Org Admin's Org
+                                 # @ToDo: Dynamically filter groups to just those that the selected Org is a member of
+                                 #filterby=filterby,
+                                 #filter_opts=filter_opts,
+                                 orderby="org_group.name",
+                                 sort=True)
+            if deployment_settings.get_auth_registration_organisation_group_required():
+                org_group_id.requires = requires
+            else:
+                org_group_id.requires = IS_NULL_OR(requires)
+            #from s3layouts import S3AddResourceLink
+            #org_group_id.comment = S3AddResourceLink(c="org",
+            #                                         f="group",
+            #                                         label=s3db.crud_strings["org_group"].title_create,
+            #                                         title=s3db.crud_strings["org_group"].title_list,)
 
+        # Site
         if deployment_settings.get_auth_registration_requests_site():
             site_id = request.get_vars.get("site_id", None)
+            field = utable.site_id
+            field.label = deployment_settings.get_org_site_label()
+            site_represent = s3db.org_site_represent
+            field.represent = site_represent
             if site_id:
-                field = utable.site_id
                 field.default = site_id
                 field.readable = True
-                field.represent = lambda v: s3db.org_site_represent(site_id)
             else:
-                site_id = utable.site_id
-                site_id.readable = site_id.writable = True
+                field.readable = field.writable = True
+                #field.default = deployment_settings.get_auth_registration_site_id_default()
                 if req_org:
                     from s3validators import IS_ONE_OF_EMPTY
-                    site_id.requires = IS_ONE_OF_EMPTY(db, "org_site.site_id",
-                                                       s3db.org_site_represent,
-                                                       orderby="org_site.name",
-                                                       sort=True)
+                    requires = IS_ONE_OF_EMPTY(db, "org_site.site_id",
+                                               site_represent,
+                                               orderby="org_site.name",
+                                               sort=True)
                     current.response.s3.jquery_ready.append('''
 S3OptionsFilter({
  'triggerName':'organisation_id',
@@ -1342,24 +1382,24 @@ S3OptionsFilter({
  'lookupURL':S3.Ap.concat('/org/sites_for_org/')
 })''')
                 else:
-                    from s3validators import IS_ONE_OF
-                    site_id.requires = IS_ONE_OF(db, "org_site.site_id",
-                                                 s3db.org_site_represent,
-                                                 orderby="org_site.name",
-                                                 sort=True)
-                site_id.represent = s3db.org_site_represent
-                #site_id.default = deployment_settings.get_auth_registration_site_id_default()
-                # No permissions for autocomplete on registration page
+                    requires = IS_ONE_OF(db, "org_site.site_id",
+                                         site_represent,
+                                         orderby="org_site.name",
+                                         sort=True)
                 #from s3widgets import S3SiteAutocompleteWidget
-                #site_id.widget = S3SiteAutocompleteWidget()
-                site_id.comment = DIV(_class="tooltip",
-                                      _title="%s|%s" % (T("Facility"),
-                                                        T("Select the default site.")))
-                if not deployment_settings.get_auth_registration_site_required():
-                    site_id.requires = IS_NULL_OR(site_id.requires)
+                #field.widget = S3SiteAutocompleteWidget()
+                field.comment = DIV(_class="tooltip",
+                                    _title="%s|%s" % (T("Facility"),
+                                                      T("Select the default site.")))
+                if deployment_settings.get_auth_registration_site_required():
+                    field.requires = requires
+                else:
+                    field.requires = IS_NULL_OR(requires)
 
         if "profile" in request.args:
             return
+
+        # Link User to
         link_user_to_opts = deployment_settings.get_auth_registration_link_user_to()
         if link_user_to_opts:
             link_user_to = utable.link_user_to
@@ -1384,33 +1424,45 @@ S3OptionsFilter({
                                                              T("Will create and link your user account to the following records")))
 
     # -------------------------------------------------------------------------
-    def s3_membership_import_prep(self, data, group=None):
+    def s3_import_prep(self, data, group=None):
         """
-            Called when a user is imported.
-            Because the auth.membership.pe_id fields is an integer not
-            reference, this function is used to lookup the pe_id from
+            Called when users are imported from CSV
+
+            Lookups Pseudo-reference Integer fields from Names
             e.g.:
-            organisation.name=<Org Name>
+            auth_membership.pe_id from organisation.name=<Org Name>
+
+            @ToDo: Add support for Sites
         """
 
         db = current.db
         s3db = current.s3db
+        cache = s3db.cache
+        otable = s3db.org_organisation
 
         resource, tree = data
-        xml = current.xml
-        tag = xml.TAG
-        att = xml.ATTRIBUTE
 
+        # Memberships
         elements = tree.getroot().xpath("/s3xml//resource[@name='auth_membership']/data[@field='pe_id']")
+        pe_values = set()
         for element in elements:
             pe_string = element.text
 
             if pe_string and "=" in pe_string:
                 pe_type, pe_value =  pe_string.split("=")
+                if pe_value in pe_values:
+                    # Don't check again
+                    continue
+                else:
+                    pe_values.add(pe_value)
                 pe_tablename, pe_field =  pe_type.split(".")
 
-                table = s3db[pe_tablename]
+                if pe_tablename == "org_organisation":
+                    table = otable
+                else:
+                    table = s3db[pe_tablename]
                 record = db(table[pe_field] == pe_value).select(table.pe_id,
+                                                                #cache=cache,
                                                                 limitby=(0, 1)
                                                                 ).first()
                 if record:
@@ -1418,9 +1470,212 @@ S3OptionsFilter({
                 else:
                     # Add a new record
                     id = table.insert(**{pe_field: pe_value})
-                    record = db(table._id == id).select(limitby=(0, 1)).first()
+                    record = db(table._id == id).select(table._id,
+                                                        limitby=(0, 1)).first()
                     s3db.update_super(table, record)
                     element.text = str(record.pe_id)
+
+        # Organisations
+        elements = tree.getroot().xpath("/s3xml//resource[@name='auth_user']/data[@field='organisation_id']")
+        names = set()
+        for element in elements:
+            name = element.text
+            if name in names:
+                continue
+            else:
+                # Don't check again
+                names.add(name)
+            if name:
+                record = db(otable.name == name).select(otable.id,
+                                                        #cache=cache,
+                                                        limitby=(0, 1)
+                                                        ).first()
+                if record:
+                    element.text = str(record.id)
+                else:
+                    # Add a new record
+                    id = otable.insert(name=name)
+                    element.text = str(id)
+                    record = Storage(id=id)
+                    s3db.update_super(otable, record)
+
+        # Organisation Groups
+        elements = tree.getroot().xpath("/s3xml//resource[@name='auth_user']/data[@field='org_group_id']")
+        if elements:
+            gtable = s3db.org_group
+            names = set()
+            for element in elements:
+                name = element.text
+                if name in names:
+                    # Don't check again
+                    continue
+                else:
+                    names.add(name)
+                if name:
+                    record = db(gtable.name == name).select(gtable.id,
+                                                            #cache=cache,
+                                                            limitby=(0, 1)
+                                                            ).first()
+                    if record:
+                        element.text = str(record.id)
+                    else:
+                        # Add a new record
+                        id = gtable.insert(name=name)
+                        element.text = str(id)
+                        record = Storage(id=id)
+                        s3db.update_super(gtable, record)
+
+    # =============================================================================
+    @staticmethod
+    def s3_register_validation():
+        """
+            JavaScript client-side validation for Registration / User profile
+            - needed to check for passwords being same, etc
+        """
+
+        T = current.T
+        request = current.request
+        appname = request.application
+        settings = current.deployment_settings
+        s3 = current.response.s3
+
+        # Static Scripts
+        scripts_append = s3.scripts.append
+        if s3.debug:
+            scripts_append("/%s/static/scripts/jquery.validate.js" % appname)
+            scripts_append("/%s/static/scripts/jquery.pstrength.2.1.0.js" % appname)
+            scripts_append("/%s/static/scripts/S3/s3.register_validation.js" % appname)
+        else:
+            scripts_append("/%s/static/scripts/jquery.validate.min.js" % appname)
+            scripts_append("/%s/static/scripts/jquery.pstrength.2.1.0.min.js" % appname)
+            scripts_append("/%s/static/scripts/S3/s3.register_validation.min.js" % appname)
+
+        # Configuration
+        js_global = []
+        js_append = js_global.append
+        if request.cookies.has_key("registered"):
+            # If we have already registered on this site from this PC then the login form is default
+            # .password:last
+            js_append('''S3.password_position=2''')
+        else:
+            # If we haven't already registered on this site from this PC then the registration form is default
+            # .password:first
+            js_append('''S3.password_position=1''')
+
+        if settings.get_auth_registration_mobile_phone_mandatory():
+            js_append('''S3.auth_registration_mobile_phone_mandatory=1''')
+
+        if settings.get_auth_registration_organisation_required():
+            js_append('''S3.auth_registration_organisation_required=1''')
+            js_append('''i18n.enter_your_organisation="%s"''' % T("Enter your organization"))
+
+        if settings.get_auth_terms_of_service():
+            js_append('''S3.auth_terms_of_service=1''')
+            js_append('''i18n.tos_required="%s"''' % T("You must agree to the Terms of Service"))
+
+        if request.controller != "admin":
+            if settings.get_auth_registration_organisation_hidden():
+                js_append('''S3.auth_registration_hide_organisation=1''')
+
+            # Check for Whitelists
+            table = current.s3db.auth_organisation
+            query = (table.organisation_id != None) & \
+                    (table.domain != None)
+            whitelists = current.db(query).select(table.organisation_id,
+                                                  table.domain)
+            if whitelists:
+                domains = []
+                domains_append = domains.append
+                for whitelist in whitelists:
+                    domains_append("'%s':%s" % (whitelist.domain,
+                                                whitelist.organisation_id))
+                domains = ''','''.join(domains)
+                domains = '''S3.whitelists={%s}''' % domains
+                js_append(domains)
+
+        js_append('''i18n.enter_first_name="%s"''' % T("Enter your first name"))
+        js_append('''i18n.provide_password="%s"''' % T("Provide a password"))
+        js_append('''i18n.repeat_your_password="%s"''' % T("Repeat your password"))
+        js_append('''i18n.enter_same_password="%s"''' % T("Enter the same password as above"))
+        js_append('''i18n.please_enter_valid_email="%s"''' % T("Please enter a valid email address"))
+
+        js_append('''S3.password_min_length=%i''' % settings.get_auth_password_min_length())
+
+        script = '''\n'''.join(js_global)
+        s3.js_global.append(script)
+
+        # Call script after Global config done
+        s3.jquery_ready.append('''s3_register_validation()''')
+
+    # =============================================================================
+    def s3_registration_form(self):
+        """
+            Build a form for Registration
+        """
+
+        T = current.T
+
+        # Build the Form
+        form = self.register()
+        form.attributes["_id"] = "regform"
+
+        if current.deployment_settings.get_auth_terms_of_service():
+            id = "tos__row"
+            label = T("I agree to the %(terms_of_service)s") % \
+                dict(terms_of_service=A(T("Terms of Service"),
+                                        _href=URL(c="default", f="tos"),
+                                        _target="_blank",
+                                        ))
+            label = XML("%s:" % label)
+            widget = INPUT(_name="tos",
+                           _id="tos",
+                           _type="checkbox",
+                           )
+            #formstyle = current.deployment_settings.get_ui_formstyle()
+            #if formstyle == "bootstrap":
+            #    row = DIV(LABEL(label,
+            #                    _id="tos__label",
+            #                    _for="tos",
+            #                    _class="control-label",
+            #                    ),
+            #              DIV(widget,
+            #                  _class="controls",
+            #                  ),
+            #              # Somewhere to store Error Messages
+            #              SPAN(_class="help-block"),
+            #              _id=id,
+            #              _class="control-group hide",
+            #              )
+            #else:
+            #    # Assume callable
+            comment = ""
+            #    #row = formstyle(id, label, widget, comment)
+            # Auth uses default formstyle currently
+            row = TR(TD(LABEL(label,
+                              _id="tos__label",
+                              _for="tos",
+                              ),
+                        _class="w2p_fl"),
+                     TD(widget,
+                        _class="w2p_fw"),
+                     TD(comment,
+                        _class="w2p_fc"),
+                     _id=id,
+                     )
+
+            form[0][-2].append(row)
+
+        # Insert shortcut to Login
+        form[0][-1][1].append(A(T("Login"),
+                                _href=URL(f="user", args="login"),
+                                _id="login-btn",
+                                _class="action-lnk"
+                                ))
+
+        # Client-side Validation
+        self.s3_register_validation()
+
+        return form
 
     # -------------------------------------------------------------------------
     def s3_user_register_onaccept(self, form):
@@ -1538,9 +1793,12 @@ S3OptionsFilter({
                                                     last_name = user.last_name,
                                                     email = user.email)
 
-        result = self.settings.mailer.send(to = approver,
-                                           subject = subject,
-                                           message = message)
+        if "@" in approver:
+            approver = [approver]
+        for each_approver in approver:
+            result = self.settings.mailer.send(to = each_approver,
+                                               subject = subject,
+                                               message = message)
         if not result:
             # Don't prevent registration just because email not configured
             #db.rollback()
@@ -1593,7 +1851,7 @@ S3OptionsFilter({
                 roles = entity_roles[entity]
 
                 # Get User's Organisation or Site pe_id
-                if entity in ["organisation_id", "site_id"]:
+                if entity in ("organisation_id", "org_group_id", "site_id"):
                     tablename = "org_%s" % entity.split("_")[0]
                     entity = s3db.pr_get_pe_id(tablename, user[entity])
                     if not entity:
@@ -1624,6 +1882,10 @@ S3OptionsFilter({
 
         # Allow them to login
         db(utable.id == user_id).update(registration_key = "")
+
+        # Approve User's Organisation
+        if user.organisation_id and "org_organisation" in deployment_settings.get_auth_record_approval_required_for():
+            s3db.resource("org_organisation", user.organisation_id, unapproved=True).approve()
 
         # Send Welcome mail
         self.s3_send_welcome_email(user)
@@ -2215,6 +2477,16 @@ S3OptionsFilter({
         if not approver:
             # Default Approver
             approver = deployment_settings.get_mail_approver()
+            if "@" not in approver:
+                utable = db.auth_user
+                mtable = db.auth_membership
+                gtable = db.auth_group
+                query = (gtable.uuid == approver) & \
+                        (gtable.id == mtable.group_id) & \
+                        (mtable.user_id == utable.id)
+                rows = db(query).select(utable.email,
+                                        distinct=True)
+                approver = [row.email for row in rows]
 
         return approver, organisation_id
 
@@ -5419,8 +5691,7 @@ class S3Permission(object):
         # Retrieve the ACLs
         if q:
             query &= q
-            query &= (table.group_id == gtable.id)
-            rows = db(query).select(gtable.id,
+            rows = db(query).select(table.group_id,
                                     table.controller,
                                     table.function,
                                     table.tablename,
@@ -5443,12 +5714,12 @@ class S3Permission(object):
 
         use_facls = self.use_facls
         def rule_type(r):
-            if rule.controller is not None:
-                if rule.function is None:
+            if r.controller is not None:
+                if r.function is None:
                     return "c"
                 elif use_facls:
                     return "f"
-            elif rule.tablename is not None:
+            elif r.tablename is not None:
                 return "t"
             return None
 
@@ -5461,7 +5732,7 @@ class S3Permission(object):
         for row in rows:
 
             # Get the assigning entities
-            group_id = row[gtn].id
+            group_id = row.group_id
             if group_id in delegations:
                 append_delegation(row)
             if group_id not in realms:
@@ -5472,22 +5743,21 @@ class S3Permission(object):
                 entities = None
 
             # Get the rule type
-            rule = row[atn]
-            rtype = rule_type(rule)
+            rtype = rule_type(row)
             if rtype is None:
                 continue
 
             # Resolve the realm
-            if rule.unrestricted:
+            if row.unrestricted:
                 entities = [ANY]
             elif entities is None:
-                if rule.entity is not None:
-                    entities = [rule.entity]
+                if row.entity is not None:
+                    entities = [row.entity]
                 else:
                     entities = [ANY]
 
             # Merge the ACL
-            acl = (rule["uacl"], rule["oacl"])
+            acl = (row["uacl"], row["oacl"])
             for e in entities:
                 if e not in acls:
                     acls[e] = Storage({rtype:acl})
@@ -5506,19 +5776,18 @@ class S3Permission(object):
             for row in delegation_rows:
 
                 # Get the rule type
-                rule = row[atn]
-                rtype = rule_type(rule)
+                rtype = rule_type(row)
                 if rtype is None:
                     continue
 
                 # Get the delegation realms
-                group_id = row[gtn].id
+                group_id = row.group_id
                 if group_id not in delegations:
                     continue
                 else:
                     drealms = delegations[group_id]
 
-                acl = (rule["uacl"], rule["oacl"])
+                acl = (row["uacl"], row["oacl"])
 
                 # Resolve the delegation realms
                 # @todo: optimize
@@ -5830,41 +6099,48 @@ class S3Audit(object):
             @note: this defines the audit table
         """
 
+        settings = current.deployment_settings
+        audit_read = settings.get_security_audit_read()
+        audit_write = settings.get_security_audit_write()
+        if not audit_read and not audit_write:
+            # Auditing is Disabled
+            self.table = None
+            return
+
         db = current.db
         if tablename in db:
             self.table = db[tablename]
         else:
-            self.table = None
-        if not self.table:
             self.table = db.define_table(tablename,
-                            Field("timestmp", "datetime"),
-                            Field("person", "integer"),
-                            Field("operation"),
-                            Field("tablename"),
-                            Field("record", "integer"),
-                            Field("representation"),
-                            Field("old_value", "text"),
-                            Field("new_value", "text"),
-                            migrate=migrate,
-                            fake_migrate=fake_migrate)
-        session = current.session
-        self.auth = session.auth
-        if session.auth and session.auth.user:
-            self.user = session.auth.user.id
-        else:
-            self.user = None
+                                         Field("timestmp", "datetime"),
+                                         Field("user_id", db.auth_user),
+                                         Field("method"),
+                                         Field("tablename"),
+                                         Field("record_id", "integer"),
+                                         Field("representation"),
+                                         # List of Key:Values
+                                         Field("old_value", "text"),
+                                         # List of Key:Values
+                                         Field("new_value", "text"),
+                                         migrate=migrate,
+                                         fake_migrate=fake_migrate,
+                                         )
 
-        self.diff = None
+        user = current.auth.user
+        if user:
+            self.user_id = user.id
+        else:
+            self.user_id = None
 
     # -------------------------------------------------------------------------
-    def __call__(self, operation, prefix, name,
+    def __call__(self, method, prefix, name,
                  form=None,
                  record=None,
                  representation="unknown"):
         """
             Audit
 
-            @param operation: Operation to log, one of
+            @param method: Method to log, one of
                 "create", "update", "read", "list" or "delete"
             @param prefix: the module prefix of the resource
             @param name: the name of the resource (without prefix)
@@ -5873,22 +6149,14 @@ class S3Audit(object):
             @param representation: the representation format
         """
 
-        settings = current.deployment_settings
-
-        audit_read = settings.get_security_audit_read()
-        audit_write = settings.get_security_audit_write()
-
-        if not audit_read and not audit_write:
+        table = self.table
+        if not table:
+            # Auditing Disabled
             return True
 
-        #import sys
-        #print >> sys.stderr, "Audit %s: %s_%s record=%s representation=%s" % \
-                             #(operation, prefix, name, record, representation)
-
-        now = datetime.datetime.utcnow()
-        db = current.db
-        table = self.table
-        tablename = "%s_%s" % (prefix, name)
+        #if DEBUG:
+        #    _debug("Audit %s: %s_%s record=%s representation=%s" % \
+        #           (method, prefix, name, record, representation))
 
         if record:
             if isinstance(record, Row):
@@ -5915,50 +6183,192 @@ class S3Audit(object):
         else:
             record = None
 
-        if operation in ("list", "read"):
+        now = datetime.datetime.utcnow()
+        tablename = "%s_%s" % (prefix, name)
+
+        settings = current.deployment_settings
+        audit_read = settings.get_security_audit_read()
+        if callable(audit_read):
+            audit_read = audit_read(method, tablename, form, record,
+                                    representation)
+        audit_write = settings.get_security_audit_write()
+        if callable(audit_write):
+            audit_write = audit_write(method, tablename, form, record,
+                                      representation)
+
+        if method in ("list", "read"):
             if audit_read:
                 table.insert(timestmp = now,
-                             person = self.user,
-                             operation = operation,
+                             user_id = self.user_id,
+                             method = method,
                              tablename = tablename,
-                             record = record,
-                             representation = representation)
+                             record_id = record,
+                             representation = representation,
+                             )
 
-        elif operation in ("create", "update"):
+        elif method == "create":
             if audit_write:
                 if form:
-                    record = form.vars.id
-                    new_value = ["%s:%s" % (var, str(form.vars[var]))
-                                 for var in form.vars]
+                    vars = form.vars
+                    if not record:
+                        record = vars["id"]
+                    new_value = ["%s:%s" % (var, str(vars[var]))
+                                 for var in vars if vars[var]]
                 else:
                     new_value = []
                 table.insert(timestmp = now,
-                             person = self.user,
-                             operation = operation,
+                             user_id = self.user_id,
+                             method = method,
                              tablename = tablename,
-                             record = record,
+                             record_id = record,
                              representation = representation,
-                             new_value = new_value)
-                self.diff = None
+                             new_value = new_value,
+                             )
 
-        elif operation == "delete":
+        elif method == "update":
             if audit_write:
-                query = db[tablename].id == record
+                if form:
+                    rvars = form.record
+                    if rvars:
+                        old_value = ["%s:%s" % (var, str(rvars[var]))
+                                     for var in rvars]
+                    else:
+                        old_value = []
+                    fvars = form.vars
+                    if not record:
+                        record = fvars["id"]
+                    new_value = ["%s:%s" % (var, str(fvars[var]))
+                                 for var in fvars]
+                else:
+                    new_value = []
+                    old_value = []
+                table.insert(timestmp = now,
+                             user_id = self.user_id,
+                             method = method,
+                             tablename = tablename,
+                             record_id = record,
+                             representation = representation,
+                             old_value = old_value,
+                             new_value = new_value,
+                             )
+
+        elif method == "delete":
+            if audit_write:
+                db = current.db
+                query = (db[tablename].id == record)
                 row = db(query).select(limitby=(0, 1)).first()
                 old_value = []
                 if row:
                     old_value = ["%s:%s" % (field, row[field])
                                  for field in row]
                 table.insert(timestmp = now,
-                             person = self.user,
-                             operation = operation,
+                             user_id = self.user_id,
+                             method = method,
                              tablename = tablename,
-                             record = record,
+                             record_id = record,
                              representation = representation,
-                             old_value = old_value)
-                self.diff = None
+                             old_value = old_value,
+                             )
 
         return True
+
+    # -------------------------------------------------------------------------
+    def represent(self, records):
+        """
+            Provide a Human-readable representation of Audit records
+            - currently unused
+
+            @param record: the record IDs
+        """
+
+        table = self.table
+        # Retrieve the records
+        if isinstance(records, int):
+            limit = 1
+            query = (table.id == records)
+        else:
+            limit = len(records)
+            query = (table.id.belongs(records))
+        records = current.db(query).select(table.tablename,
+                                           table.method,
+                                           table.user_id,
+                                           table.old_value,
+                                           table.new_value,
+                                           limitby=(0, limit)
+                                           )
+
+        # Convert to Human-readable form
+        s3db = current.s3db
+        output = []
+        oappend = output.append
+        for record in records:
+            table = s3db[tablename]
+            method = record.method
+            if method == "create":
+                new_value = record.new_value
+                if not new_value:
+                    continue
+                diff = []
+                dappend = diff.append
+                for v in new_value:
+                    fieldname, value = v.split(":", 1)
+                    represent = table[fieldname].represent
+                    if represent:
+                        value = represent(value)
+                    label = table[fieldname].label or fieldname
+                    dappend("%s is %s" % (label, value))
+
+            elif method == "update":
+                old_values = record.old_value
+                new_values = record.new_value
+                if not new_value:
+                    continue
+                changed = {}
+                for v in new_values:
+                    fieldname, new_value = v.split(":", 1)
+                    old_value = old_values.get(fieldname, None)
+                    if new_value != old_value:
+                        type = table[fieldname].type
+                        if type == "integer" or \
+                           type.startswith("reference"):
+                            if new_value:
+                                new_value = int(new_value)
+                            if new_value == old_value:
+                                continue
+                        represent = table[fieldname].represent
+                        if represent:
+                            new_value = represent(new_value)
+                        label = table[fieldname].label or fieldname
+                        if old_value:
+                            if represent:
+                                old_value = represent(old_value)
+                            changed[fieldname] = "%s changed from %s to %s" % \
+                                (label, old_value, new_value)
+                        else:
+                            changed[fieldname] = "%s changed to %s" % \
+                                (label, new_value)
+                diff = []
+                dappend = diff.append
+                for fieldname in changed:
+                    dappend(changed[fieldname])
+
+            elif method == "delete":
+                old_value = record.old_value
+                if not old_value:
+                    continue
+                diff = []
+                dappend = diff.append
+                for v in old_value:
+                    fieldname, value = v.split(":", 1)
+                    represent = table[fieldname].represent
+                    if represent:
+                        value = represent(value)
+                    label = table[fieldname].label or fieldname
+                    dappend("%s was %s" % (label, value))
+
+            oappend("\n".join(diff))
+
+        return output
 
 # =============================================================================
 class S3RoleManager(S3Method):

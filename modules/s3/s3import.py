@@ -38,6 +38,7 @@ import cPickle
 import os
 import sys
 import tempfile
+import urllib2          # Needed for error handling on fetch
 import uuid
 from copy import deepcopy
 from datetime import datetime
@@ -63,7 +64,7 @@ except ImportError:
 from gluon import *
 from gluon.serializers import json as jsons
 from gluon.storage import Storage, Messages
-from gluon.tools import callback
+from gluon.tools import callback, fetch
 
 from s3crud import S3CRUD
 from s3resource import S3Resource
@@ -387,7 +388,7 @@ class S3Importer(S3CRUD):
             db.commit()
 
             extension = ofilename.rsplit(".", 1).pop()
-            if extension not in ("csv", "xls"):
+            if extension not in ("csv", "xls", "xlsx"):
                 if self.ajax:
                     return {"Error": self.messages.invalid_file_format}
                 response.flash = None
@@ -536,7 +537,11 @@ class S3Importer(S3CRUD):
 
         # @todo: manage different file formats
         # @todo: find file format from request.extension
-        fileFormat = "csv"
+        extension = source.rsplit(".", 1).pop()
+        if extension not in ("csv, ""xls", "xlsx"):
+            fileFormat = "csv"
+        else:
+            fileFormat = extension
 
         # Insert data in the table and get the ID
         try:
@@ -937,6 +942,13 @@ class S3Importer(S3CRUD):
         if fileFormat == "csv" or fileFormat == "comma-separated-values":
 
             fmt = "csv"
+            src = openFile
+
+        # ---------------------------------------------------------------------
+        # XLS
+        elif fileFormat == "xls" or fileFormat == "xlsx":
+
+            fmt = "xls"
             src = openFile
 
         # ---------------------------------------------------------------------
@@ -2110,6 +2122,10 @@ class S3ImportItem(object):
             # already committed
             return True
 
+        # If the parent item gets skipped, then skip this item as well
+        if self.parent is not None and self.parent.skip:
+            return True
+
         # Globals
         db = current.db
         xml = current.xml
@@ -2137,10 +2153,6 @@ class S3ImportItem(object):
 
         # Make item mtime TZ-aware
         self.mtime = xml.as_utc(self.mtime)
-        
-        # If the parent item gets skipped, then skip this item as well
-        if self.parent is not None and self.parent.skip:
-            return True
 
         _debug("Committing item %s" % self)
 
@@ -2262,6 +2274,8 @@ class S3ImportItem(object):
         # Log this item
         if manager.log is not None:
             manager.log(self)
+
+        tablename = self.tablename
 
         # Update existing record
         if method == UPDATE:
@@ -2389,9 +2403,9 @@ class S3ImportItem(object):
 
             if not self.skip and not self.conflict:
 
-                resource = s3db.resource(self.tablename, id=self.id)
+                resource = s3db.resource(tablename, id=self.id)
 
-                ondelete = s3db.get_config(self.tablename, "ondelete")
+                ondelete = s3db.get_config(tablename, "ondelete")
                 success = resource.delete(ondelete=ondelete,
                                           cascade=True)
                 if resource.error:
@@ -2399,7 +2413,7 @@ class S3ImportItem(object):
                     self.skip = True
                     return ignore_errors
 
-            _debug("Success: %s, id=%s %sd" % (self.tablename, self.id,
+            _debug("Success: %s, id=%s %sd" % (tablename, self.id,
                                                self.skip and "skippe" or \
                                                method))
             return True
@@ -2431,7 +2445,7 @@ class S3ImportItem(object):
                                         .first()
                 if row:
                     original_id = row[table._id]
-                    resource = s3db.resource(self.tablename,
+                    resource = s3db.resource(tablename,
                                              id = [original_id, self.id])
                     try:
                         success = resource.merge(original_id, self.id)
@@ -2444,7 +2458,7 @@ class S3ImportItem(object):
                 else:
                     self.skip = True
 
-            _debug("Success: %s, id=%s %sd" % (self.tablename, self.id,
+            _debug("Success: %s, id=%s %sd" % (tablename, self.id,
                                                self.skip and "skippe" or \
                                                method))
             return True
@@ -2457,15 +2471,13 @@ class S3ImportItem(object):
             form = Storage()
             form.method = method
             form.vars = self.data
-            tablename = self.tablename
             prefix, name = tablename.split("_", 1)
             if self.id:
                 form.vars.id = self.id
-            if manager.audit is not None:
-                manager.audit(method, prefix, name,
-                              form=form,
-                              record=self.id,
-                              representation="xml")
+            current.audit(method, prefix, name,
+                          form=form,
+                          record=self.id,
+                          representation="xml")
             # Update super entity links
             s3db.update_super(table, form.vars)
             if method == CREATE:
@@ -2479,10 +2491,9 @@ class S3ImportItem(object):
                                                   force_update=True)
             # Onaccept
             key = "%s_onaccept" % method
-            onaccept = s3db.get_config(tablename, key,
-                       s3db.get_config(tablename, "onaccept"))
+            onaccept = current.deployment_settings.get_import_callback(tablename, key)
             if onaccept:
-                callback(onaccept, form, tablename=self.tablename)
+                callback(onaccept, form, tablename=tablename)
 
         # Update referencing items
         if self.update and self.id:
@@ -2501,7 +2512,7 @@ class S3ImportItem(object):
                 else:
                     item._update_reference(field, self.id)
 
-        _debug("Success: %s, id=%s %sd" % (self.tablename, self.id,
+        _debug("Success: %s, id=%s %sd" % (tablename, self.id,
                                            self.skip and "skippe" or \
                                            method))
         return True
@@ -3657,13 +3668,14 @@ class S3BulkImporter(object):
         csv = None
         if len(details) >= 3:
             fileName = details[2].strip('" ')
-            (csvPath, csvFile) = os.path.split(fileName)
-            if csvPath != "":
-                path = os.path.join(current.request.folder,
-                                    "private",
-                                    "templates",
-                                    csvPath)
-            csv = os.path.join(path, csvFile)
+            if fileName != "":
+                (csvPath, csvFile) = os.path.split(fileName)
+                if csvPath != "":
+                    path = os.path.join(current.request.folder,
+                                        "private",
+                                        "templates",
+                                        csvPath)
+                csv = os.path.join(path, csvFile)
         extraArgs = None
         if len(details) >= 4:
             extraArgs = details[3:]
@@ -3782,7 +3794,7 @@ class S3BulkImporter(object):
             duration = end - start
             csvName = task[3][task[3].rfind("/") + 1:]
             try:
-                # Python-2.7
+                # Python 2.7
                 duration = '{:.2f}'.format(duration.total_seconds()/60)
                 msg = "%s import job completed in %s mins" % (csvName, duration)
             except AttributeError:
@@ -3819,7 +3831,7 @@ class S3BulkImporter(object):
             end = datetime.now()
             duration = end - start
             try:
-                # Python-2.7
+                # Python 2.7
                 duration = '{:.2f}'.format(duration.total_seconds()/60)
                 msg = "%s import job completed in %s mins" % (fun, duration)
             except AttributeError:
@@ -3855,6 +3867,10 @@ class S3BulkImporter(object):
                     aclValue = aclValue | acl.UPDATE
                 if permission == "DELETE":
                     aclValue = aclValue | acl.DELETE
+                if permission == "REVIEW":
+                    aclValue = aclValue | acl.REVIEW
+                if permission == "APPROVE":
+                    aclValue = aclValue | acl.APPROVE
                 if permission == "ALL":
                     aclValue = aclValue | acl.ALL
             return aclValue
@@ -3913,11 +3929,12 @@ class S3BulkImporter(object):
                 create_role(rulelist[0],
                             rulelist[1],
                             *acls[rulelist[0]])
+
     # -------------------------------------------------------------------------
     def import_user(self, csv_filename):
-        """ Import Roles from CSV """
+        """ Import Users from CSV """
 
-        current.manager.import_prep = current.auth.s3_membership_import_prep
+        current.manager.import_prep = current.auth.s3_import_prep
         user_task = [1,
                      "auth",
                      "user",
@@ -3932,7 +3949,7 @@ class S3BulkImporter(object):
                      None
                      ]
         self.execute_import_task(user_task)
-        
+
     # -------------------------------------------------------------------------
     def import_image(self,
                      filename,
@@ -3967,7 +3984,7 @@ class S3BulkImporter(object):
 
         db = current.db
         s3db = current.s3db
-        audit = current.manager.audit
+        audit = current.audit
         table = s3db[tablename]
         idfield = table[idfield]
         base_query = (table.deleted != True)
@@ -4033,6 +4050,80 @@ class S3BulkImporter(object):
                 else:
                     for (key, error) in form.errors.items():
                         s3_debug("error importing logo %s: %s %s" % (image, key, error))
+
+    # -------------------------------------------------------------------------
+    def import_remote_csv(self, url, prefix, resource, stylesheet):
+        """ Import CSV files from remote servers """
+
+        extension = url.split(".")[-1]
+        if extension not in ("csv", "zip"):
+            s3_debug("error importing remote file %s: invalid extension" % (url))
+            return
+
+        # Copy the current working directory to revert back to later
+        cwd = os.getcwd()
+
+        # Create the working directory
+        TEMP = os.path.join(cwd, "temp")
+        if not os.path.exists(TEMP): # use web2py/temp/remote_csv as a cache
+            import tempfile
+            TEMP = tempfile.gettempdir()
+        tempPath = os.path.join(TEMP, "remote_csv")
+        if not os.path.exists(tempPath):
+            try:
+                os.mkdir(tempPath)
+            except OSError:
+                s3_debug("Unable to create temp folder %s!" % tempPath)
+                return
+
+        # Set the current working directory
+        os.chdir(tempPath)
+
+        try:
+            file = fetch(url)
+        except urllib2.URLError, exception:
+            s3_debug(exception)
+            # Revert back to the working directory as before.
+            os.chdir(cwd)
+            return
+
+        fp = StringIO(file)
+        if extension == "zip":
+            # Need to unzip
+            import zipfile
+            myfile = zipfile.ZipFile(fp)
+            files = myfile.infolist()
+            for _file in files:
+                filename = _file.filename
+                extension = filename.split(".")[-1]
+                if extension == "csv":
+                    file = myfile.read(filename)
+                    f = open(filename, "w")
+                    f.write(file)
+                    f.close()
+                    break
+            myfile.close()
+        else:
+            filename = url.split("/")[-1]
+            f = open(filename, "w")
+            f.write(file)
+            f.close()
+
+        # Revert back to the working directory as before.
+        os.chdir(cwd)
+
+        task = [1, prefix, resource,
+                os.path.join(tempPath, filename),
+                os.path.join(current.request.folder,
+                             "static",
+                             "formats",
+                             "s3csv",
+                             prefix,
+                             stylesheet
+                             ),
+                None
+                ]
+        self.execute_import_task(task)
 
     # -------------------------------------------------------------------------
     def perform_tasks(self, path):

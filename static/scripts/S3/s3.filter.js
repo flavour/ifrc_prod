@@ -13,11 +13,6 @@ S3.search = {};
     var pendingTargets = {};
 
     /**
-     * lastLoaded: ID of the last loaded filter
-     */
-    var lastLoaded = {};
-
-    /**
      * quoteValue: add quotes to values which contain commas, escape quotes
      */
     var quoteValue = function(value) {
@@ -33,12 +28,43 @@ S3.search = {};
     };
 
     /**
+     * parseValue: parse a URL filter value into an array of individual values
+     */
+    var parseValue = function(value) {
+        if (!value) {
+            return value;
+        }
+        var values = [];
+        var quote = false;
+        for (var idx=0, i=0; i < value.length; i++) {
+            var c = value[i];
+            values[idx] = values[idx] || '';
+            if (c == '"') {
+                quote = !quote;
+                continue;
+            }
+            if (c == ',' && !quote) {
+                if (values[idx] == 'NONE') {
+                    values[idx] = null;
+                }
+                ++idx;
+                continue;
+            }
+            values[idx] += c;
+        }
+        return values;
+    };
+
+    /**
      * clearFilters: remove all selected filter options
      */
     var clearFilters = function(form) {
 
         // If no form has been specified, find the first one
         form = typeof form !== 'undefined' ? form : $('body').find('form.filter-form').first();
+
+        // Temporarily disable auto-submit
+        form.data('noAutoSubmit', 1);
  
         form.find('.text-filter').each(function() {
             $(this).val('');
@@ -59,6 +85,9 @@ S3.search = {};
                     $(this).click();
                 });
             }
+            if ($(this).hasClass('location-filter')) {
+                hierarchical_location_change(this);
+            }
         });
         form.find('.range-filter-input').each(function() {
             $(this).val('');
@@ -67,6 +96,20 @@ S3.search = {};
             $(this).val('');
         });
         // Other widgets go here
+
+        // Clear filter manager
+        form.find('.filter-manager-widget').each(function() {
+            var that = $(this);
+            if (that.filtermanager !== undefined) {
+                that.filtermanager('clear');
+            }
+        });
+
+        // Re-enable auto-submit
+        form.data('noAutoSubmit', 0);
+
+        // Fire optionChanged event
+        form.trigger('optionChanged');
     };
     
     /**
@@ -264,8 +307,208 @@ S3.search = {};
         // return queries to caller
         return queries;
     };
+    
     // Pass to global scope to be called by s3.jquery.ui.pivottable.js
     S3.search.getCurrentFilters = getCurrentFilters;
+
+    /**
+     * setCurrentFilters: populate filter form widgets from an array of URL queries
+     */
+    var setCurrentFilters = function(form, queries) {
+
+        form = typeof form !== 'undefined' ? form : $('body').find('form.filter-form').first();
+
+        // Temporarily disable auto-submit
+        form.data('noAutoSubmit', 1);
+
+        var q = {};
+        for (var i=0, len=queries.length, query; i<len; i++) {
+            var query = queries[i];
+            var expression = query[0],
+                values = parseValue(query[1]);
+            if (q.hasOwnProperty(expression)) {
+                q[expression] = q[expression].concat(values);
+            } else {
+                q[expression] = values;
+            }
+        }
+        
+        // Text widgets
+        form.find('.text-filter:visible').each(function() {
+            var id = $(this).attr('id');
+            var expression = $('#' + id + '-data').val();
+            if (q.hasOwnProperty(expression)) {
+                var values = q[expression], value = '';
+                if (values) {
+                    for (var i=0, len=values.length; i<len; i++) {
+                        v = values[i];
+                        if (!v) {
+                            continue;
+                        }
+                        if (i > 0) {
+                            value += ' ';
+                        }
+                        if (v[0] == '*') {
+                            v = v.slice(1);
+                        }
+                        if (v.slice(-1) == '*') {
+                            v = v.slice(0, -1);
+                        }
+                        value += v;
+                    }
+                }
+                $(this).val(value);
+            }
+        });
+
+        // Options widgets
+        form.find('.ui-multiselect:visible').prev(
+                  '.options-filter.multiselect-filter-widget,' +
+                  '.options-filter.groupedopts-filter-widget')
+        .add(
+        form.find('.options-filter:visible,' +
+                  '.options-filter.groupedopts-filter-widget.active,' +
+                  '.options-filter.multiselect-filter-widget.active,' +
+                  '.options-filter.multiselect-filter-bootstrap.active'))
+        .each(function() {
+            var id = $(this).attr('id');
+            var expression = $('#' + id + '-data').val(),
+                operator = $('input:radio[name="' + id + '_filter"]:checked').val();
+
+            var that = $(this);
+            if (this.tagName && this.tagName.toLowerCase() == 'select') {
+                var refresh = false;
+                
+                if (q.hasOwnProperty(expression)) {
+                    values = q[expression];
+                    refresh = true;
+                } else
+                if (operator == 'any' || operator == 'all') {
+                    var selector = expression.split('__')[0];
+                    if (q.hasOwnProperty(selector + '__anyof')) {
+                        values = q[selector + '__anyof'];
+                        refresh = true;
+                        $('input:radio[name="' + id + '_filter"][value="any"]')
+                         .prop('checked', true);
+                    } else if (q.hasOwnProperty(selector + '__contains')) {
+                        values = q[selector + '__contains'];
+                        refresh = true;
+                        $('input:radio[name="' + id + '_filter"][value="all"]')
+                         .prop('checked', true);
+                    }
+                }
+                if (refresh) {
+                    that.val(values);
+                    if (that.hasClass('groupedopts-filter-widget') &&
+                        typeof that.groupedopts != 'undefined') {
+                        that.groupedopts('refresh');
+                    } else
+                    if (that.hasClass('multiselect-filter-widget') &&
+                        typeof that.multiselect != 'undefined') {
+                        that.multiselect('refresh');
+                    }
+                }
+            }
+        });
+        
+        // Numerical range widgets
+        form.find('.range-filter-input:visible').each(function() {
+            var id = $(this).attr('id');
+            var expression = $('#' + id + '-data').val();
+            if (q.hasOwnProperty(expression)) {
+                var values = q[expression];
+                if (values) {
+                    $(this).val(values[0]);
+                } else {
+                    $(this).val('');
+                }
+            }
+        });
+
+        // Date(time) range widgets
+        form.find('.date-filter-input:visible').each(function() {
+            var id = $(this).attr('id');
+            var expression = $('#' + id + '-data').val();
+            if (q.hasOwnProperty(expression)) {
+                var values = q[expression];
+                if (values) {
+                    var value = new Date(values[0]);
+                    if ($(this).hasClass('datetimepicker')) {
+                        if ($(this).hasClass('hide-time')) {
+                            $(this).datepicker('setDate', value);
+                        } else {
+                            $(this).datetimepicker('setDate', value);
+                        }
+                    } else if ($(this).hasClass('hasDatepicker')) {
+                        $(this).datepicker('setDate', value);
+                    } else {
+                        $(this).val('');
+                        // @todo: format required!
+                    }
+                } else {
+                    $(this).val('');
+                }
+            }
+        });
+
+        // Location filter widget
+        form.find('.ui-multiselect:visible').prev(
+          '.location-filter.multiselect-filter-widget,' +
+          '.location-filter.groupedopts-filter-widget')
+        .add(
+        form.find('.location-filter:visible,' +
+          '.location-filter.multiselect-filter-widget.active,' +
+          '.location-filter.multiselect-filter-bootstrap.active'))
+        .each(function() {
+            var id = $(this).attr('id');
+            var expression = $('#' + id + '-data').val(),
+                operator = $('input:radio[name="' + id + '_filter"]:checked').val();
+
+            var that = $(this);
+            if (this.tagName && this.tagName.toLowerCase() == 'select') {
+                var refresh = false;
+
+                if (q.hasOwnProperty(expression)) {
+                    values = q[expression];
+                    refresh = true;
+                } else
+                if (operator == 'any' || operator == 'all') {
+                    var selector = expression.split('__')[0];
+                    if (q.hasOwnProperty(selector + '__anyof')) {
+                        values = q[selector + '__anyof'];
+                        refresh = true;
+                        $('input:radio[name="' + id + '_filter"][value="any"]')
+                         .prop('checked', true);
+                    } else if (q.hasOwnProperty(selector + '__contains')) {
+                        values = q[selector + '__contains'];
+                        refresh = true;
+                        $('input:radio[name="' + id + '_filter"][value="all"]')
+                         .prop('checked', true);
+                    }
+                }
+                if (refresh) {
+                    that.val(values);
+                    if (that.hasClass('groupedopts-filter-widget') &&
+                        typeof that.groupedopts != 'undefined') {
+                        that.groupedopts('refresh');
+                    } else
+                    if (that.hasClass('multiselect-filter-widget') &&
+                        typeof that.multiselect != 'undefined') {
+                        that.multiselect('refresh');
+                    }
+                    hierarchical_location_change(this);
+                }
+            }
+        });
+        
+        // Re-enable auto-submit
+        form.data('noAutoSubmit', 0);
+
+        // Fire optionChanged event
+        form.trigger('optionChanged');
+    };
+
+    S3.search.setCurrentFilters = setCurrentFilters;
 
     /**
      * Update a variable in the query part of the filter-submit URL
@@ -491,7 +734,9 @@ S3.search = {};
             'url': ajaxurl,
             'dataType': 'json'
         }).done(function(data) {
+            $(form).data('noAutoSubmit', 1);
             updateOptions(data);
+            $(form).data('noAutoSubmit', 0);
         }).fail(function(jqXHR, textStatus, errorThrown) {
             if (errorThrown == 'UNAUTHORIZED') {
                 msg = i18n.gis_requires_login;
@@ -562,8 +807,40 @@ S3.search = {};
                 t.dataTable().fnReloadAjax(target_data['ajaxurl']);
             } else if (t.hasClass('map_wrapper')) {
                 S3.gis.refreshLayer('search_results');
+            } else if (t.hasClass('pt-container')) {
+                t.pivottable('reload', null, target_data['queries']);
             }
         }
+    };
+
+    /**
+     * filterFormAutoSubmit: configure a filter form for automatic
+     *                       submission after option change
+     * Parameters:
+     * form_id: the form element ID
+     * timeout: timeout in milliseconds
+     */
+    S3.search.filterFormAutoSubmit = function(form_id, timeout) {
+
+        var filter_form = $('#' + form_id);
+        if (!filter_form.length || !timeout) {
+            return;
+        }
+        filter_form.on('optionChanged', function (){
+            var that = $(this);
+            if (that.data('noAutoSubmit')) {
+                // Event temporarily disabled
+                return;
+            }
+            var timer = that.data('autoSubmitTimeout');
+            if (timer) {
+                clearTimeout(timer);
+            }
+            timer = setTimeout(function () {
+                filterSubmit(that);
+            }, timeout);
+            that.data('autoSubmitTimeout', timer);
+        });
     };
 
     /**
@@ -595,7 +872,9 @@ S3.search = {};
                     continue;
                 }
                 t = $('#' + target_id);
-                if (t.hasClass('dl') || t.hasClass('map_wrapper')) {
+                if (t.hasClass('dl') ||
+                    t.hasClass('pt-container') ||
+                    t.hasClass('map_wrapper')) {
                     // These targets handle their AjaxURL themselves
                     ajaxurl = null;
                 } else if (t.hasClass('dataTable')) {
@@ -625,15 +904,16 @@ S3.search = {};
         $('#summary-tabs').tabs({
             active: active_tab,
             activate: function(event, ui) {
+                var newPanel = $(ui.newPanel);
                 // Unhide the section (.ui-tab's display: block overrides anyway but hey ;)
-                $(ui.newPanel).removeClass('hide');
+                newPanel.removeClass('hide');
                 // A New Tab has been selected
                 if (ui.newTab.length) {
                     // Update the Filter Query URL to show which tab is active
                     updateFilterSubmitURL(form, 't', $(ui.newTab).index());
                 }
                 // Find any Map widgets in this section
-                var maps = $(ui.newPanel).find('.map_wrapper');
+                var maps = newPanel.find('.map_wrapper');
                 var gis = S3.gis;
                 for (var i=0; i < maps.length; i++) {
                     var map_id = maps[i].attributes['id'].value;
@@ -700,13 +980,19 @@ S3.search = {};
         var base = name.slice(0, -1);
         var level = parseInt(name.slice(-1));
         var hierarchy = S3.location_filter_hierarchy;
+        if (S3.location_name_l10n != undefined) {
+            var translate = true;
+            var location_name_l10n = S3.location_name_l10n;
+        } else {
+            var translate = false;
+        }
         // Initialise vars in a way in which we can access them via dynamic names
         widget.options1 = [];
         widget.options2 = [];
         widget.options3 = [];
         widget.options4 = [];
         widget.options5 = [];
-        var new_level;
+        var new_level, opt, _opt, i;
         if (hierarchy.hasOwnProperty('L' + level)) {
             // Top-level
             var _hierarchy = hierarchy['L' + level];
@@ -717,7 +1003,7 @@ S3.search = {};
                         for (option in _hierarchy[opt]) {
                             if (_hierarchy[opt].hasOwnProperty(option)) {
                                 new_level = level + 1;
-                                if (option) {
+                                if (option && option != 'null') {
                                     widget['options' + new_level].push(option);
                                 }
                                 if (typeof(_hierarchy[opt][option]) === 'object') {
@@ -725,7 +1011,7 @@ S3.search = {};
                                     for (_opt in __hierarchy) {
                                         if (__hierarchy.hasOwnProperty(_opt)) {
                                             new_level = level + 2;
-                                            if (_opt) {
+                                            if (_opt && _opt != 'null') {
                                                 widget['options' + new_level].push(_opt);
                                             }
                                             // @ToDo: Greater recursion
@@ -742,7 +1028,7 @@ S3.search = {};
                                 for (option in _hierarchy[opt]) {
                                     if (_hierarchy[opt].hasOwnProperty(option)) {
                                         new_level = level + 1;
-                                        if (option) {
+                                        if (option && option != 'null') {
                                             widget['options' + new_level].push(option);
                                         }
                                         if (typeof(_hierarchy[opt][option]) === 'object') {
@@ -750,7 +1036,7 @@ S3.search = {};
                                             for (_opt in __hierarchy) {
                                                 if (__hierarchy.hasOwnProperty(_opt)) {
                                                     new_level = level + 2;
-                                                    if (_opt) {
+                                                    if (_opt && _opt != 'null') {
                                                         widget['options' + new_level].push(_opt);
                                                     }
                                                     // @ToDo: Greater recursion
@@ -773,44 +1059,64 @@ S3.search = {};
             var _values = $('#' + base + (level - 1)).val();
             for (opt in _hierarchy) {
                 if (_hierarchy.hasOwnProperty(opt)) {
-                    /* Only needed if not hiding
                     if (_values === null) {
-                    } else { */
-                    for (var i in _values) {
-                        if (_values[i] === opt) {
-                            for (option in _hierarchy[opt]) {
-                                if (_hierarchy[opt].hasOwnProperty(option)) {
-                                    if (values === null) {
-                                        // Show all subsequent Options
-                                        for (option in _hierarchy[opt]) {
-                                            if (_hierarchy[opt].hasOwnProperty(option)) {
-                                                var __hierarchy = _hierarchy[opt][option];
-                                                for (_opt in __hierarchy) {
-                                                    if (__hierarchy.hasOwnProperty(_opt)) {
-                                                        new_level = level + 1;
-                                                        if (_opt) {
-                                                            widget['options' + new_level].push(_opt);
+                        // We can't be hiding
+                        // Read this level
+                        _values = $('#' + base + level).val();
+                        for (option in _hierarchy[opt]) {
+                            for (i in _values) {
+                                if (_values[i] === option) {
+                                    new_level = level + 1;
+                                    // Read the options for this level
+                                    var __hierarchy = _hierarchy[opt][option];
+                                    for (_opt in __hierarchy) {
+                                        if (__hierarchy.hasOwnProperty(_opt)) {
+                                            if (_opt && _opt != 'null') {
+                                                widget['options' + new_level].push(_opt);
+                                            }
+                                        }
+                                    }
+                                    // @ToDo: Read the options for subsequent levels
+                                }
+                            }                            
+                        }
+                    } else {
+                        for (i in _values) {
+                            if (_values[i] === opt) {
+                                for (option in _hierarchy[opt]) {
+                                    if (_hierarchy[opt].hasOwnProperty(option)) {
+                                        if (values === null) {
+                                            // Show all subsequent Options
+                                            for (option in _hierarchy[opt]) {
+                                                if (_hierarchy[opt].hasOwnProperty(option)) {
+                                                    new_level = level + 1;
+                                                    var __hierarchy = _hierarchy[opt][option];
+                                                    for (_opt in __hierarchy) {
+                                                        if (__hierarchy.hasOwnProperty(_opt)) {
+                                                            if (_opt && _opt != 'null') {
+                                                                widget['options' + new_level].push(_opt);
+                                                            }
+                                                            // @ToDo: Greater recursion
+                                                            //if (typeof(__hierarchy[_opt]) === 'object') {
+                                                            //}
                                                         }
-                                                        // @ToDo: Greater recursion
-                                                        //if (typeof(__hierarchy[_opt]) === 'object') {
-                                                        //}
                                                     }
                                                 }
                                             }
-                                        }
-                                    } else {
-                                        for (i in values) {
-                                            if (values[i] === option) {
-                                                var __hierarchy = _hierarchy[opt][option];
-                                                for (_opt in __hierarchy) {
-                                                    if (__hierarchy.hasOwnProperty(_opt)) {
-                                                        new_level = level + 1;
-                                                        if (_opt) {
-                                                            widget['options' + new_level].push(_opt);
+                                        } else {
+                                            for (i in values) {
+                                                if (values[i] === option) {
+                                                    new_level = level + 1;
+                                                    var __hierarchy = _hierarchy[opt][option];
+                                                    for (_opt in __hierarchy) {
+                                                        if (__hierarchy.hasOwnProperty(_opt)) {
+                                                            if (_opt && _opt != 'null') {
+                                                                widget['options' + new_level].push(_opt);
+                                                            }
+                                                            // @ToDo: Greater recursion
+                                                            //if (typeof(__hierarchy[_opt]) === 'object') {
+                                                            //}
                                                         }
-                                                        // @ToDo: Greater recursion
-                                                        //if (typeof(__hierarchy[_opt]) === 'object') {
-                                                        //}
                                                     }
                                                 }
                                             }
@@ -825,15 +1131,23 @@ S3.search = {};
         } else if (hierarchy.hasOwnProperty('L' + (level - 2))) {
             // @ToDo
         }
+        var name, name_l10n, options, _options;
         for (var l = level + 1; l <= 5; l++) {
             var select = $('#' + base + l);
             if (typeof(select) != 'undefined') {
-                var options = widget['options' + l];
+                options = widget['options' + l];
+                // @ToDo: Sort by name_l10n not by name
                 options.sort();
                 _options = '';
                 for (i in options) {
                     if (options.hasOwnProperty(i)) {
-                        _options += '<option value="' + options[i] + '">' + options[i] + '</option>';
+                        name = options[i];
+                        if (translate) {
+                            name_l10n = location_name_l10n[name] || name;
+                        } else {
+                            name_l10n = name;
+                        }
+                        _options += '<option value="' + name + '">' + name_l10n + '</option>';
                     }
                 }
                 select.html(_options);
@@ -852,6 +1166,123 @@ S3.search = {};
         }
     };
 
+    var filterSubmit = function(filter_form) {
+        
+        var form_id = filter_form.attr('id'),
+            url = filter_form.find('input.filter-submit-url[type="hidden"]').val(),
+            queries = getCurrentFilters(filter_form);
+
+        if (filter_form.hasClass('filter-ajax')) {
+            // Ajax-refresh the target objects
+
+            // Get the target IDs
+            var target = filter_form.find('input.filter-submit-target[type="hidden"]')
+                                    .val();
+
+            // Clear the list
+            pendingTargets[form_id] = {};
+
+            var targets = target.split(' '),
+                needs_reload,
+                dt_ajaxurl = {},
+                ajaxurl,
+                settings,
+                config,
+                i,
+                t,
+                target_id,
+                visible;
+
+            // Inspect the targets
+            for (i=0; i < targets.length; i++) {
+                target_id = targets[i];
+                t = $('#' + target_id);
+
+                if (!t.is(':visible')) {
+                    visible = false;
+                } else {
+                    visible = true;
+                }
+
+                needs_reload = false;
+                ajaxurl = null;
+
+                if (t.hasClass('dl')) {
+                    // data lists do not need page reload
+                    needs_reload = false;
+                } else if (t.hasClass('dataTable')) {
+                    // data tables need page reload if no AjaxURL configured
+                    config = $('input#' + targets[i] + '_configurations');
+                    if (config.length) {
+                        settings = JSON.parse($(config).val());
+                        ajaxurl = settings['ajaxUrl'];
+                        if (typeof ajaxurl != 'undefined') {
+                            ajaxurl = filterURL(ajaxurl, queries);
+                        } else {
+                            ajaxurl = null;
+                        }
+                    }
+                    if (ajaxurl) {
+                        dt_ajaxurl[targets[i]] = ajaxurl;
+                        needs_reload = false;
+                    } else {
+                        needs_reload = true;
+                    }
+                } else if (t.hasClass('map_wrapper')) {
+                    // maps do not need page reload
+                    needs_reload = false;
+                } else if (t.hasClass('cms_content')) {
+                    // CMS widgets do not need page reload
+                    needs_reload = false;
+                } else if (t.hasClass('pt-container')) {
+                    // PivotTables do not need page reload
+                    needs_reload = false;
+                } else {
+                    // all other targets need page reload
+                    if (visible) {
+                        // reload immediately
+                        url = filterURL(url, queries);
+                        window.location.href = url;
+                    } else {
+                        // mark the need for a reload later
+                        needs_reload = true;
+                    }
+                }
+
+                if (!visible) {
+                    // schedule for later
+                    pendingTargets[form_id][target_id] = {
+                        needs_reload: needs_reload,
+                        ajaxurl: ajaxurl,
+                        queries: queries
+                    };
+                }
+            }
+
+            // Ajax-update all visible targets
+            for (i=0; i < targets.length; i++) {
+                target_id = targets[i]
+                t = $('#' + target_id);
+                if (!t.is(':visible')) {
+                    continue;
+                } else if (t.hasClass('dl')) {
+                    dlAjaxReload(target_id, queries);
+                } else if (t.hasClass('dataTable')) {
+                    t.dataTable().fnReloadAjax(dt_ajaxurl[target_id]);
+                } else if (t.hasClass('map_wrapper')) {
+                    S3.gis.refreshLayer('search_results', queries);
+                } else if (t.hasClass('pt-container')) {
+                    t.pivottable('reload', null, queries);
+                }
+            }
+        } else {
+            // Reload the page
+            url = filterURL(url, queries);
+            window.location.href = url;
+        }
+    }
+
+        
     /**
      * document-ready script
      */
@@ -924,124 +1355,486 @@ S3.search = {};
             hierarchical_location_change(this);
         });
 
+        // Set filter widgets to fire optionChanged event
+        $('.text-filter, .range-filter-input').on('input.autosubmit', function () {
+            $(this).closest('form').trigger('optionChanged');
+        });
+        $('.options-filter, .location-filter, .date-filter-input').on('change.autosubmit', function () {
+            $(this).closest('form').trigger('optionChanged');
+        });
+
         // Clear all filters
         $('.filter-clear').click(function() {
             var form = $(this).closest('form.filter-form');
             clearFilters(form);
-            lastLoaded[filter_form.attr('id')] = null;
         });
-        
+
         // Filter-form submission
         $('.filter-submit').click(function() {
-            
-            var that = $(this);
-            var filter_form = that.closest('form.filter-form');
-            var form_id = filter_form.attr('id');
-            var url = that.nextAll('input.filter-submit-url[type="hidden"]').val(),
-                queries = getCurrentFilters(filter_form);
-
-            if (that.hasClass('filter-ajax')) {
-                // Ajax-refresh the target objects
-
-                // Get the target IDs
-                var target = that.nextAll('input.filter-submit-target[type="hidden"]')
-                                 .val();
-
-                // Clear the list
-                pendingTargets[form_id] = {};
-
-                var targets = target.split(' '),
-                    needs_reload,
-                    dt_ajaxurl = {},
-                    ajaxurl,
-                    settings,
-                    config,
-                    i,
-                    t,
-                    target_id,
-                    visible;
-
-                // Inspect the targets
-                for (i=0; i < targets.length; i++) {
-                    target_id = targets[i];
-                    t = $('#' + target_id);
-
-                    if (!t.is(':visible')) {
-                        visible = false;
-                    } else {
-                        visible = true;
-                    }
-                    
-                    needs_reload = false;
-                    ajaxurl = null;
-                    
-                    if (t.hasClass('dl')) {
-                        // data lists do not need page reload
-                        needs_reload = false;
-                    } else if (t.hasClass('dataTable')) {
-                        // data tables need page reload if no AjaxURL configured
-                        config = $('input#' + targets[i] + '_configurations');
-                        if (config.length) {
-                            settings = JSON.parse($(config).val());
-                            ajaxurl = settings['ajaxUrl'];
-                            if (typeof ajaxurl != 'undefined') {
-                                ajaxurl = filterURL(ajaxurl, queries);
-                            } else {
-                                ajaxurl = null;
-                            }
-                        }
-                        if (ajaxurl) {
-                            dt_ajaxurl[targets[i]] = ajaxurl;
-                            needs_reload = false;
-                        } else {
-                            needs_reload = true;
-                        }
-                    } else if (t.hasClass('map_wrapper')) {
-                        // maps do not need page reload
-                        needs_reload = false;
-                    } else {
-                        // all other targets need page reload
-                        if (visible) {
-                            // reload immediately
-                            url = filterURL(url, queries);
-                            window.location.href = url;
-                        } else {
-                            // mark the need for a reload later
-                            needs_reload = true;
-                        }
-                    }
-
-                    if (!visible) {
-                        // schedule for later
-                        pendingTargets[form_id][target_id] = {
-                            needs_reload: needs_reload,
-                            ajaxurl: ajaxurl,
-                            queries: queries
-                        };
-                    }
-                }
-
-                // Ajax-update all visible targets
-                for (i=0; i < targets.length; i++) {
-                    target_id = targets[i]
-                    t = $('#' + target_id);
-                    if (!t.is(':visible')) {
-                        continue;
-                    } else if (t.hasClass('dl')) {
-                        dlAjaxReload(target_id, queries);
-                    } else if (t.hasClass('dataTable')) {
-                        t.dataTable().fnReloadAjax(dt_ajaxurl[target_id]);
-                    } else if (t.hasClass('map_wrapper')) {
-                        S3.gis.refreshLayer('search_results', queries);
-                    }
-                }
-            } else {
-                // Reload the page
-                url = filterURL(url, queries);
-                window.location.href = url;
-            }
+            filterSubmit($(this).closest('form.filter-form'));
         });
+
     });
 
 }());
+
+/**
+ * Filter Manager Widget:
+ *  - Filter form widget to save/load/apply saved filters
+ */
+
+(function($, undefined) {
+
+    var filterManagerID = 0;
+
+    $.widget('s3.filtermanager', {
+
+        /**
+         * options: default options
+         */
+        options: {
+            // Basic configuration (required)
+            filters: {},                    // the available filters
+            ajaxURL: null,                  // URL to save filters
+
+            // Workflow options
+            readOnly: false,                // do not allow to save/update filters
+            explicitLoad: false,            // load filters via load-button rather
+                                            // than immediately
+
+            // Tooltips for actions
+            loadTooltip: null,              // tooltip for load-button
+            saveTooltip: null,              // tooltip for save-button
+            createTooltip: null,            // tooltip for create-button
+
+            // Hints (these should be localized by the back-end)
+            selectHint: 'Saved filters...', // hint in the selector
+            emptyHint: 'No saved filters',  // hint in the selector if no filters available
+            titleHint: 'Enter a title',     // hint (watermark) in the title input field
+
+            // Ask the user for confirmation when updating a saved filter?
+            confirmUpdate: false,           // user must confirm update of existing filters
+            confirmText: 'Update this filter?', // filter update confirmation question
+
+            // If text is provided for actions, we render them as <a>nchors
+            // with the buttonClass - otherwise as empty DIVs for CSS-icons
+            createText: null,               // Text for create-action button
+            saveText: null,                 // Text for save-action button
+            loadText: null,                 // Text for load-action button
+            buttonClass: 'action-btn'       // Class for action buttons
+        },
+
+        /**
+         * _create: create the widget
+         */
+        _create: function() {
+
+            this.id = filterManagerID++;
+        },
+
+        /**
+         * _init: update widget options
+         */
+        _init: function() {
+
+            this.refresh();
+
+        },
+
+        /**
+         * _destroy: remove generated elements & reset other changes
+         */
+        _destroy: function() {
+            // @todo: implement
+        },
+
+        /**
+         * refresh: re-draw contents
+         */
+        refresh: function() {
+            
+            var id = this.id,
+                el = this.element.val(''),
+                options = this.options;
+
+            this._unbindEvents();
+
+            var buttonClass = options.buttonClass;
+
+            // SAVE-button
+            if (this.save_btn) {
+                this.save_btn.remove();
+            }
+            if (options.saveText) {
+                this.save_btn = $('<a class="fm-save ' + buttonClass + '" id="fm-save-' + id + '">' + options.saveText + '</a>');
+            } else {
+                this.save_btn = $('<div class="fm-save" id="fm-save-' + id + '">');
+            }
+            if (options.saveTooltip) {
+                this.save_btn.attr('title', options.saveTooltip);
+            }
+
+            // LOAD-button
+            if (this.load_btn) {
+                this.load_btn.remove();
+            }
+            if (options.loadText) {
+                this.load_btn = $('<a class="fm-load ' + buttonClass + '" id="fm-load-' + id + '">' + options.loadText + '</a>');
+            } else {
+                this.load_btn = $('<div class="fm-load" id="fm-load-' + id + '">');
+            }
+            if (options.loadTooltip) {
+                this.load_btn.attr('title', options.loadTooltip);
+            }
+
+            // Throbber
+            if (this.throbber) {
+                this.throbber.remove();
+            }
+            this.throbber = $('<div class="inline-throbber" id="fm-throbber-' + id + '">')
+                            .css({'float': 'left'});
+            
+            // CREATE-button
+            if (this.create_btn) {
+                this.create_btn.remove();
+            }
+            if (options.createText) {
+                this.create_btn = $('<a class="fm-create ' + buttonClass + '" id="fm-create-' + id + '">' + options.createText + '</a>');
+            } else {
+                this.create_btn = $('<div class="fm-create" id="fm-create-' + id + '">');
+            }
+            if (options.createTooltip) {
+                this.create_btn.attr('title', options.createTooltip);
+            }
+
+            // ACCEPT button for create-dialog
+            if (this.accept_btn) {
+                this.accept_btn.remove();
+            }
+            this.accept_btn = $('<div class="fm-accept" id="fm-accept-' + id + '">');
+
+            // CANCEL button for create-dialog
+            if (this.cancel_btn) {
+                this.cancel_btn.remove();
+            }
+            this.cancel_btn = $('<div class="fm-cancel" id="fm-cancel-' + id + '">');
+
+            // Insert buttons into widget
+            $(el).after(this.load_btn.hide(),
+                        this.save_btn.hide(),
+                        this.throbber.hide(),
+                        this.create_btn,
+                        this.accept_btn.hide(),
+                        this.cancel_btn.hide());
+
+            // @todo: hide create if readOnly
+
+            // Reset status
+            this._cancel();
+
+            this._bindEvents();
+        },
+
+        /**
+         * _newFilter: dialog to create a new filter from current options
+         */
+        _newFilter: function() {
+
+            // @todo: ignore if readOnly
+
+            // Hide selector and buttons
+            var el = this.element.hide();
+            this.create_btn.hide();
+            this.load_btn.hide();
+            this.save_btn.hide();
+
+            // Show accept/cancel
+            this.accept_btn.show();
+            this.cancel_btn.show();
+
+            // Input field
+            var hint = this.options.titleHint;
+            var input = $('<input type="text" id="fm-title-input-' + this.id + '">')
+                        .val(hint)
+                        .css({color: 'grey', 'float': 'left'})
+                        .focusin(function() {
+                            if (!$(this).hasClass('changed')) {
+                                $(this).css({color: 'black'}).val('');
+                            }
+                        })
+                        .change(function() {
+                            $(this).addClass('changed');
+                        })
+                        .focusout(function() {
+                            if ($(this).val() === '') {
+                                $(this).removeClass('changed')
+                                       .css({color: 'grey'})
+                                       .val(hint);
+                            }
+                        });
+            this.input = input;
+            $(el).after(input);
+        },
+
+        /**
+         * _accept: accept create-dialog and store current options as new filter
+         */
+        _accept: function () {
+
+            // @todo: ignore if readOnly
+
+            var el = this.element,
+                fm = this,
+                title = this.input.val();
+                
+            if (!$(this.input).hasClass('changed') || !title) {
+                return;
+            } else {
+                $(this.input).removeClass('changed');
+            }
+            
+            // Hide accept/cancel
+            this.accept_btn.hide();
+            this.cancel_btn.hide();
+
+            // Show throbber
+            this.throbber.show();
+
+            // Collect data
+            var filter = {
+                title: title,
+                query: S3.search.getCurrentFilters($(el).closest('form')),
+                url: this._getFilterURL()
+            }
+
+            // Ajax-save
+            $.ajaxS3({
+                'url': this.options.ajaxURL,
+                'type': 'POST',
+                'dataType': 'json',
+                'data': JSON.stringify(filter),
+                'success': function(data) {
+                    var new_id = data.created;
+                    if (new_id) {
+                        // Store filter
+                        fm.options.filters[new_id] = filter.query;
+                        // Append filter to SELECT + select it
+                        var new_opt = $('<option value="' + new_id + '">' + filter.title + '</option>');
+                        $(el).append(new_opt).val(new_id).change().prop('disabled', false);
+                    }
+                    // Close save-dialog
+                    fm._cancel();
+                },
+                'error': function () {
+                    fm._cancel();
+                }
+            });
+        },
+
+        /**
+         * _save: update the currently selected filter with current options
+         */
+        _save: function() {
+
+            // @todo: ignore if readOnly
+
+            var el = this.element,
+                fm = this,
+                opts = this.options;
+
+            var id = $(el).val();
+            
+            // @todo: i18n, use title for this filter
+            if (!id || opts.confirmUpdate && !confirm(opts.confirmText)) {
+                return;
+            }
+
+            // Hide buttons
+            this.create_btn.hide();
+            this.load_btn.hide();
+            this.save_btn.hide();
+
+            // Show throbber
+            this.throbber.show();
+
+            // Collect data
+            var filter = {
+                id: id,
+                query: S3.search.getCurrentFilters($(el).closest('form')),
+                url: this._getFilterURL()
+            }
+
+            // Ajax-save current Filters
+            $.ajaxS3({
+                'url': this.options.ajaxURL,
+                'type': 'POST',
+                'dataType': 'json',
+                'data': JSON.stringify(filter),
+                'success': function() {
+                    fm.options.filters[id] = filter.query;
+                    fm._cancel();
+                },
+                'error': function () {
+                    fm._cancel();
+                }
+            });
+        },
+
+        /**
+         * _cancel: cancel create-dialog and return to filter selection
+         */
+        _cancel: function() {
+
+            // Hide throbber
+            this.throbber.hide();
+
+            // Remove input and hide accept/cancel
+            if (this.input) {
+                this.input.remove();
+                this.input = null;
+            }
+            this.accept_btn.hide();
+            this.cancel_btn.hide();
+
+            // Show selector and buttons
+            var el = this.element.show(),
+                opts = this.options;
+            
+            // Disable selector if no filters
+            var options = $(el).find('option');
+            if (options.length == 1 && options.first().hasClass('filter-manager-prompt')) {
+                $(el).prop('disabled', true);
+                $(el).find('option.filter-manager-prompt').text(opts.emptyHint);
+            } else {
+                $(el).prop('disabled', false);
+                $(el).find('option.filter-manager-prompt').text(opts.selectHint);
+            }
+
+            this.create_btn.show();
+
+            // @todo: hide create-button if readOnly
+
+            this._showLoadSaveButtons();
+        },
+
+        /**
+         * _load: load the selected filter
+         */
+        _load: function() {
+
+            var el = this.element,
+                filters = this.options.filters;
+
+            var filter_id = $(el).val();
+            if (filter_id && filters.hasOwnProperty(filter_id)) {
+                S3.search.setCurrentFilters($(el).closest('form'), filters[filter_id]);
+            } else {
+                // @todo: clear filters? => not in global scope
+                // S3.search.clearFilters($(this).closest('form'));
+            }
+        },
+
+        /**
+         * clear: clear current selection
+         */
+        clear: function() {
+
+            var el = this.element;
+
+            $(el).val('');
+            this._cancel();
+        },
+
+        /**
+         * _showLoadSaveButtons: show (unhide) load/save buttons
+         */
+        _showLoadSaveButtons: function() {
+
+            // @todo: render save-button only if not readOnly
+
+            if ($(this.element).val()) {
+                if (this.options.explicitLoad) {
+                    this.load_btn.show();
+                }
+                this.save_btn.show();
+            } else {
+                this.load_btn.hide();
+                this.save_btn.hide();
+            }
+            
+        },
+
+        /**
+         * _getFilterURL: get the page URL of the filter form
+         */
+        _getFilterURL: function() {
+            
+            var url = $(this.element).closest('form')
+                                     .find('input.filter-submit-url[type="hidden"]');
+            if (url.length) {
+                return url.first().val();
+            } else {
+                return document.URL;
+            }
+        },
+
+        /**
+         * _bindEvents: bind events to generated elements (after refresh)
+         */
+        _bindEvents: function() {
+            
+            var fm = this;
+            
+            // @todo: don't bind create if readOnly
+            this.create_btn.click(function() {
+                fm._newFilter();
+            });
+            this.accept_btn.click(function() {
+                fm._accept();
+            })
+            this.cancel_btn.click(function() {
+                fm._cancel();
+            });
+            this.element.change(function() {
+                fm._showLoadSaveButtons();
+                if (!fm.options.explicitLoad) {
+                    fm._load();
+                }
+            });
+            if (this.options.explicitLoad) {
+                this.load_btn.click(function() {
+                    fm._load();
+                });
+            }
+            // @todo: don't bind save if readOnly
+            this.save_btn.click(function() {
+                fm._save();
+            });
+        },
+
+        /**
+         * _unbindEvents: remove events from generated elements (before refresh)
+         */
+        _unbindEvents: function() {
+
+            if (this.create_btn) {
+                this.create_btn.unbind('click');
+            }
+            if (this.accept_btn) {
+                this.accept_btn.unbind('click');
+            }
+            if (this.cancel_btn) {
+                this.cancel_btn.unbind('click');
+            }
+            if (this.load_btn && this.options.explicitLoad) {
+                this.load_btn.unbind('click');
+            }
+            if (this.save_btn) {
+                this.save_btn.unbind('click');
+            }
+            this.element.unbind('change');
+        }
+    });
+})(jQuery);
+
 // END ========================================================================

@@ -10,7 +10,7 @@
      * - in global scope as called from outside
      *
      * Parameters:
-     * fieldname - {String} A unique fieldname for a person_id field
+     * fieldname - {String} A unique fieldname for a person_id or human_resource_id field
      */
     S3.addPersonWidget = function(fieldname) {
         // Function to be called by S3AddPersonWidget2
@@ -20,47 +20,76 @@
 
         // Move the user-visible rows underneath the real (hidden) one
         var error_row = real_input.next('.error_wrapper');
-        var L0_row = $(selector + '_L0__row');
-        var L1_row = $(selector + '_L1__row');
+        var title_row = $(selector + '_title__row');
+        var org_row = $(selector + '_organisation_id__row');
+        var name_row = $(selector + '_full_name__row');
+        var date_of_birth_row = $(selector + '_date_of_birth__row');
+        var gender_row = $(selector + '_gender__row');
+        var occupation_row = $(selector + '_occupation__row');
+        var email_row = $(selector + '_email__row');
+        var mobile_phone_row = $(selector + '_mobile_phone__row');
+        var box_bottom = $(selector + '_box_bottom');
         $(selector + '__row').hide()
-                             .after(L1_row)
-                             .after(L0_row)
+                             .after(box_bottom)
+                             .after(mobile_phone_row)
+                             .after(email_row)
+                             .after(occupation_row)
+                             .after(gender_row)
+                             .after(date_of_birth_row)
+                             .after(name_row)
+                             .after(org_row)
+                             .after(title_row)
                              .after(error_row);
 
-        var fieldname = $('#select_from_registry_row').attr('field');
-        var dummy_input = $('#dummy_' + fieldname);
-        dummy_input.addClass('hide');
-        addPerson_real_input = $('#' + fieldname);
-        var person_id = addPerson_real_input.val();
-        if (person_id > 0) {
-            // If an ID present then disable input fields
-            $('#clear_form_link').removeClass('hide');
-            $('#edit_selected_person_link').removeClass('hide');
-            disable_person_fields();
-        }
+        title_row.show();
+        org_row.show();
+        name_row.show();
+        date_of_birth_row.show();
+        gender_row.show();
+        occupation_row.show();
+        email_row.show();
+        mobile_phone_row.show();
+        box_bottom.show();
 
-        // Listen events
-        $('#select_from_registry').click(function() {
-            $('#select_from_registry_row').addClass('hide');
-            $('#person_autocomplete_row').removeClass('hide');
-            $('#person_autocomplete_label').removeClass('hide');
-            dummy_input.removeClass('hide')
-                       .focus();
-        });
-        dummy_input.focusout(function() {
-            var person_id = addPerson_real_input.val();
-            dummy_input.addClass('hide');
-            $('#person_autocomplete_label').addClass('hide');
-            $('#select_from_registry_row').removeClass('hide');
-            if (person_id > 0) {
-                 $('#clear_form_link').removeClass('hide');
-            }
-        });
-        var value = $('#select_from_registry_row').attr('value');
-        if (value != 'None') {
-            addPerson_real_input.val(value);
-            select_person(value);
+        var value = real_input.val();
+        if (value) {
+            // Update form: disable the fields by default
+            disable_person_fields(fieldname);
+            // Hide the cancel button
+            $(selector + '_edit_bar .icon-remove').hide();
+        } else {
+            // Create form: Enable the Autocomplete
+            enable_autocomplete(fieldname);
+            // Hide the edit button
+            $(selector + '_edit_bar .icon-edit').hide();
         }
+        // Show the edit bar
+        $(selector + '_edit_bar').removeClass('hide').show();
+
+        // Events
+        $(selector + '_edit_bar .icon-edit').click(function() {
+            edit(fieldname);
+        });
+        $(selector + '_edit_bar .icon-remove').click(function() {
+            cancel(fieldname);
+        });
+
+        $(selector + '_organisation_id').change(function() {
+            // If there is an organisation selected then use this as a filter for the Autocomplete
+            var organisation_id = $(this).val();
+            var url = real_input.data('url');
+            if (organisation_id) {
+                // Remove any old filter
+                url = url.split('?')[0];
+                // Add a filter
+                url += '?~.organisation_id=' + organisation_id;
+            } else {
+                // Strip off the filter
+                url = url.split('?')[0];
+            }
+            real_input.data('url', url);
+        });
+
         $('form').submit(function() {
             // The form is being submitted
 
@@ -71,137 +100,310 @@
             S3ClearNavigateAwayConfirm();
 
             // Ensure that all fields aren't disabled (to avoid wiping their contents)
-            enable_person_fields();
+            enable_person_fields(fieldname);
 
             // Allow the Form's Save to continue
             return true;
         });
     }
 
-    var select_person_clear_form = function() {
-        enable_person_fields();
-        addPerson_real_input.val('');
-        $('#pr_person_first_name').val('');
-        $('#pr_person_middle_name').val('');
-        $('#pr_person_last_name').val('');
-        $('#pr_person_gender').val('');
-        $('#pr_person_date_of_birth').val('');
-        $('#pr_person_occupation').val('');
-        $('#pr_person_email').val('');
-        $('#pr_person_mobile_phone').val('');
-        $('#clear_form_link').addClass('hide');
-        $('#edit_selected_person_link').addClass('hide');
+    var enable_person_fields = function(fieldname) {
+        var selector = '#' + fieldname;
+        $(selector + '_organisation_id').prop('disabled', false);
+        $(selector + '_full_name').prop('disabled', false);
+        $(selector + '_gender').prop('disabled', false);
+        $(selector + '_date_of_birth').prop('disabled', false);
+        $(selector + '_occupation').prop('disabled', false);
+        $(selector + '_email').prop('disabled', false);
+        $(selector + '_mobile_phone').prop('disabled', false);
     }
-    // Pass to global scope to be activated onClick
-    S3.select_person_clear_form = select_person_clear_form;
 
-    // Needs to be in global scope as activated onClick
-    S3.select_person_edit_form = function() {
-        enable_person_fields();
-        $('#edit_selected_person_link').addClass('hide');
+    var disable_person_fields = function(fieldname) {
+        var selector = '#' + fieldname;
+        $(selector + '_organisation_id').prop('disabled', true);
+        $(selector + '_full_name').prop('disabled', true);
+        $(selector + '_gender').prop('disabled', true);
+        $(selector + '_date_of_birth').prop('disabled', true);
+        $(selector + '_occupation').prop('disabled', true);
+        $(selector + '_email').prop('disabled', true);
+        $(selector + '_mobile_phone').prop('disabled', true);
+        // Show the edit button
+        $(selector + '_edit_bar .icon-edit').show();
+        // Hide the cancel button
+        $(selector + '_edit_bar .icon-remove').hide();
+    }
+
+    var edit = function(fieldname) {
+        var selector = '#' + fieldname;
+        // Enable the Autocomplete
+        enable_autocomplete(fieldname);
+        // Enable all the fields & clear their values
+        $(selector).val('');
+        $(selector + '_organisation_id').prop('disabled', false).val('').change();
+        $(selector + '_full_name').prop('disabled', false).val('');
+        $(selector + '_gender').prop('disabled', false).val('');
+        $(selector + '_date_of_birth').prop('disabled', false).val('');
+        $(selector + '_occupation').prop('disabled', false).val('');
+        $(selector + '_email').prop('disabled', false).val('');
+        $(selector + '_mobile_phone').prop('disabled', false).val('');
+        // Hide the edit button
+        $(selector + '_edit_bar .icon-edit').hide();
+        // Show the cancel button
+        $(selector + '_edit_bar .icon-remove').show();
+    }
+
+    var cancel = function(fieldname) {
+        var selector = '#' + fieldname;
+        var real_input = $(selector);
+        var existing = real_input.data('existing');
+        if (existing) {
+            // Revert to existing
+            $(selector).val(existing.value);
+            $(selector + '_organisation_id').prop('disabled', true).val(existing.organisation_id);
+            $(selector + '_full_name').prop('disabled', true).val(existing.full_name);
+            $(selector + '_gender').prop('disabled', true).val(existing.gender);
+            $(selector + '_date_of_birth').prop('disabled', true).val(existing.date_of_birth);
+            $(selector + '_occupation').prop('disabled', true).val(existing.occupation);
+            $(selector + '_email').prop('disabled', true).val(existing.email);
+            $(selector + '_mobile_phone').prop('disabled', true).val(existing.mobile_phone);
+            // Show the edit button
+            $(selector + '_edit_bar .icon-edit').show();
+            // Hide the cancel button
+            $(selector + '_edit_bar .icon-remove').hide();
+        } else {
+            // Nothing should come here?
+            // Clear all values
+            $(selector + '_full_name').prop('disabled', false).val('');
+            clear_person_fields(fieldname);
+        }
+    }
+
+    var clear_person_fields = function(fieldname) {
+        var selector = '#' + fieldname;
+        // Clear all values & Enable Fields
+        $(selector).val('');
+        $(selector + '_organisation_id').prop('disabled', false).val('');
+        $(selector + '_gender').prop('disabled', false).val('');
+        $(selector + '_date_of_birth').prop('disabled', false).val('');
+        $(selector + '_occupation').prop('disabled', false).val('');
+        $(selector + '_email').prop('disabled', false).val('');
+        $(selector + '_mobile_phone').prop('disabled', false).val('');
+        // Hide the edit bar
+        //$(selector + '_edit_bar').hide();
+    }
+
+    var represent_person = function(item) {
+        var name = item.first;
+        if (item.middle) {
+            name += ' ' + item.middle;
+        }
+        if (item.last) {
+            name += ' ' + item.last;
+        }
+        return name;
+    }
+
+    var represent_hr = function(item) {
+        var name = item.first;
+        if (item.middle) {
+            name += ' ' + item.middle;
+        }
+        if (item.last) {
+            name += ' ' + item.last;
+        }
+        var org = item.org;
+        var job = item.job;
+        if (org || job) {
+            if (job) {
+                name += ' (' + job;
+                if (org) {
+                    name += ', ' + org;
+                }
+                name += ')';
+            } else {
+                name += ' (' + org + ')';
+            }
+        }
+        return name;
+    }
+
+    var enable_autocomplete = function(fieldname) {
+        var selector = '#' + fieldname;
+        var dummy_input = $(selector + '_full_name');
+        if (dummy_input.attr('autocomplete')) {
+            // Already setup
+            return;
+        }
+
+        var real_input = $(selector);
+        var value = real_input.val();
+        if (value) {
+            // Store existing data in case of cancel
+            var existing = {
+                value: value,
+                full_name: dummy_input.val(),
+                organisation_id: $(selector + '_organisation_id').val(),
+                gender: $(selector + '_gender').val(),
+                date_of_birth: $(selector + '_date_of_birth').val(),
+                occupation: $(selector + '_occupation').val(),
+                email: $(selector + '_email').val(),
+                mobile_phone: $(selector + '_mobile_phone').val()
+            };
+        } else {
+            var existing = {};
+        }
+        real_input.data('existing', existing);
+
+        // Add a Throbber
+        $(selector + '_full_name').after('<div id="' + fieldname + '_throbber" class="throbber input_throbber hide"></div>');
+        var throbber = $(selector + '_throbber');
+
+        var controller = dummy_input.attr('data-c');
+        var fn = dummy_input.attr('data-f');
+        var url = S3.Ap.concat('/' + controller + '/' + fn + '/search_ac');
+        // Have this URL editable after setup (e.g. to Filter by Organisation)
+        real_input.data('url', url);
+
+        dummy_input.autocomplete({
+            // @ToDo: Configurable options
+            delay: 450,
+            minLength: 2,
+            source: function(request, response) {
+                // Patch the source so that we can handle No Matches
+                $.ajax({
+                    url: real_input.data('url'),
+                    data: {
+                        term: request.term
+                    }
+                }).done(function (data) {
+                    if (data.length == 0) {
+                        // New Entry
+                        real_input.val('');
+                    } else {
+                        var none_of_the_above = i18n.none_of_the_above;
+                        data.push({
+                            id: 0,
+                            value: '',
+                            label: none_of_the_above,
+                            // First Name
+                            first: none_of_the_above
+                        });
+                    }
+                    response(data);
+                });
+            },
+            search: function(event, ui) {
+                throbber.removeClass('hide').show();
+                return true;
+            },
+            response: function(event, ui, content) {
+                throbber.hide();
+                return content;
+            },
+            focus: function(event, ui) {
+                var name = represent_person(ui.item);
+                return false;
+            },
+            select: function(event, ui) {
+                var item = ui.item;
+                if (item.id) {
+                    var name = represent_person(item);
+                    dummy_input.val(name);
+                    real_input.val(item.id);
+                    // Update the Form Fields
+                    select_person(fieldname, item.id);
+                } else {
+                    // 'None of the above' => New Entry
+                    real_input.val('');
+                }
+                return false;
+            }
+        })
+        .data('ui-autocomplete')._renderItem = function(ul, item) {
+            var name = represent_hr(item);
+            return $('<li>').data('item.autocomplete', item)
+                            .append('<a>' + name + '</a>')
+                            .appendTo(ul);
+        };
+        dummy_input.blur(function() {
+            if (existing && existing.full_name != dummy_input.val()) {
+                // New Entry - without letting AC complete (e.g. tab out)
+                real_input.val('');
+            }
+        });
     }
 
     // Called on post-process by the Autocomplete Widget
-    var select_person = function(person_id) {
-        select_person_clear_form();
-        if (person_id) {
-            var controller = $('#select_from_registry_row').attr('controller');
-            if (controller) {
-                $('#select_from_registry').addClass('hide');
-                $('#clear_form_link').addClass('hide');
-                $('#person_load_throbber').removeClass('hide');
-                var url = S3.Ap.concat('/' + controller + '/person/' + person_id + '.s3json?show_ids=True');
-                $.getJSONS3(url, function(data) {
-                    try {
-                        var email = undefined, phone = undefined;
-                        var person = data['$_pr_person'][0];
-                        disable_person_fields();
-                        addPerson_real_input.val(person['@id']);
-                        if (person.hasOwnProperty('first_name')) {
-                            $('#pr_person_first_name').val(person['first_name']);
-                        }
-                        if (person.hasOwnProperty('middle_name')) {
-                            $('#pr_person_middle_name').val(person['middle_name']['@value']);
-                        }
-                        if (person.hasOwnProperty('last_name')) {
-                            $('#pr_person_last_name').val(person['last_name']['@value']);
-                        }
-                        if (person.hasOwnProperty('gender')) {
-                            $('#pr_person_gender').val(person['gender']['@value']);
-                        }
-                        if (person.hasOwnProperty('date_of_birth')) {
-                            $('#pr_person_date_of_birth').val(person['date_of_birth']['@value']);
-                        }
-                        if (person.hasOwnProperty('occupation')) {
-                            $('#pr_person_occupation').val(person['occupation']['@value']);
-                        }
-                        if (person.hasOwnProperty('$_pr_email_contact')) {
-                            var contact = person['$_pr_email_contact'][0];
-                            email = contact['value']['@value'];                            
-                        }
-                        if (person.hasOwnProperty('$_pr_phone_contact')) {
-                            var contact = person['$_pr_phone_contact'][0];
-                            phone = contact['value']['@value'];                            
-                        }                       
-                        if (person.hasOwnProperty('$_pr_contact')) {
-                            var contacts = person['$_pr_contact'];
-                            var contact;
-                            for (var i=0; i < contacts.length; i++) {
-                                contact = contacts[i];
-                                if(email == undefined){
-                                    if (contact['contact_method']['@value'] == 'EMAIL') {
-                                        email = contact['value']['@value'];
-                                    }
-                                }
-                                if(phone == undefined){
-                                    if (contact['contact_method']['@value'] == 'SMS') {
-                                        phone = contact['value']['@value'];
-                                    }
-                                }
-                            }
-                        }
-                        if(email !== undefined){
-                            $('#pr_person_email').val(email);
-                        }
-                        if(phone !== undefined){
-                            $('#pr_person_mobile_phone').val(phone);
-                        }
-                                                
-                    } catch(e) {
-                        addPerson_real_input.val('');
-                    }
-                    $('#person_load_throbber').addClass('hide');
-                    $('#select_from_registry').removeClass('hide');
-                    $('#clear_form_link').removeClass('hide');
-                    $('#edit_selected_person_link').removeClass('hide');
-                });
-                $('#person_autocomplete_row').addClass('hide');
-                $('#select_from_registry_row').removeClass('hide');
+    var select_person = function(fieldname, id) {
+        var selector = '#' + fieldname;
+        var name_input = $(selector + '_full_name');
+        name_input.prop('disabled', false);
+        clear_person_fields(fieldname);
+        var real_input = $(selector);
+        var controller = name_input.attr('data-c');
+        var fn = name_input.attr('data-f');
+        var url = S3.Ap.concat('/' + controller + '/' + fn + '/' + id + '/lookup');
+        $.getJSONS3(url, function(data) {
+            try {
+                /* We have these already from the search_ac
+                var names = [];
+                if (data.hasOwnProperty('first_name')) {
+                    names.push(data['first_name']);
+                }
+                if (data.hasOwnProperty('middle_name')) {
+                    names.push(data['middle_name']);
+                }
+                if (data.hasOwnProperty('last_name')) {
+                    names.push(data['last_name']);
+                }
+                var full_name = names.join(' ');
+                name_input.val(full_name); */
+                var full_name = name_input.val();
+                var existing = {
+                    value: id,
+                    full_name: full_name
+                }
+                // Already done by ac, yet gets lost for some reason
+                real_input.val(id);
+                real_input.data('existing', existing);
+                if (data.hasOwnProperty('email')) {
+                    var email = data['email'];
+                    $(selector + '_email').val(email);
+                    existing['email'] = email;
+                }
+                if (data.hasOwnProperty('phone')) {
+                    var phone = data['phone'];
+                    $(selector + '_mobile_phone').val(phone);
+                    existing['mobile_phone'] = phone;
+                }
+                if (data.hasOwnProperty('gender')) {
+                    var gender = data['gender'];
+                    $(selector + '_gender').val(gender);
+                    existing['gender'] = gender;
+                }
+                if (data.hasOwnProperty('date_of_birth')) {
+                    var date_of_birth = data['date_of_birth'];
+                    $(selector + '_date_of_birth').val(date_of_birth);
+                    existing['date_of_birth'] = date_of_birth;
+                }
+                if (data.hasOwnProperty('occupation')) {
+                    var occupation = data['occupation'];
+                    $(selector + '_occupation').val(occupation);
+                    existing['occupation'] = occupation;
+                }
+                if (data.hasOwnProperty('organisation_id')) {
+                    var organisation_id = data['organisation_id'];
+                    $(selector + '_organisation_id').val(organisation_id);
+                    existing['organisation_id'] = organisation_id;
+                }
+
+                disable_person_fields(fieldname);
+
+            } catch(e) {
+                real_input.val('');
+                clear_person_fields(fieldname);
             }
-        }
-    }
-    // Pass to global scope
-    S3.select_person = select_person;
-
-    var enable_person_fields = function() {
-        $('#pr_person_first_name').prop('disabled', false);
-        $('#pr_person_middle_name').prop('disabled', false);
-        $('#pr_person_last_name').prop('disabled', false);
-        $('#pr_person_gender').prop('disabled', false);
-        $('#pr_person_date_of_birth').prop('disabled', false);
-        $('#pr_person_occupation').prop('disabled', false);
-        $('#pr_person_email').prop('disabled', false);
-        $('#pr_person_mobile_phone').prop('disabled', false);
+        });
     }
 
-    var disable_person_fields = function() {
-        $('#pr_person_first_name').prop('disabled', true);
-        $('#pr_person_middle_name').prop('disabled', true);
-        $('#pr_person_last_name').prop('disabled', true);
-        $('#pr_person_gender').prop('disabled', true);
-        $('#pr_person_date_of_birth').prop('disabled', true);
-        $('#pr_person_occupation').prop('disabled', true);
-        $('#pr_person_email').prop('disabled', true);
-        $('#pr_person_mobile_phone').prop('disabled', true);
-    }
 }());

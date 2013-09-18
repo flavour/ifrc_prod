@@ -30,7 +30,8 @@ def index():
 def human_resource():
     """
         HR Controller
-        - combined used only for Imports and for the service record
+        - combined
+        Used for Imports, S3AddPersonWidget2 and the service record
     """
 
     table = s3db.hrm_human_resource
@@ -44,7 +45,7 @@ def human_resource():
                    )
 
     def prep(r):
-        if r.method == "form":
+        if r.method in ("form", "lookup"):
             return True
         if r.interactive:
             if r.method == "create" and not r.component:
@@ -324,22 +325,23 @@ def person():
                   editable = False,
                   deletable = False)
 
-    group = request.get_vars.get("group", "volunteer")
-    hr_id = request.get_vars.get("human_resource.id", None)
+    get_vars = request.get_vars
+    group = get_vars.get("group", "volunteer")
+    hr_id = get_vars.get("human_resource.id", None)
     if not str(hr_id).isdigit():
         hr_id = None
 
     # Configure human resource table
     table = s3db.hrm_human_resource
     table.type.default = 2
-    request.get_vars.update(xsltmode="volunteer")
+    get_vars["xsltmode"] = "volunteer"
     if hr_id:
         hr = db(table.id == hr_id).select(table.type,
                                           limitby=(0, 1)).first()
         if hr:
             group = hr.type == 2 and "volunteer" or "staff"
             # Also inform the back-end of this finding
-            request.get_vars["group"] = group
+            get_vars["group"] = group
 
     # Configure person table
     tablename = "pr_person"
@@ -389,7 +391,7 @@ def person():
                 title_display = T("Volunteer Details"),
                 title_update = T("Volunteer Details"),
                 title_upload = T("Import Volunteers"),
-            )
+                )
 
     # Upload for configuration (add replace option)
     s3.importerPrep = lambda: dict(ReplaceOption=T("Remove existing data before import"))
@@ -453,6 +455,7 @@ def person():
 
                 # Organisation Dependent Fields
                 set_org_dependent_field = settings.set_org_dependent_field
+                set_org_dependent_field("pr_person", "middle_name")
                 set_org_dependent_field("pr_person_details", "father_name")
                 set_org_dependent_field("pr_person_details", "mother_name")
                 set_org_dependent_field("pr_person_details", "affiliations")
@@ -509,25 +512,25 @@ def person():
             resource = r.resource
             if mode is not None:
                 r.resource.build_query(id=s3_logged_in_person())
-            else:
+            elif r.method not in ("deduplicate", "search_ac"):
                 if not r.id and not hr_id:
                     # pre-action redirect => must retain prior errors
                     if response.error:
                         session.error = response.error
                     redirect(URL(r=r, f="volunteer"))
-            if resource.count() == 1:
-                resource.load()
-                r.record = resource.records().first()
-                if r.record:
-                    r.id = r.record.id
-            if not r.record:
-                session.error = T("Record not found")
-                redirect(URL(f="volunteer",
-                             args=["search"]))
-            if hr_id and r.component_name == "human_resource":
-                r.component_id = hr_id
-            configure("hrm_human_resource",
-                      insertable = False)
+                if resource.count() == 1:
+                    resource.load()
+                    r.record = resource.records().first()
+                    if r.record:
+                        r.id = r.record.id
+                if not r.record:
+                    session.error = T("Record not found")
+                    redirect(URL(f="volunteer",
+                                 args=["search"]))
+                if hr_id and r.component_name == "human_resource":
+                    r.component_id = hr_id
+                configure("hrm_human_resource",
+                          insertable = False)
 
         elif r.component_name == "group_membership" and r.representation == "aadata":
             s3db.hrm_configure_pr_group_membership()
