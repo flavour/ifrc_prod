@@ -1,46 +1,32 @@
 /* Stuff which is DRMP-specific */
 
+.navbar .brand {
+    width: 200px;
+    text-shadow: none;
+    color: #fff;
+    letter-spacing: 2px;
+    font-family: "Lucida Grande", Lucida, Verdana, sans-serif;
+    margin-top: 0.4em;
+}
+
+a.brand img{
+    width: 60px;
+    position: relative;
+    top: -13px;
+}
+
 .export_xls {
     background-image: url(img/icon-xls.png);
 }
 
+/* Main Map */
 .map_legend_panel  .x-panel-body {
     max-width: 200px;
 }
-
-/* Posts */
-#cms_post_body.text.input-xlarge {
-    height: 100px;
+.gis_print_map-btn {
+    display: none;
 }
 
-#body__error,
-#name__error,
-#location_id__error {
-    width: 50%;
-    padding: 5px;
-    border-radius: 4px;
-    border: 1px solid #b2b2b2;
-    font-weight: normal;
-    font-style: normal;
-    color: #b84947;
-    background-color: #f2dedd;
-    margin-top: 7px;
-}
-div.defaultlocation_error.error{
-    padding: 5px;
-    border-radius: 4px;
-    border: 1px solid #b2b2b2;
-    font-weight: normal;
-    font-style: normal;
-    color: #b84947;
-    background-color: #f2dedd;
-    margin-top: 7px;
-}
-
-#cms_post_date {
-    width: 140px !important;
-    margin-right: 10px;
-}
 #sub_filedocument_filedocument_i_file_edit_none,
 #sub_defaultevent_post_defaultevent_post_i_event_id_edit_none {
     width: 206px !important;
@@ -57,7 +43,7 @@ div.defaultlocation_error.error{
 }
 
 /* Contacts Page */
-#pr_person_sub_human_resourcehuman_resource__label {
+.form-container #pr_person_sub_human_resourcehuman_resource__label {
     /* Hide the colon */
     display: none;
 }
@@ -169,7 +155,7 @@ div.defaultlocation_error.error{
     display: none;
 }
 
-form#subscription-form.form-horizontal {
+#subscription-form.form-horizontal {
     border: 1px solid #b2b2b2;
 }
 

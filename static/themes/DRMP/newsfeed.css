@@ -127,6 +127,43 @@ a.card-organisation {
 #popup.cf .form-horizontal.cms_post {
     margin-left: -60px;
 }
+#cms_post_body.text.input-xlarge {
+    height: 100px;
+}
+
+/* Hide the colons for Location Selectors before JS can hide */
+.form-container #cms_post_location_id__label {
+    display: none;
+}
+
+#body__error,
+#name__error,
+#location_id__error {
+    width: 50%;
+    padding: 5px;
+    border-radius: 4px;
+    border: 1px solid #b2b2b2;
+    font-weight: normal;
+    font-style: normal;
+    color: #b84947;
+    background-color: #f2dedd;
+    margin-top: 7px;
+}
+div.defaultlocation_error.error{
+    padding: 5px;
+    border-radius: 4px;
+    border: 1px solid #b2b2b2;
+    font-weight: normal;
+    font-style: normal;
+    color: #b84947;
+    background-color: #f2dedd;
+    margin-top: 7px;
+}
+
+#cms_post_date {
+    width: 140px !important;
+    margin-right: 10px;
+}
 #post-cms_post_created_on-date-filter-le.date-filter-input.anytime, 
 #post-cms_post_created_on-date-filter-ge.date-filter-input.anytime {
     width: 100px;
@@ -161,13 +198,13 @@ a.card-organisation {
 /*============ Filter Responsive Input Size =====================*/
 /* Also see filter.css */
 
-/* default screen */
-label#post-auth_user_organisation_id-options-filter__label,
-label#post-cms_post_series_id-options-filter__label,
-label#post-cms_post_created_on-date-filter__label,
-label#post-cms_post_location_id-location-filter__label, 
-label#post-cms_post_location_id-location-filter__label, 
-label#post-cms_post_created_on-date-filter__label{
+/* Default size */
+#post-auth_user_organisation_id-options-filter__label,
+#post-cms_post_series_id-options-filter__label,
+#post-cms_post_created_on-date-filter__label,
+#post-cms_post_location_id-location-filter__label, 
+#post-cms_post_location_id-location-filter__label, 
+#post-cms_post_created_on-date-filter__label{
 	font-size: 13px;
 }
 #post-cms_post_created_on-date-filter-ge,
@@ -181,6 +218,11 @@ label#post-cms_post_created_on-date-filter__label{
 	margin-left: 24px;
 }
 
+/* This would break other pages, so needs to be applied to just this page */
+.side-filter button.ui-multiselect.ui-widget.ui-state-default.ui-corner-all {
+    width: 100% !important;
+}
+
 /* Large desktop */
 @media (min-width: 1200px) { 
     #post-cms_post_created_on-date-filter-ge,
@@ -191,12 +233,12 @@ label#post-cms_post_created_on-date-filter__label{
 
 /* Portrait tablet to landscape and desktop */
 @media (min-width: 768px) and (max-width: 979px) {
-    label#post-auth_user_organisation_id-options-filter__label,
-    label#post-cms_post_series_id-options-filter__label,
-    label#post-cms_post_created_on-date-filter__label,
-    label#post-cms_post_location_id-location-filter__label, 
-    label#post-cms_post_location_id-location-filter__label, 
-    label#post-cms_post_created_on-date-filter__label{
+    #post-auth_user_organisation_id-options-filter__label,
+    #post-cms_post_series_id-options-filter__label,
+    #post-cms_post_created_on-date-filter__label,
+    #post-cms_post_location_id-location-filter__label, 
+    #post-cms_post_location_id-location-filter__label, 
+    #post-cms_post_created_on-date-filter__label{
         font-size: 12px;
         word-spacing: -2px;
     }
@@ -213,12 +255,12 @@ label#post-cms_post_created_on-date-filter__label{
 
 /* Landscape phone to portrait tablet */
 @media (max-width: 767px) { 
-    label#post-auth_user_organisation_id-options-filter__label,
-    label#post-cms_post_series_id-options-filter__label,
-    label#post-cms_post_created_on-date-filter__label,
-    label#post-cms_post_location_id-location-filter__label, 
-    label#post-cms_post_location_id-location-filter__label, 
-    label#post-cms_post_created_on-date-filter__label{
+    #post-auth_user_organisation_id-options-filter__label,
+    #post-cms_post_series_id-options-filter__label,
+    #post-cms_post_created_on-date-filter__label,
+    #post-cms_post_location_id-location-filter__label, 
+    #post-cms_post_location_id-location-filter__label, 
+    #post-cms_post_created_on-date-filter__label{
         font-size: 12px;
         word-spacing: -2px;
     }
@@ -232,7 +274,7 @@ label#post-cms_post_created_on-date-filter__label{
     #post-cms_post_created_on-date-filter-ge{
         margin-left: 6px;
     }
-    input#post-cms_post_created_on-date-filter-ge_clear {
+    #post-cms_post_created_on-date-filter-ge_clear {
         margin-right: 10px;
     }
 }
