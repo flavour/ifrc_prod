@@ -3248,7 +3248,7 @@ S3.gis.tab="%s"''' % s3.gis.tab
                       _class="locselect box_middle")
 
         # L0 selector
-        SELECT_COUNTRY = T("Choose country")
+        SELECT_COUNTRY = T("Choose Country")
         level = "L0"
         L0_rows = ""
         if len(countries) == 1:
@@ -4487,7 +4487,7 @@ class S3MultiSelectWidget(MultipleOptionsWidget):
     """
 
     def __init__(self,
-                 filter = True,
+                 filter = True, # Only works if header is not False (can be "" though)
                  header = True,
                  selectedList = 3,
                  noneSelectedText = "Select"

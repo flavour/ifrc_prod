@@ -419,6 +419,7 @@ def theme_sector_widget():
         label = T("Themes"),
         field = "theme_id",
         cols = 4,
+        translate = True,
         # Filter Theme by Sector
         filter = {"linktable": "project_theme_sector",
                   "lkey": "theme_id",
@@ -509,6 +510,22 @@ def activity_type():
 
 # -----------------------------------------------------------------------------
 def activity_type_sector():
+    """ RESTful CRUD controller for options.s3json lookups """
+
+    if auth.permission.format != "s3json":
+        return ""
+
+    # Pre-process
+    def prep(r):
+        if r.method != "options":
+            return False
+        return True
+    s3.prep = prep
+
+    return s3_rest_controller()
+
+# -----------------------------------------------------------------------------
+def activity_organisation():
     """ RESTful CRUD controller for options.s3json lookups """
 
     if auth.permission.format != "s3json":
