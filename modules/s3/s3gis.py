@@ -4017,6 +4017,10 @@ class GIS(object):
                 features = db(table.level == level).select(*fields)
                 for feature in features:
                     feature["level"] = level
+                    wkt = feature["wkt"]
+                    if wkt and not wkt.startswith("POI"):
+                        # Polygons aren't inherited
+                        feature["inherited"] = False
                     update_location_tree(feature)
                     # Also do the Bounds/Centroid/WKT
                     bounds_centroid_wkt(feature)
@@ -5709,7 +5713,7 @@ class MAP(DIV):
         # Strings used by all Maps
         i18n = {"gis_base_layers": T("Base Layers"),
                 "gis_overlays": T(settings.get_gis_label_overlays()),
-                "gis_layers": T("Layers"),
+                "gis_layers": T(settings.get_gis_layers_label()),
                 "gis_draft_layer": T("Draft Features"),
                 "gis_cluster_multiple": T("There are multiple records at this location"),
                 "gis_loading": T("Loading"),
@@ -7655,7 +7659,7 @@ class LayerTheme(Layer):
                       }
 
             # Attributes which are defaulted client-side if not set
-            self.setup_folder_and_visibility(output)
+            self.setup_folder_visibility_and_opacity(output)
             self.setup_clustering(output)
             style = self.style
             if style:

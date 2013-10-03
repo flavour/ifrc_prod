@@ -618,6 +618,10 @@ class S3Config(Storage):
         " Use a radio button for custom folders in the Map's Layer Tree "
         return self.gis.get("layer_tree_radio", False)
 
+    def get_gis_layers_label(self):
+        " Label for the Map's Layer Tree "
+        return self.gis.get("layers_label", "Layers")
+
     def get_gis_map_height(self):
         """
             Height of the Embedded Map
@@ -1199,6 +1203,10 @@ class S3Config(Storage):
         """ Enable the filter manager widget """
         return self.search.get("filter_manager", True)
 
+    def get_search_filter_manager_allow_delete(self):
+        """ Allow deletion of saved filters """
+        return self.search.get("filter_manager_allow_delete", True)
+
     def get_search_filter_manager_save(self):
         """ Text for saved filter save-button """
         return self.search.get("filter_manager_save", None)
@@ -1206,6 +1214,10 @@ class S3Config(Storage):
     def get_search_filter_manager_update(self):
         """ Text for saved filter update-button """
         return self.search.get("filter_manager_update", None)
+
+    def get_search_filter_manager_delete(self):
+        """ Text for saved filter delete-button """
+        return self.search.get("filter_manager_delete", None)
 
     def get_search_filter_manager_load(self):
         """ Text for saved filter load-button """

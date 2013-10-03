@@ -950,21 +950,66 @@ S3.search = {};
                 }
                 // Find any Map widgets in this section
                 var maps = newPanel.find('.map_wrapper');
-                var gis = S3.gis;
-                for (var i=0; i < maps.length; i++) {
-                    var map_id = maps[i].attributes['id'].value;
-                    if (undefined === gis.maps[map_id]) {
-                        // Instantiate the map (can't be done when the DIV is hidden)
-                        var options = gis.options[map_id];
-                        gis.show_map(map_id, options);
-                    }
+                var maps_len = maps.length;
+                if (maps_len) {
+                    // Check that Maps JS is Loaded
+                    $.when(jsLoaded()).then(
+                        function(status) {
+                            // Success: Instantiate Maps
+                            var gis = S3.gis;
+                            for (var i=0; i < maps_len; i++) {
+                                var map_id = maps[i].attributes['id'].value;
+                                if (undefined === gis.maps[map_id]) {
+                                    // Instantiate the map (can't be done when the DIV is hidden)
+                                    var options = gis.options[map_id];
+                                    gis.show_map(map_id, options);
+                                }
+                            }
+                            // Update all just-unhidden widgets which have pending updates
+                            updatePendingTargets(form);
+                        },
+                        function(status) {
+                            // Failed
+                            s3_debug(status);
+                        },
+                        function(status) {
+                            // Progress
+                            s3_debug(status);
+                        }
+                    );
+                } else {
+                    // Update all just-unhidden widgets which have pending updates
+                    updatePendingTargets(form);
                 }
-                // Update all just-unhidden widgets which have pending updates
-                updatePendingTargets(form);
             }
         }).css({visibility: 'visible'});
         // Activate not called? Unhide initial section anyway:
         $('.ui-tabs-panel[aria-hidden="false"]').first().removeClass('hide');
+    };
+
+    /**
+     * Check that Map JS is Loaded
+     * - used if a tab containing a Map is unhidden
+     */
+    var jsLoaded = function() {
+        var dfd = new jQuery.Deferred();
+
+        // Test every half-second
+        setTimeout(function working() {
+            if (S3.gis.maps != undefined) {
+                dfd.resolve('loaded');
+            } else if (dfd.state() === 'pending') {
+                // Notify progress
+                dfd.notify('waiting for JS to load...');
+                // Loop
+                setTimeout(working, 500);
+            } else {
+                // Failed!?
+            }
+        }, 1);
+
+        // Return the Promise so caller can't change the Deferred
+        return dfd.promise();
     };
 
     /**
@@ -1436,14 +1481,17 @@ S3.search = {};
             ajaxURL: null,                  // URL to save filters
 
             // Workflow options
-            readOnly: false,                // do not allow to save/update filters
-            explicitLoad: false,            // load filters via load-button rather
-                                            // than immediately
+            readOnly: false,                // do not allow to create/update/delete filters
+            explicitLoad: false,            // load filters via load-button
+            allowCreate: true,              // allow Create
+            allowUpdate: true,              // allow Update
+            allowDelete: true,              // allow Delete
 
             // Tooltips for actions
+            createTooltip: null,            // tooltip for create-button
             loadTooltip: null,              // tooltip for load-button
             saveTooltip: null,              // tooltip for save-button
-            createTooltip: null,            // tooltip for create-button
+            deleteTooltip: null,            // tooltip for delete-button
 
             // Hints (these should be localized by the back-end)
             selectHint: 'Saved filters...', // hint in the selector
@@ -1451,14 +1499,15 @@ S3.search = {};
             titleHint: 'Enter a title',     // hint (watermark) in the title input field
 
             // Ask the user for confirmation when updating a saved filter?
-            confirmUpdate: false,           // user must confirm update of existing filters
-            confirmText: 'Update this filter?', // filter update confirmation question
+            confirmUpdate: null,            // user must confirm update of existing filters
+            confirmDelete: null,            // user must confirm deletion of existing filters
 
             // If text is provided for actions, we render them as <a>nchors
             // with the buttonClass - otherwise as empty DIVs for CSS-icons
             createText: null,               // Text for create-action button
-            saveText: null,                 // Text for save-action button
             loadText: null,                 // Text for load-action button
+            saveText: null,                 // Text for save-action button
+            deleteText: null,               // Text for delete-action button
             buttonClass: 'action-btn'       // Class for action buttons
         },
 
@@ -1499,17 +1548,17 @@ S3.search = {};
 
             var buttonClass = options.buttonClass;
 
-            // SAVE-button
-            if (this.save_btn) {
-                this.save_btn.remove();
+            // CREATE-button
+            if (this.create_btn) {
+                this.create_btn.remove();
             }
-            if (options.saveText) {
-                this.save_btn = $('<a class="fm-save ' + buttonClass + '" id="fm-save-' + id + '">' + options.saveText + '</a>');
+            if (options.createText) {
+                this.create_btn = $('<a class="fm-create ' + buttonClass + '" id="fm-create-' + id + '">' + options.createText + '</a>');
             } else {
-                this.save_btn = $('<div class="fm-save" id="fm-save-' + id + '">');
+                this.create_btn = $('<div class="fm-create" id="fm-create-' + id + '">');
             }
-            if (options.saveTooltip) {
-                this.save_btn.attr('title', options.saveTooltip);
+            if (options.createTooltip) {
+                this.create_btn.attr('title', options.createTooltip);
             }
 
             // LOAD-button
@@ -1525,6 +1574,32 @@ S3.search = {};
                 this.load_btn.attr('title', options.loadTooltip);
             }
 
+            // SAVE-button
+            if (this.save_btn) {
+                this.save_btn.remove();
+            }
+            if (options.saveText) {
+                this.save_btn = $('<a class="fm-save ' + buttonClass + '" id="fm-save-' + id + '">' + options.saveText + '</a>');
+            } else {
+                this.save_btn = $('<div class="fm-save" id="fm-save-' + id + '">');
+            }
+            if (options.saveTooltip) {
+                this.save_btn.attr('title', options.saveTooltip);
+            }
+
+            // DELETE-button
+            if (this.delete_btn) {
+                this.delete_btn.remove();
+            }
+            if (options.deleteText) {
+                this.delete_btn = $('<a class="fm-delete ' + buttonClass + '" id="fm-delete-' + id + '">' + options.deleteText + '</a>');
+            } else {
+                this.delete_btn = $('<div class="fm-delete" id="fm-delete-' + id + '">');
+            }
+            if (options.deleteTooltip) {
+                this.delete_btn.attr('title', options.deleteTooltip);
+            }
+            
             // Throbber
             if (this.throbber) {
                 this.throbber.remove();
@@ -1532,19 +1607,6 @@ S3.search = {};
             this.throbber = $('<div class="inline-throbber" id="fm-throbber-' + id + '">')
                             .css({'float': 'left'});
             
-            // CREATE-button
-            if (this.create_btn) {
-                this.create_btn.remove();
-            }
-            if (options.createText) {
-                this.create_btn = $('<a class="fm-create ' + buttonClass + '" id="fm-create-' + id + '">' + options.createText + '</a>');
-            } else {
-                this.create_btn = $('<div class="fm-create" id="fm-create-' + id + '">');
-            }
-            if (options.createTooltip) {
-                this.create_btn.attr('title', options.createTooltip);
-            }
-
             // ACCEPT button for create-dialog
             if (this.accept_btn) {
                 this.accept_btn.remove();
@@ -1559,17 +1621,17 @@ S3.search = {};
 
             // Insert buttons into widget
             $(el).after(this.load_btn.hide(),
+                        this.create_btn.hide(),
                         this.save_btn.hide(),
+                        this.delete_btn.hide(),
                         this.throbber.hide(),
-                        this.create_btn,
                         this.accept_btn.hide(),
                         this.cancel_btn.hide());
-
-            // @todo: hide create if readOnly
 
             // Reset status
             this._cancel();
 
+            // Bind events
             this._bindEvents();
         },
 
@@ -1583,9 +1645,8 @@ S3.search = {};
             // Hide selector and buttons
             var el = this.element.hide(),
                 fm = this;
-            this.create_btn.hide();
-            this.load_btn.hide();
-            this.save_btn.hide();
+                
+            this._hideCRUDButtons();
 
             // Show accept/cancel
             this.accept_btn.show();
@@ -1684,23 +1745,18 @@ S3.search = {};
          */
         _save: function() {
 
-            // @todo: ignore if readOnly
-
             var el = this.element,
                 fm = this,
                 opts = this.options;
 
             var id = $(el).val();
             
-            // @todo: i18n, use title for this filter
-            if (!id || opts.confirmUpdate && !confirm(opts.confirmText)) {
+            if (!id || opts.confirmUpdate && !confirm(opts.confirmUpdate)) {
                 return;
             }
 
             // Hide buttons
-            this.create_btn.hide();
-            this.load_btn.hide();
-            this.save_btn.hide();
+            this._hideCRUDButtons();
 
             // Show throbber
             this.throbber.show();
@@ -1712,7 +1768,7 @@ S3.search = {};
                 url: this._getFilterURL()
             }
 
-            // Ajax-save current Filters
+            // Ajax-update current filter
             $.ajaxS3({
                 'url': this.options.ajaxURL,
                 'type': 'POST',
@@ -1720,6 +1776,59 @@ S3.search = {};
                 'data': JSON.stringify(filter),
                 'success': function() {
                     fm.options.filters[id] = filter.query;
+                    fm._cancel();
+                },
+                'error': function () {
+                    fm._cancel();
+                }
+            });
+        },
+
+        /**
+         * _delete: delete the currently selected filter
+         */
+        _delete: function() {
+
+            var $el = $(this.element),
+                opts = this.options;
+
+            var id = $el.val();
+
+            if (!id || opts.confirmDelete && !confirm(opts.confirmDelete)) {
+                return;
+            }
+
+            // Hide buttons
+            this._hideCRUDButtons();
+
+            // Show throbber
+            this.throbber.show();
+
+            // Collect data
+            var filter = {
+                id: id,
+            }
+
+            var url = new String(this.options.ajaxURL);
+            if (url.search(/.*\?.*/) != -1) {
+                url += '&delete=1';
+            } else {
+                url += '?delete=1';
+            }
+
+            // Ajax-delete current filter
+            var fm = this;
+            $.ajaxS3({
+                'url': url,
+                'type': 'POST',
+                'dataType': 'json',
+                'data': JSON.stringify(filter),
+                'success': function() {
+                    // Remove options from element
+                    $el.val('').find('option[value=' + id + ']').remove();
+                    // Remove filter from fm.options
+                    delete fm.options.filters[id];
+                    // Reset
                     fm._cancel();
                 },
                 'error': function () {
@@ -1758,11 +1867,7 @@ S3.search = {};
                 $(el).find('option.filter-manager-prompt').text(opts.selectHint);
             }
 
-            this.create_btn.show();
-
-            // @todo: hide create-button if readOnly
-
-            this._showLoadSaveButtons();
+            this._showCRUDButtons();
         },
 
         /**
@@ -1794,22 +1899,41 @@ S3.search = {};
         },
 
         /**
-         * _showLoadSaveButtons: show (unhide) load/save buttons
+         * _showCRUDButtons: show (unhide) load/save/delete buttons
          */
-        _showLoadSaveButtons: function() {
+        _showCRUDButtons: function() {
+            
+            var opts = this.options;
 
-            // @todo: render save-button only if not readOnly
+            this._hideCRUDButtons();
 
+            if (!opts.readOnly && opts.allowCreate) {
+                this.create_btn.show();
+            }
             if ($(this.element).val()) {
-                if (this.options.explicitLoad) {
+                if (opts.explicitLoad) {
                     this.load_btn.show();
                 }
-                this.save_btn.show();
-            } else {
-                this.load_btn.hide();
-                this.save_btn.hide();
+                if (!opts.readOnly) {
+                    if (opts.allowUpdate) {
+                        this.save_btn.show();
+                    }
+                    if (opts.allowDelete) {
+                        this.delete_btn.show();
+                    }
+                }
             }
+        },
+        
+        /**
+         * _hideCRUDButtons: hide load/save/delete buttons
+         */
+        _hideCRUDButtons: function() {
             
+            this.create_btn.hide();
+            this.load_btn.hide();
+            this.delete_btn.hide();
+            this.save_btn.hide();
         },
 
         /**
@@ -1844,7 +1968,7 @@ S3.search = {};
                 fm._cancel();
             });
             this.element.change(function() {
-                fm._showLoadSaveButtons();
+                fm._showCRUDButtons();
                 if (!fm.options.explicitLoad) {
                     fm._load();
                 }
@@ -1857,6 +1981,10 @@ S3.search = {};
             // @todo: don't bind save if readOnly
             this.save_btn.click(function() {
                 fm._save();
+            });
+            // @todo: don't bind delete if readOnly
+            this.delete_btn.click(function() {
+                fm._delete();
             });
         },
 
@@ -1879,6 +2007,9 @@ S3.search = {};
             }
             if (this.save_btn) {
                 this.save_btn.unbind('click');
+            }
+            if (this.delete_btn) {
+                this.delete_btn.unbind('click');
             }
             this.element.unbind('change');
         }
