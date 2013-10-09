@@ -11,15 +11,17 @@ body {
 .gis_fullscreen_map-btn {
     display: none;
 }
+/* Hide the large legend for the Floods layer */
+.map_legend_div {
+    max-width: 400px;
+}
 
 /* Saved Maps */
-#config-gis_config_pe_id-options-filter__row .s3-groupedopts-option {
-    /* Hide the Radios (we can click on labels) */
-    display: none;
-}
-#config-gis_config_pe_id-options-filter__row .s3-groupedopts-widget td:first-child {
-    border-right: solid 1px;
+#config-gis_config_pe_id-options-filter__row .s3-groupedopts-widget td {
     padding-right: 10px;
+}
+#config-gis_config_pe_id-options-filter__row .s3-groupedopts-widget td:last-child {
+    border-left: solid 1px;
 }
 
 /* Summary Page */
@@ -275,6 +277,13 @@ form#summary-filter-form
 #sub_emailcontact_emailcontact_i_value_edit_none,
 #sub_emailcontact_emailcontact_i_value_edit_0 {
     width: 240px;
+}
+
+/* Organisations/Places Forms */
+#sub_defaulthuman_resource_defaulthuman_resource_i_person_id_edit_none,
+#sub_defaulthuman_resource_defaulthuman_resource_i_site_id_edit_none,
+#sub_defaultresource_defaultresource_i_value_edit_none {
+    margin-top: -20px;
 }
 
 /* Action Toolbar */
