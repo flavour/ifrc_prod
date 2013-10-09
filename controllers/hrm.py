@@ -31,15 +31,13 @@ def human_resource():
     """
         HR Controller
         - combined
-        Used for Imports and S3AddPersonWidget2
+        Used for Summary view, Imports and S3AddPersonWidget2
     """
 
-    tablename = "hrm_human_resource"
-    table = s3db[tablename]
-
-
     def prep(r):
-        if r.method == "summary":
+        if r.method in ("form", "lookup"):
+            return True
+        elif r.method == "summary":
             from s3.s3filter import S3TextFilter, S3OptionsFilter, S3LocationFilter
             settings.ui.filter_auto_submit = 750
             settings.ui.report_auto_submit = 750
@@ -90,8 +88,7 @@ def human_resource():
             # Default to Staff
             type_filter = s3base.S3FieldSelector("type") == 1
             r.resource.add_filter(type_filter)
-        if r.method in ("form", "lookup"):
-            return True
+
         if r.interactive:
             if r.method == "create" and not r.component:
                 redirect(URL(f="volunteer",
@@ -131,7 +128,7 @@ def human_resource():
                     s3.actions.append({
                         "url": URL(f="compose",
                                    vars = {"human_resource.id": "[id]"}),
-                        "_class": "action-btn",
+                        "_class": "action-btn send",
                         "label": str(T("Send Message"))})
         elif r.representation == "plain" and \
              r.method != "search":
@@ -255,7 +252,7 @@ def staff():
                     s3.actions.append({
                             "url": URL(f="compose",
                                        vars = {"human_resource.id": "[id]"}),
-                            "_class": "action-btn",
+                            "_class": "action-btn send",
                             "label": str(T("Send Message"))
                         })
                 #s3.scripts.append("/%s/static/scripts/jquery.doubleScroll.js" % appname)
