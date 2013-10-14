@@ -96,6 +96,10 @@ class S3MainMenu(default.S3MainMenu):
                 MM("Events", c="event", f="event"),
                 MM("Incident Reports", c="irs", f="ireport"),
             ),
+            homepage("deploy", name="RDRT")(
+                MM("Deployments", c="deploy", f="deployment"),
+                MM("Members", c="deploy", f="human_resource"),
+            ),
         ]
 
     # -------------------------------------------------------------------------
@@ -689,7 +693,19 @@ class S3OptionsMenu(default.S3OptionsMenu):
 
         # Same as IRS
         return self.irs()
-    
+
+    # -------------------------------------------------------------------------
+    def deploy(self):
+        """ RDRT Alerting and Deployments """
+
+        return M()(
+                   M("Deployments",
+                     c="deploy", f="deployment",
+                   ),
+                   M("Members",
+                     c="deploy", f="human_resource", m="summary"
+                   ),
+               )
 
 # END =========================================================================
 
