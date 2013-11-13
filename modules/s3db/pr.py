@@ -148,6 +148,7 @@ class S3PersonEntity(S3Model):
         else:
             SHELTER = T("Shelter")
         pe_types = Storage(cr_shelter = SHELTER,
+                           deploy_alert = T("Deployment Alert"),
                            dvi_body = T("Body"),
                            dvi_morgue = T("Morgue"),
                            # If we want these, then pe_id needs adding to their
@@ -1034,16 +1035,8 @@ class S3PersonModel(S3Model):
         else:
             age = today.year - dob.year
 
-        if age < 18 :
-            return "-17" # "< 18"/" < 18" don't sort correctly
-        elif age < 25 :
-            return "18-24"
-        elif age < 40:
-            return "25-39"
-        elif age < 60:
-            return "40-59"
-        else:
-            return "60+"
+        result = current.deployment_settings.get_pr_age_group(age)
+        return result
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -2314,13 +2307,12 @@ class S3PersonIdentityModel(S3Model):
         #  <xs:enumeration value="Certificate"/>
         #  <xs:enumeration value="MileageProgram"/>
         #
-        pr_id_type_opts = {
-            1:T("Passport"),
-            2:T("National ID Card"),
-            3:T("Driving License"),
-            #4:T("Credit Card"),
-            99:T("other")
-        }
+        pr_id_type_opts = {1:  T("Passport"),
+                           2:  T("National ID Card"),
+                           3:  T("Driving License"),
+                           #4: T("Credit Card"),
+                           99: T("other")
+                           }
 
         tablename = "pr_identity"
         table = self.define_table(tablename,
@@ -2334,6 +2326,8 @@ class S3PersonIdentityModel(S3Model):
                                         represent = lambda opt: \
                                              pr_id_type_opts.get(opt,
                                                                  current.messages.UNKNOWN_OPT)),
+                                  Field("description",
+                                        label = T("Description")),
                                   Field("value",
                                         label = T("Number")),
                                   s3_date("valid_from",
@@ -2343,8 +2337,6 @@ class S3PersonIdentityModel(S3Model):
                                   s3_date("valid_until",
                                           label = T("Valid Until"),
                                           ),
-                                  Field("description",
-                                        label = T("Description")),
                                   Field("country_code", length=4,
                                         label=T("Country Code")),
                                   Field("ia_name",

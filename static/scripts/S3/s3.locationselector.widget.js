@@ -135,12 +135,11 @@ function s3_gis_locationselector_onReady() {
     }
 
     // Map Popup
-    var mapButton = Ext.get('gis_location_map-btn');
+    var mapButton = $('#gis_location_map-btn');
     if (mapButton) {
-        mapButton.on('click', function() {
+        mapButton.click(function() {
             // Find the map
-            var map_button = $('#gis_location_map-btn');
-            var map_id = map_button.attr('map');
+            var map_id = mapButton.attr('map');
             if (undefined == map_id) {
                 map_id = 'default_map';
             }
@@ -360,13 +359,13 @@ function s3_gis_ac_set_source(level) {
     var source;
     if (parent) {
         // Filter on parent
-        source = S3.gis.url + '/search_ac?field=name&loc_select=1&level=L' + level + '&parent=' + parent;
+        source = S3.gis.url + '/search_ac?loc_select=1&level=L' + level + '&parent=' + parent;
     } else if (grandparent) {
         // Filter on children (slower)
-        source = S3.gis.url + '/search_ac?field=name&loc_select=1&level=L' + level + '&children=' + grandparent;
+        source = S3.gis.url + '/search_ac?loc_select=1&level=L' + level + '&children=' + grandparent;
     } else {
         // No Filter possible beyond Level
-        source = S3.gis.url + '/search_ac?field=name&loc_select=1&level=L' + level;
+        source = S3.gis.url + '/search_ac?loc_select=1&level=L' + level;
     }
     return source;
 }
@@ -377,7 +376,7 @@ function s3_gis_ac_set_search_source() {
     // @ToDo: Read Hierarchical Filters
 
     // Search all specific locations
-    var source = S3.gis.url + '/search_ac?field=name&loc_select=1&field2=addr_street&level=nullnone';
+    var source = S3.gis.url + '/search_ac?loc_select=1&field2=addr_street&level=nullnone';
 
     return source;
 }

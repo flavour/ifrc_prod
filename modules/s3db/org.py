@@ -47,6 +47,7 @@ __all__ = ["S3OrganisationModel",
            "org_organisation_address",
            "org_root_organisation",
            "org_organisation_requires",
+           "org_region_options",
            "org_rheader",
            "org_organisation_controller",
            "org_office_controller",
@@ -176,9 +177,9 @@ class S3OrganisationModel(S3Model):
                                  s3_comments(),
                                  *s3_meta_fields())
 
-            represent = S3Represent(lookup=tablename, translate=True)
+            region_represent = S3Represent(lookup=tablename, translate=True)
             # Can't be defined in-line as otherwise get a circular reference
-            table.parent.represent = represent
+            table.parent.represent = region_represent
             table.parent.requires = IS_NULL_OR(
                                         IS_ONE_OF(db, "org_region.id",
                                                   represent,
@@ -207,13 +208,13 @@ class S3OrganisationModel(S3Model):
                 sortby="name",
                 requires=IS_NULL_OR(
                             IS_ONE_OF(db, "org_region.id",
-                                      represent,
+                                      region_represent,
                                       sort=True,
                                       # Only show the Regions, not the Zones
                                       not_filterby="parent",
                                       not_filter_opts=[None]
                                       )),
-                represent=represent,
+                represent=region_represent,
                 label=T("Region"),
                 comment=S3AddResourceLink(c="org",
                     f="region",
@@ -224,8 +225,10 @@ class S3OrganisationModel(S3Model):
 
             configure(tablename,
                       deduplicate=self.org_region_duplicate,
+                      hierarchy="parent",
                       )
         else:
+            region_represent = None
             region_id = S3ReusableField("region_id", "integer",
                                         readable = False,
                                         writable = False)
@@ -488,6 +491,13 @@ class S3OrganisationModel(S3Model):
                           org_organisation=dict(name="summary",
                                                 joinby="organisation_id"))
 
+        # Needs
+        add_component("req_organisation_needs",
+                      org_organisation = dict(name="needs",
+                                              joinby="organisation_id",
+                                              multiple=False,
+                                              ))
+
         # Requests
         #add_component("req_req",
         #              org_organisation = "donated_by_id")
@@ -569,6 +579,7 @@ class S3OrganisationModel(S3Model):
         return dict(org_organisation_type_id=organisation_type_id,
                     org_organisation_id=organisation_id,
                     org_organisation_represent=org_organisation_represent,
+                    org_region_represent=region_represent,
                     )
 
     # -------------------------------------------------------------------------
@@ -1247,7 +1258,8 @@ class S3OrganisationResourceModel(S3Model):
                                              ),
                                   Field("value", "integer", 
                                         requires=IS_INT_IN_RANGE(0, 999999),
-                                        label=T("Quantity")),
+                                        label=T("Quantity"),
+                                        ),
                                   s3_comments(),
                                   *s3_meta_fields())
 
@@ -1941,6 +1953,13 @@ class S3SiteModel(S3Model):
         add_component("proc_plan",
                       org_site="site_id")
 
+        # Needs
+        add_component("req_site_needs",
+                      org_site = dict(name="needs",
+                                      joinby="site_id",
+                                      multiple=False,
+                                      ))
+
         # Requests
         add_component("req_req",
                       org_site="site_id")
@@ -2304,14 +2323,16 @@ class S3FacilityModel(S3Model):
                              super_link("site_id", "org_site"),
                              Field("name", notnull=True,
                                    length=64, # Mayon Compatibility
-                                   label=T("Name")),
+                                   label=T("Name"),
+                                   ),
                              Field("code", length=10, # Mayon compatibility
                                    # Deployments that don't wants office codes can hide them
                                    #readable=False, writable=False,
                                    # @ToDo: Deployment Setting to add validator to make these unique
                                    #notnull=True, unique=True,
                                    represent = lambda v: v or NONE,
-                                   label=T("Code")),
+                                   label=T("Code"),
+                                   ),
                              self.org_organisation_id(
                                 #widget=S3OrganisationAutocompleteWidget(
                                             #default_from_profile=True)
@@ -2924,7 +2945,7 @@ class S3OfficeModel(S3Model):
             msg_record_deleted=T("Office Type deleted"),
             msg_list_empty=T("No Office Types currently registered"))
 
-        represent = S3Represent(lookup=tablename)
+        represent = S3Represent(lookup=tablename, translate=True)
         office_type_id = S3ReusableField("office_type_id", table,
                             sortby="name",
                             requires=IS_NULL_OR(
@@ -3217,7 +3238,9 @@ class S3OfficeModel(S3Model):
     @staticmethod
     def org_office_duplicate(item):
         """
-            Import item deduplication: simple match by name
+            Import item deduplication:
+                - match by name
+                - match org, if defined
                 (Adding location_id doesn't seem to be a good idea)
 
             @param item: the S3ImportItem instance
@@ -3225,30 +3248,38 @@ class S3OfficeModel(S3Model):
 
         if item.tablename == "org_office":
             table = item.table
-            name = "name" in item.data and item.data.name or None
-            if name:
-                query = (table.name.lower() == name.lower())
-                #location_id = None
-                # if "location_id" in item.data:
-                    # location_id = item.data.location_id
-                    ## This doesn't find deleted records:
-                    # query = query & (table.location_id == location_id)
-                duplicate = current.db(query).select(table.id,
-                                                    limitby=(0, 1)).first()
-                # if duplicate is None and location_id:
-                    ## Search for deleted offices with this name
-                    # query = (table.name.lower() == name.lower()) & \
-                            # (table.deleted == True)
-                    # row = db(query).select(table.id, table.deleted_fk,
-                                        # limitby=(0, 1)).first()
-                    # if row:
-                        # fkeys = json.loads(row.deleted_fk)
-                        # if "location_id" in fkeys and \
-                        # str(fkeys["location_id"]) == str(location_id):
-                            # duplicate = row
-                if duplicate:
-                    item.id = duplicate.id
-                    item.method = item.METHOD.UPDATE
+            data = item.data
+            name = data.get("name", None)
+            if not name:
+                return
+
+            query = (table.name.lower() == name.lower())
+            #location_id = None
+            # if "location_id" in item.data:
+                # location_id = item.data.location_id
+                ## This doesn't find deleted records:
+                # query = query & (table.location_id == location_id)
+
+            org = data.get("organisation_id", None)
+            if org:
+                query &= (table.organisation_id == org)
+
+            duplicate = current.db(query).select(table.id,
+                                                 limitby=(0, 1)).first()
+            # if duplicate is None and location_id:
+                ## Search for deleted offices with this name
+                # query = (table.name.lower() == name.lower()) & \
+                        # (table.deleted == True)
+                # row = db(query).select(table.id, table.deleted_fk,
+                                    # limitby=(0, 1)).first()
+                # if row:
+                    # fkeys = json.loads(row.deleted_fk)
+                    # if "location_id" in fkeys and \
+                    # str(fkeys["location_id"]) == str(location_id):
+                        # duplicate = row
+            if duplicate:
+                item.id = duplicate.id
+                item.method = item.METHOD.UPDATE
 
 # =============================================================================
 class S3OfficeSummaryModel(S3Model):
@@ -3466,6 +3497,31 @@ def org_organisation_requires(required = False,
     if not required:
         requires = IS_NULL_OR(requires)
     return requires
+
+# =============================================================================
+def org_region_options(zones=False):
+    """
+        Get all options for region IDs
+
+        @param zones: select only zones if True, otherwise only regions
+        @return: dict of {org_region.id: representation}
+    """
+
+    represent = current.s3db.org_region_represent
+    if represent is None:
+        return dict()
+
+    db = current.db
+    rtable = db.org_region
+    if zones:
+        query = (rtable.parent == None)
+    else:
+        query = (rtable.parent != None)
+    query &= (rtable.deleted != True)
+    rows = db(query).select(rtable.id, rtable.name)
+    options = represent.bulk(None, rows=rows)
+    options.pop(None, None) # Remove the None options
+    return options
 
 # =============================================================================
 class org_OrganisationRepresent(S3Represent):

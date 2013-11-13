@@ -351,45 +351,35 @@ class S3IRSModel(S3Model):
             msg_record_deleted = T("Incident Report deleted"),
             msg_list_empty = T("No Incident Reports currently registered"))
 
-        ireport_search = S3Search(
-            advanced=(
-                    S3SearchSimpleWidget(
-                        name = "incident_search_simple",
-                        label = T("Description"),
-                        comment = T("You can search by description. You may use % as wildcard. Press 'Search' without input to list all incidents."),
-                        field = ["name",
-                                 "message",
-                                 "comments",
-                                ]
-                    ),
-                    S3SearchOptionsWidget(
-                        name="incident_search_L1",
-                        field="location_id$L1",
-                        location_level="L1",
-                        cols = 3,
-                    ),
-                    S3SearchOptionsWidget(
-                        name="incident_search_L2",
-                        field="location_id$L2",
-                        location_level="L2",
-                        cols = 3,
-                    ),
-                    S3SearchOptionsWidget(
-                        name="incident_search_category",
-                        field="category",
-                        label = T("Category"),
-                        cols = 3,
-                    ),
-                    S3SearchMinMaxWidget(
-                        name="incident_search_date",
-                        method="range",
-                        label=T("Date"),
-                        field="datetime"
-                    ),
-            ))
+        filter_widgets = [
+            S3TextFilter(["name",
+                          "message",
+                          "comments",
+                          ],
+                         label=T("Description"),
+                         comment = T("You can search by description. You may use % as wildcard. Press 'Search' without input to list all incidents."),
+                        _class="filter-search",
+                         ),
+            S3LocationFilter("location_id",
+                             label=T("Location"),
+                             levels=["L1", "L2"],
+                             widget="multiselect",
+                             cols=3,
+                             #hidden=True,
+                             ),
+            S3OptionsFilter("category",
+                            label=T("Category"),
+                            widget="multiselect",
+                            #hidden=True,
+                            ),
+            S3DateFilter("datetime",
+                         label=T("Date"),
+                         hide_time=True,
+                         #hidden=True,
+                         ),
+            ]
 
-        report_fields = [
-                         "category",
+        report_fields = ["category",
                          "datetime",
                          "location_id$L1",
                          "location_id$L2",
@@ -398,42 +388,15 @@ class S3IRSModel(S3Model):
         # Resource Configuration
         configure(tablename,
                   super_entity = ("sit_situation", "doc_entity"),
-                  search_method = ireport_search,
-                  report_options=Storage(
-                      search=[
-                            S3SearchOptionsWidget(
-                                name="incident_search_L1",
-                                field="location_id$L1",
-                                location_level="L1",
-                                cols = 3,
-                            ),
-                            S3SearchOptionsWidget(
-                                name="incident_search_L2",
-                                field="location_id$L2",
-                                location_level="L2",
-                                cols = 3,
-                            ),
-                            S3SearchOptionsWidget(
-                                name="incident_search_category",
-                                field="category",
-                                label = T("Category"),
-                                cols = 3,
-                            ),
-                            S3SearchMinMaxWidget(
-                                name="incident_search_date",
-                                method="range",
-                                label=T("Date"),
-                                field="datetime"
-                            ),
-                      ],
-                      rows=report_fields,
-                      cols=report_fields,
-                      fact=report_fields,
-                      methods=["count", "list"],
-                      defaults = dict(rows="location_id$L1",
-                                      cols="category",
-                                      fact="datetime",
-                                      aggregate="count")
+                  filter_widgets = filter_widgets,
+                  report_options=Storage(rows=report_fields,
+                                         cols=report_fields,
+                                         fact=report_fields,
+                                         defaults = dict(rows="location_id$L1",
+                                                         cols="category",
+                                                         fact="count(datetime)",
+                                                         totals=True
+                                                         )
                   ),
                   list_fields = ["id",
                                  "name",
@@ -799,7 +762,7 @@ class S3IRSModel(S3Model):
             return output
 
         else:
-            raise HTTP(501, BADMETHOD)
+            raise HTTP(501, current.messages.BADMETHOD)
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -918,7 +881,7 @@ S3.timeline.now="''', now.isoformat(), '''"
             return output
 
         else:
-            raise HTTP(501, BADMETHOD)
+            raise HTTP(501, current.messages.BADMETHOD)
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -1018,7 +981,7 @@ S3.timeline.now="''', now.isoformat(), '''"
             return output
 
         else:
-            raise HTTP(501, BADMETHOD)
+            raise HTTP(501, current.messages.BADMETHOD)
 
 # =============================================================================
 class S3IRSResponseModel(S3Model):

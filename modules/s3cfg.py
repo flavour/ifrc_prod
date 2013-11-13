@@ -124,11 +124,11 @@ class S3Config(Storage):
         return self.base.get("google_analytics_tracking_id", None)
 
     # -------------------------------------------------------------------------
-    def get_youtube_video_id(self):
+    def get_youtube_id(self):
         """
-            YouTube ID
+            List of YouTube IDs for the /default/video page
         """
-        return self.base.get("youtube_id", None)
+        return self.base.get("youtube_id", [])
 
     # -------------------------------------------------------------------------
     # Authentication settings
@@ -276,15 +276,31 @@ class S3Config(Storage):
 
     def get_auth_registration_pending(self):
         """ Message someone gets when they register & they need approving """
-        return self.auth.get("registration_pending",
-            "Registration is still pending approval from Approver (%s) - please wait until confirmation received." % \
-                self.get_mail_approver())
+        message = self.auth.get("registration_pending", None)
+        if message:
+            return current.T(message)
+
+        approver = self.get_mail_approver()
+        if "@" in approver:
+            m = "Registration is still pending approval from Approver (%s) - please wait until confirmation received." % \
+                approver
+        else:
+            m = "Registration is still pending approval from the system administrator - please wait until confirmation received."
+        return current.T(m)
 
     def get_auth_registration_pending_approval(self):
         """ Message someone gets when they register & they need approving """
-        return self.auth.get("registration_pending_approval",
-            "Thank you for validating your email. Your user account is still pending for approval by the system administator (%s). You will get a notification by email when your account is activated." % \
-                self.get_mail_approver())
+        message = self.auth.get("registration_pending_approval", None)
+        if message:
+            return current.T(message)
+
+        approver = self.get_mail_approver()
+        if "@" in approver:
+            m = "Thank you for validating your email. Your user account is still pending for approval by the system administrator (%s). You will get a notification by email when your account is activated." % \
+                approver
+        else:
+            m = "Thank you for validating your email. Your user account is still pending for approval by the system administrator. You will get a notification by email when your account is activated."
+        return current.T(m)
 
     def get_auth_registration_roles(self):
         """
@@ -648,6 +664,14 @@ class S3Config(Storage):
     def get_gis_marker_max_width(self):
         return self.gis.get("marker_max_width", 30)
 
+    def get_gis_max_features(self):
+        """
+            The maximum number of features to return in a Map Layer
+            - more than this will prompt the user to zoom in to load the layer
+            Lower this number to get extra performance from an overloaded server.
+        """
+        return self.gis.get("max_features", 1000)
+
     def get_gis_legend(self):
         """
             Should we display a Legend on the Map?
@@ -706,6 +730,10 @@ class S3Config(Storage):
         """
         return self.gis.get("poi_resources",
                             ["cr_shelter", "hms_hospital", "org_office"])
+
+    def get_gis_postcode_selector(self):
+        " Display Postcode form field when selecting Locations "
+        return self.gis.get("postcode_selector", True)
 
     def get_gis_print_service(self):
         """
@@ -1079,14 +1107,14 @@ class S3Config(Storage):
             Time in milliseconds after the last filter option change to
             automatically update the filter target(s), set to 0 to disable
         """
-        return self.ui.get("filter_auto_submit", 0)
+        return self.ui.get("filter_auto_submit", 800)
 
     def get_ui_report_auto_submit(self):
         """
             Time in milliseconds after the last filter option change to
             automatically update the filter target(s), set to 0 to disable
         """
-        return self.ui.get("report_auto_submit", 0)
+        return self.ui.get("report_auto_submit", 800)
 
     # =========================================================================
     # Messaging
@@ -1180,7 +1208,6 @@ class S3Config(Storage):
         return self.msg.get("max_send_retries", 9)
     
     # -------------------------------------------------------------------------
-    # Save Search and Subscription
     def get_search_max_results(self):
         """
             The maximum number of results to return in an Autocomplete Search
@@ -1398,7 +1425,7 @@ class S3Config(Storage):
     def get_hrm_vol_experience(self):
         """
             Whether to use Experience for Volunteers &, if so, which table to use
-            - options are: False, "experience" or "programme"
+            - options are: False, "experience", "programme" or "both"
         """
         return self.hrm.get("vol_experience", "programme")
 
@@ -1684,6 +1711,27 @@ class S3Config(Storage):
 
     # -------------------------------------------------------------------------
     # Persons
+    def get_pr_age_group(self, age):
+        """
+            Function to provide the age group for an age
+        """
+        fn = self.pr.get("age_group", None)
+        if fn:
+            group = fn(age)
+        else:
+            # Default
+            if age < 18 :
+                group = "-17" # "< 18"/" < 18" don't sort correctly
+            elif age < 25 :
+                group = "18-24"
+            elif age < 40:
+                group = "25-39"
+            elif age < 60:
+                group = "40-59"
+            else:
+                group = "60+"
+        return group
+
     def get_pr_request_dob(self):
         """ Include Date of Birth in the AddPersonWidget[2] """
         return self.pr.get("request_dob", True)

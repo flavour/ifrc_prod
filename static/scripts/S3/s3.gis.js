@@ -174,7 +174,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         layer.events.un({
             'loadend': search_layer_loadend
         });
-    }
+    };
     // Pass to Global scope to be called from s3.dataTables.js
     S3.gis.search_layer_loadend = search_layer_loadend;
 
@@ -232,7 +232,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                 }
             }
         }
-    }
+    };
 
     // Build the OpenLayers map
     var addMap = function(map_id, options) {
@@ -289,7 +289,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         addControls(map);
 
         return map;
-    }
+    };
 
     // Add the GeoExt UI
     var addMapUI = function(map) {
@@ -431,7 +431,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
 
         // Toolbar Tooltips
         Ext.QuickTips.init();
-    }
+    };
 
     // Create an embedded Map Panel
     // This is also called when a fullscreen map is made to go embedded
@@ -461,7 +461,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
 
         // Pass to global scope
         s3.mapWin = mapWin;
-    }
+    };
     // Pass to global scope so that s3.gis.fullscreen.js can call it to return from fullscreen
     S3.gis.addMapPanel = addMapPanel;
 
@@ -491,10 +491,14 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
             ]
         });
 
-        mapWin.on("beforehide", function(mw){
+        mapWin.on('beforehide', function(mw) {
             if (mw.maximized) {
                 mw.restore();
             }
+        });
+
+        mapWin.on('move', function(mw) {
+            map.events.clearMouseCache(); 
         });
 
         // Set Options
@@ -506,7 +510,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
 
         // pass to Global Scope
         s3.mapWin = mapWin;
-    }
+    };
     // Pass to global scope so that s3.gis.fullscreen.js can call it to go fullscreen
     S3.gis.addMapWindow = addMapWindow;
 
@@ -559,7 +563,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         // Pass to Global Scope for s3.gis.fullscreen.js
         s3.westPanelContainer = westPanelContainer;
         return westPanelContainer;
-    }
+    };
 
     // Put into a Container to allow going fullscreen from a BorderLayout
     // We need to put the mapPanel inside a 'card' container for the Google Earth Panel
@@ -579,6 +583,14 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                     var active = false;
                 }
                 addPointControl(map, null, active);
+            }
+            if (options.draw_line) {
+                if (options.draw_line == 'active') {
+                    var active = true;
+                } else {
+                    var active = false;
+                }
+                addLineControl(map, null, active);
             }
             if (options.draw_polygon) {
                 if (options.draw_polygon == 'active') {
@@ -627,7 +639,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         }
 
         return mapPanelContainer;
-    }
+    };
 
     // Add LayerTree (to be called after the layers are added)
     var addLayerTree = function(map) {
@@ -1028,7 +1040,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         }
 
         return layerTree;
-    }
+    };
 
     // Add WMS Browser
     var addWMSBrowser = function(map) {
@@ -1071,7 +1083,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         });
 
         return wmsBrowser;
-    }
+    };
 
     /* Layers */
 
@@ -1089,7 +1101,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         var layers_loading = s3.layers_loading;
         layers_loading.pop(layer_id); // we never want 2 pushed
         layers_loading.push(layer_id);
-    }
+    };
 
     /**
      * Callback for all layers on 'loadend'
@@ -1102,10 +1114,13 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         if (layers_loading.length === 0) {
             $('#' + s3.id + ' .layer_throbber').hide().addClass('hide');
         }
-    }
+    };
     var layer_loadend = function(event) {
         hideThrobber(event.object);
-    }
+        if (event.response != undefined && event.response.priv.status == 509) {
+            S3.showAlert(i18n.gis_too_many_features, 'warning');
+        }
+    };
 
     /**
      * Callback for all layers on 'visibilitychanged'
@@ -1113,7 +1128,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
      */
     var layer_visibilitychanged = function(event) {
         showLegend(event.object.map);
-    }
+    };
 
     /**
      * Add Layers from the Catalogue
@@ -1131,7 +1146,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         var options = s3.options;
 
         // List of all map layers
-        s3.layers_all = [];
+        s3.all_popup_layers = [];
 
         // List of folders for the LayerTree
         s3.dirs = [];
@@ -1313,7 +1328,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                 draftLayer.addFeatures([feature]);
             }
         }
-    }
+    };
 
     /**
      * Private Functions
@@ -1385,7 +1400,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         if (layer._base) {
             map.setBaseLayer(arcRESTLayer);
         }
-    }
+    };
 
     // Bing
     var addBingLayers = function(map) {
@@ -1434,7 +1449,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                 map.setBaseLayer(layer);
             }
         }
-    }
+    };
 
     // CoordinateGrid
     var addCoordinateGrid = function(map) {
@@ -1447,7 +1462,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
             s3_layer_id: CoordinateGrid.id,
             s3_layer_type: 'coordinate'
         }));
-    }
+    };
 
     // DraftLayer
     // Used for drawing Points/Polygons & for HTML5 GeoLocation
@@ -1481,7 +1496,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         // Pass to global scope
         map.s3.draftLayer = draftLayer;
         return draftLayer;
-    }
+    };
 
     // GeoJSON
     // Used also by internal Feature Layers, Feature Queries, Feature Resources
@@ -1639,11 +1654,13 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
             'visibilitychanged': layer_visibilitychanged  
         });
         map.addLayer(geojsonLayer);
-        // Ensure Highlight & Popup Controls act on this layer
-        map.s3.layers_all.push(geojsonLayer);
+        if (undefined == layer.no_popups) {
+            // Ensure Highlight & Popup Controls act on this layer
+            map.s3.all_popup_layers.push(geojsonLayer);
+        }
         // Ensure marker layers are rendered over other layers
         //map.setLayerIndex(geojsonLayer, 99);
-    }
+    };
 
     // Google
     var addGoogleLayers = function(map) {
@@ -1802,7 +1819,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                 }
             }
         }
-    }
+    };
 
     // GPX
     var addGPXLayer = function(map, layer) {
@@ -1913,8 +1930,8 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         });
         map.addLayer(gpxLayer);
         // Ensure Highlight & Popup Controls act on this layer
-        map.s3.layers_all.push(gpxLayer);
-    }
+        map.s3.all_popup_layers.push(gpxLayer);
+    };
 
     // KML
     var addKMLLayer = function(map, layer) {
@@ -2040,8 +2057,8 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         });
         map.addLayer(kmlLayer);
         // Ensure Highlight & Popup Controls act on this layer
-        s3.layers_all.push(kmlLayer);
-    }
+        s3.all_popup_layers.push(kmlLayer);
+    };
 
     // OpenStreetMap
     var addOSMLayer = function(map, layer) {
@@ -2102,10 +2119,10 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         if (layer._base) {
             map.setBaseLayer(osmLayer);
         }
-    }
+    };
 
     // Supports OpenStreetMap TMS Layers
-    function osm_getTileURL(bounds) {
+    var osm_getTileURL = function(bounds) {
         var res = this.map.getResolution();
         var x = Math.round((bounds.left - this.maxExtent.left) / (res * this.tileSize.w));
         var y = Math.round((this.maxExtent.top - bounds.top) / (res * this.tileSize.h));
@@ -2122,7 +2139,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
             }
             return url + path;
         }
-    }
+    };
 
     // OpenWeatherMap
     var addOWMLayers = function(map) {
@@ -2147,7 +2164,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
             });
             map.addLayer(layer);
             // Ensure Highlight & Popup Controls act on this layer
-            map.s3.layers_all.push(layer);
+            map.s3.all_popup_layers.push(layer);
         }
         if (owm.city) {
             layer = new OpenLayers.Layer.Vector.OWMWeather(
@@ -2168,9 +2185,9 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
             });
             map.addLayer(layer);
             // Ensure Highlight & Popup Controls act on this layer
-            map.s3.layers_all.push(layer);
+            map.s3.all_popup_layers.push(layer);
         }
-    }
+    };
 
     // TMS
     var addTMSLayer = function(map, layer) {
@@ -2223,7 +2240,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         if (layer._base) {
             map.setBaseLayer(tmsLayer);
         }
-    }
+    };
 
     // WFS
     // @ToDo: WFS-T Editing: http://www.gistutor.com/openlayers/22-advanced-openlayers-tutorials/47-openlayers-wfs-t-using-a-geoserver-hosted-postgis-layer.html
@@ -2431,8 +2448,8 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         });
         map.addLayer(wfsLayer);
         // Ensure Highlight & Popup Controls act on this layer
-        map.s3.layers_all.push(wfsLayer);
-    }
+        map.s3.all_popup_layers.push(wfsLayer);
+    };
 
     // WMS
     var addWMSLayer = function(map, layer) {
@@ -2627,7 +2644,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         if (layer._base) {
             map.setBaseLayer(wmsLayer);
         }
-    }
+    };
 
     // XYZ
     var addXYZLayer = function(map, layer) {
@@ -2680,7 +2697,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         if (layer._base) {
             map.setBaseLayer(xyzLayer);
         }
-    }
+    };
 
     /**
      * Add Controls to the OpenLayers map
@@ -2749,7 +2766,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
 
         // Popup Controls
         addPopupControls(map);
-    }
+    };
 
     /* Popups */
     var addPopupControls = function(map) {
@@ -2767,10 +2784,11 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
             CLASS_NAME: 'OpenLayers.Handler.FeatureS3'
         });
 
-        var layers_all = map.s3.layers_all;
+        var s3 = map.s3;
+        var all_popup_layers = s3.all_popup_layers;
         // onClick Popup
         var popupControl = new OpenLayers.Control.SelectFeature(
-            layers_all, {
+            all_popup_layers, {
                 toggle: true
                 //multiple: true
             }
@@ -2780,7 +2798,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         });
         // onHover Tooltip
         var highlightControl = new OpenLayers.Control.SelectFeature(
-            layers_all, {
+            all_popup_layers, {
                 hover: true,
                 highlightOnly: true,
                 //renderIntent: 'temporary',
@@ -2794,10 +2812,12 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         map.addControl(popupControl);
         highlightControl.activate();
         popupControl.activate();
-    }
+        // Allow access from global scope
+        s3.popupControl = popupControl;
+    };
 
     // Supports highlightControl for All Vector Layers
-    function tooltipSelect(event) {
+    var tooltipSelect = function(event) {
         var feature = event.feature;
         if (feature.cluster) {
             // Cluster: no tooltip
@@ -2863,8 +2883,8 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                 map.addPopup(tooltipPopup);
             }
         }
-    }
-    function tooltipUnselect(event) {
+    };
+    var tooltipUnselect = function(event) {
         var feature = event.feature;
         if (feature !== null && feature.popup !== null) {
             var map = feature.layer.map;
@@ -2874,10 +2894,10 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
             map.s3.tooltipPopup = null;
             map.s3.lastFeature = null;
         }
-    }
+    };
 
     // Replace Cluster Popup contents with selected Feature Popup
-    function loadClusterPopup(map_id, url, id) {
+    var loadClusterPopup = function(map_id, url, id) {
         // Show Throbber whilst waiting for Popup to show
         var selector = '#' + id + '_contentDiv';
         var div = $(selector);
@@ -2904,12 +2924,12 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
               },
               'html'
         );
-    }
+    };
     // Pass to global scope to access from HTML
     S3.gis.loadClusterPopup = loadClusterPopup;
 
     // Zoom to Selected Feature from within Cluster Popup
-    function zoomToSelectedFeature(map_id, lon, lat, zoomfactor) {
+    var zoomToSelectedFeature = function(map_id, lon, lat, zoomfactor) {
         var map = S3.gis.maps[map_id];
         var lonlat = new OpenLayers.LonLat(lon, lat);
         // Get Current Zoom
@@ -2922,12 +2942,12 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         for (var i = 0; i < map.popups.length; i++) {
             map.removePopup(map.popups[i]);
         }
-    }
+    };
     // Pass to global scope to access from HTML
     S3.gis.zoomToSelectedFeature = zoomToSelectedFeature;
 
     // Used by onFeatureSelect
-    function loadDetails(url, id, popup) {
+    var loadDetails = function(url, id, popup) {
         // Load the Popup Details asynchronously
         if (url.indexOf('http://') === 0) {
             // Use Proxy for remote popups
@@ -2965,10 +2985,10 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
             // Resize when images are loaded
             //popup.registerImageListeners();
         });
-    }
+    };
 
     // Supports popupControl for All Vector Layers
-    function onFeatureSelect(event) {
+    var onFeatureSelect = function(event) {
         // Unselect any previous selections
         // @ToDo: setting to allow multiple popups at once
         tooltipUnselect(event);
@@ -3154,32 +3174,33 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
             loadDetails(feature.attributes.data, data_id, popup);
         }
         feature.popup = popup;
-        //popup.feature = feature;
+        popup.feature = feature;
         map.addPopup(popup);
-    }
+    };
 
     // Supports popupControl for All Vector Layers
-    function onFeatureUnselect(event) {
+    var onFeatureUnselect = function(event) {
         var feature = event.feature;
         if (feature.popup) {
             feature.layer.map.removePopup(feature.popup);
             feature.popup.destroy();
             delete feature.popup;
         }
-    }
-    function onPopupClose(event) {
-        // Close all Popups
-        // Close popups associated with features
-        //popupControl.unselectAll();
-
-        // @ToDo: Make this configurable to allow multiple popups open at once
+    };
+    var onPopupClose = function(event) {
+        var map = this.map;
+        // Unselect the associated feature
+        if (this.feature) {
+            delete this.feature.popup;
+            map.s3.popupControl.unselect(this.feature);
+        }
         // Close ALL popups
         // inc orphaned Popups (e.g. from Refresh)
-        var map = this.map;
+        // @ToDo: Make this configurable to allow multiple popups open at once
         while (map.popups.length) {
             map.removePopup(map.popups[0]);
         }
-    }
+    };
 
     // Toolbar Buttons
     var addToolbar = function(map) {
@@ -3222,19 +3243,28 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
             toggleGroup: 'controls'
         });
 
-        var polygon_pressed;
-        var pan_pressed;
-        var point_pressed;
+        var line_pressed,
+            pan_pressed,
+            point_pressed,
+            polygon_pressed;
         if (options.draw_polygon == 'active') {
             polygon_pressed = true;
+            line_pressed = false;
             pan_pressed = false;
             point_pressed = false;
+        } else if (options.draw_line == 'active') {
+            line_pressed = true;
+            point_pressed = false;
+            pan_pressed = false;
+            polygon_pressed = false;
         } else if (options.draw_feature == 'active') {
             point_pressed = true;
+            line_pressed = false;
             pan_pressed = false;
             polygon_pressed = false;
         } else {
             pan_pressed = true;
+            line_pressed = false;
             point_pressed = false;
             polygon_pressed = false;
         }
@@ -3367,6 +3397,10 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                 addPointControl(map, toolbar, point_pressed);
             }
             //toolbar.add(lineButton);
+            if (options.draw_line) {
+                addLineControl(map, toolbar, line_pressed, true);
+            }
+            //toolbar.add(lineButton);
             if (options.draw_polygon) {
                 addPolygonControl(map, toolbar, polygon_pressed, true);
             }
@@ -3433,7 +3467,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         toolbar.add(throbber);
 
         return toolbar;
-    }
+    };
 
     /* Toolbar Buttons */
 
@@ -3506,10 +3540,10 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
             }
         });
         toolbar.addButton(geoLocateButton);
-    }
+    };
 
     // Supports GeoLocate control
-    function pulsate(map, feature) {
+    var pulsate = function(map, feature) {
         var point = feature.geometry.getCentroid(),
             bounds = feature.geometry.getBounds(),
             radius = Math.abs((bounds.right - bounds.left) / 2),
@@ -3537,7 +3571,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
             count++;
         };
         window.resizeInterval = window.setInterval(resize, 50, point, radius);
-    }
+    };
 
     // Google Earth control
     var addGoogleEarthControl = function(toolbar) {
@@ -3564,10 +3598,10 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         });
         toolbar.addSeparator();
         toolbar.addButton(googleEarthButton);
-    }
+    };
 
     // Supports GE Control
-    function addGoogleEarthKmlLayers(map) {
+    var addGoogleEarthKmlLayers = function(map) {
         var layers_feature = map.s3.options.layers_feature;
         if (layers_feature) {
             for (var i = 0; i < layers_feature.length; i++) {
@@ -3586,14 +3620,14 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                 }
             }
         }
-    }
+    };
 
-    function googleEarthKmlLoaded(object) {
+    var googleEarthKmlLoaded = function(object) {
         if (!object) {
             return;
         }
         S3.gis.googleEarthPanel.earth.getFeatures().appendChild(object);
-    }
+    };
 
     // Google Streetview control
     var addGoogleStreetviewControl = function(toolbar) {
@@ -3636,10 +3670,10 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         });
         toolbar.addSeparator();
         toolbar.addButton(googleStreetviewButton);
-    }
+    };
 
     // Supports Streetview Control
-    function openStreetviewPopup(map, location) {
+    var openStreetviewPopup = function(map, location) {
         if (!location) {
             location = map.getCenter();
         }
@@ -3657,7 +3691,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
             items: [new gxp.GoogleStreetViewPanel()]
         });
         map.s3.sv_popup.show();
-    }
+    };
 
     // Measure Controls
     var addMeasureControls = function(toolbar) {
@@ -3755,7 +3789,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
 
             toolbar.add(areaButton);
         }
-    }
+    };
 
     // Legend Panel as floating DIV
     var addLegendPanel = function(map, legendPanel) {
@@ -3781,7 +3815,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                 showLegend(map);
             }
         });
-    }
+    };
     var hideLegend = function(map) {
         var map_id = map.s3.id;
         var outerWidth = $('#' + map_id + ' .map_legend_panel').outerWidth();
@@ -3790,7 +3824,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         });
         $('#' + map_id + ' .map_legend_tab').removeClass('right')
                                             .addClass('left');
-    }
+    };
     var showLegend = function(map) {
         var map_id = map.s3.id;
         $('#' + map_id + ' .map_legend_div').animate({
@@ -3798,7 +3832,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         });
         $('#' + map_id + ' .map_legend_tab').removeClass('left')
                                             .addClass('right');
-    }
+    };
 
     // Navigation History
     var addNavigationControl = function(toolbar) {
@@ -3818,7 +3852,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         });
         toolbar.addButton(navPreviousButton);
         toolbar.addButton(navNextButton);
-    }
+    };
 
     // Point Control to add new Markers to the Map
     var addPointControl = function(map, toolbar, active) {
@@ -3887,7 +3921,59 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                 $('.olMapViewport').addClass('crosshair');
             }
         }
-    }
+    };
+
+    // Line Control to draw Lines on the Map
+    var addLineControl = function(map, toolbar, active) {
+        var draftLayer = map.s3.draftLayer;
+        var control = new OpenLayers.Control.DrawFeature(draftLayer, OpenLayers.Handler.Path, {
+            // custom Callback
+            'featureAdded': function(feature) {
+                // Remove previous line
+                if (map.s3.lastDraftFeature) {
+                    map.s3.lastDraftFeature.destroy();
+                } else if (draftLayer.features.length > 1) {
+                    // Clear the one from the Current Location in S3LocationSelector
+                    draftLayer.features[0].destroy();
+                }
+                // Prepare in case user draws a new line
+                map.s3.lastDraftFeature = feature;
+            }
+        });
+
+        if (toolbar) {
+            // Toolbar Button
+            var lineButton = new GeoExt.Action({
+                control: control,
+                handler: function(){
+                    if (lineButton.items[0].pressed) {
+                        $('.olMapViewport').addClass('crosshair');
+                    } else {
+                        $('.olMapViewport').removeClass('crosshair');
+                    }
+                },
+                map: map,
+                iconCls: 'drawline-off',
+                tooltip: i18n.gis_draw_line,
+                allowDepress: true,
+                enableToggle: true,
+                toggleGroup: 'controls',
+                pressed: active,
+                activateOnEnable: true,
+                deactivateOnDisable: true
+            });
+            toolbar.add(lineButton);
+            // Pass to Global scope for LocationSelectorWidget
+            map.s3.lineButton = lineButton;
+        } else {
+            // Simply add straight to the map
+            map.addControl(control);
+            if (active) {
+                control.activate();
+                $('.olMapViewport').addClass('crosshair');
+            }
+        }
+    };
 
     // Polygon Control to select Areas on the Map
     var addPolygonControl = function(map, toolbar, active, not_regular) {
@@ -3961,7 +4047,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                 $('.olMapViewport').addClass('crosshair');
             }
         }
-    }
+    };
 
     // Potlatch button for editing OpenStreetMap
     // @ToDo: Select a Polygon for editing rather than the whole Viewport
@@ -3987,7 +4073,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         });
         toolbar.addSeparator();
         toolbar.addButton(potlatchButton);
-    }
+    };
 
     // Save button on Toolbar to save the Viewport settings
     var addSaveButton = function(toolbar) {
@@ -4001,7 +4087,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         });
         toolbar.addSeparator();
         toolbar.addButton(saveButton);
-    }
+    };
 
     // Save throbber as floating DIV to see when map layers are loading
     var addThrobber = function(map) {
@@ -4019,7 +4105,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         }
         div += '"></div>';
         $('#' + map_id).append(div);
-    }
+    };
     
     // Save button as floating DIV to save the Viewport settings
     var addSavePanel = function(map) {
@@ -4046,7 +4132,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         $('#' + map_id + ' .map_save_button').click(function() {
             saveClickHandler(map);
         });
-    }
+    };
 
     // Save Click Handler
     var saveClickHandler = function(map) {
@@ -4059,7 +4145,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         // Rename the Save button
         $('#' + map_id + ' .map_save_label').html(i18n.save);
         nameConfig(map);
-    }
+    };
 
     // Name the Config
     var nameConfig = function(map) {
@@ -4135,7 +4221,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
             // Don't activate if clicking inside
             event.stopPropagation();
         });
-    }
+    };
 
     // Save the Config
     var saveConfig = function(map) {
@@ -4220,13 +4306,13 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
             },
             params: json_data
         });
-    }
+    };
 
     // Get the State of the Map
     // so that it can be Saved & Reloaded later
     // @ToDo: so that it can be Saved for Printing
     // @ToDo: so that a Bookmark can be shared
-    function getState(map) {
+    var getState = function(map) {
 
         // State stored a a JSON array
         var state = {};
@@ -4276,7 +4362,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         state.plugins = plugins;
 
         return state;
-    }
+    };
 
     // MGRS Grid PDF Control
     // select an area on the map to download the grid's PDF to print off
@@ -4347,7 +4433,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         });
         toolbar.addSeparator();
         toolbar.add(mgrsButton);
-    }
+    };
 
     // WMS GetFeatureInfo control
     var addWMSGetFeatureInfoControl = function(map) {
@@ -4369,7 +4455,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         // @ToDo: Why do we need to toggle the Measure control before this works?
         //wmsGetFeatureInfo.activate();
         wmsGetFeatureInfo.addActions();
-    }
+    };
 
     // Add/Remove Layers control
     var addRemoveLayersControl = function(map, layerTree) {
@@ -4417,7 +4503,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         removeLayerControl.target = layerTree;
         layerTree.mapPanel = map.s3.mapPanel;
         removeLayerControl.addActions();
-    }
+    };
 
     // Layer Properties control
     var addLayerPropertiesButton = function(map, layerTree) {
@@ -4567,7 +4653,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         });
         var toolbar = layerTree.getTopToolbar();
         toolbar.add(layerPropertiesButton);
-    }
+    };
 
     /**
      * Create a StyleMap
@@ -5177,7 +5263,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         }
 
         if (style_array) {
-            // Style Features according to rules in JSON style (currently Shapefile or Theme Layer)
+            // Style Features according to rules in JSON style (currently Feature, Shapefile or Theme Layer)
             // Needs to be uniquely instantiated
             var rules = [];
             var prop, filter, rule, symbolizer, title, value,
@@ -5308,7 +5394,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
             'select': selectStyle
         });
         return [featureStyleMap, marker_url];
-    }
+    };
 
 }());
 // END ========================================================================

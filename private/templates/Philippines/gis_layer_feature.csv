@@ -1,0 +1,2 @@
+Name,Description,Controller,Function,Symbology,Marker,GPS Marker,Popup Label,Popup Fields,Attributes,Filter,Polygons,Style,Folder,Visible,Enabled,Cluster Threshold,Refresh
+Facilities,All Active Facilities,org,facility,OCHA,office,Building,Location,"name,organisation_id",,~.obsolete=False,,,,False,,

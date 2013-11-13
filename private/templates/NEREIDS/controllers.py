@@ -29,7 +29,7 @@ class index():
             response.view = open(view, "rb")
         except IOError:
             from gluon.http import HTTP
-            raise HTTP("404", "Unable to open Custom View: %s" % view)
+            raise HTTP(404, "Unable to open Custom View: %s" % view)
 
         s3 = response.s3
         # Image Carousel
@@ -198,23 +198,22 @@ def _updates():
                                    ),
                       S3OptionsFilter("series_id",
                                       label=T("Filter by Type"),
-                                      represent="%(name)s",
+                                      # We want translations
+                                      #represent="%(name)s",
                                       widget="multiselect",
-                                      cols=3,
                                       hidden=True,
                                       ),
                       S3LocationFilter("location_id",
                                        label=T("Filter by Location"),
                                        levels=["L1", "L2", "L3"],
                                        widget="multiselect",
-                                       cols=3,
                                        hidden=True,
                                        ),
                       S3OptionsFilter("created_by$organisation_id",
                                       label=T("Filter by Organization"),
-                                      represent="%(name)s",
+                                      # Can't use this for integers, use field.represent instead
+                                      #represent="%(name)s",
                                       widget="multiselect",
-                                      cols=3,
                                       hidden=True,
                                       ),
                       S3DateFilter("created_on",
@@ -237,15 +236,18 @@ def _updates():
 
     s3.dl_pagelength = 6  # 5 forces an AJAX call
 
-    if "datalist_dl_post" in request.args:
+    old_args = request.args
+    if "datalist_dl_post" in old_args:
         # DataList pagination or Ajax-deletion request
         request.args = ["datalist_f"]
         ajax = "list"
-    elif "datalist_dl_filter" in request.args:
+    elif "datalist_dl_filter" in old_args:
         # FilterForm options update request
         request.args = ["filter"]
         ajax = "filter"
-    elif "validate.json" in request.args:
+    elif "validate.json" in old_args:
+        # Inline component validation request
+        request.args = []
         ajax = True
     else:
         # Default
@@ -267,6 +269,8 @@ def _updates():
                                                            args="datalist_dl_filter",
                                                            vars={}))
 
+    request.args = old_args
+
     if ajax == "list":
         # Don't override view if this is an Ajax-deletion request
         if not "delete" in request.get_vars:
@@ -281,7 +285,7 @@ def _updates():
             response.view = open(view, "rb")
         except IOError:
             from gluon.http import HTTP
-            raise HTTP("404", "Unable to open Custom View: %s" % view)
+            raise HTTP(404, "Unable to open Custom View: %s" % view)
 
         scripts = []
         sappend = scripts.append
@@ -414,8 +418,8 @@ def render_events(listid, resource, rfields, record, **attr):
     # Render the item
     item = DIV(DIV(A(IMG(_class="media-object",
                          _src=URL(c="static",
-                                  f="themes",
-                                  args=["DRMP", "img", "%s.png" % event_type]),
+                                  f="img",
+                                  args=["event", "%s.png" % event_type]),
                          ),
                      _class="pull-left",
                      _href="#",
@@ -479,7 +483,7 @@ def render_cms_events(listid, resource, rfields, record, **attr):
     # @ToDo: Optimise by not doing DB lookups (especially duplicate) within render, but doing these in the bulk query
     avatar = s3_avatar_represent(author_id,
                                  _class="media-object",
-                                 _style="width:50px;padding:5px;padding-top:0px;")
+                                 _style="width:50px;padding:5px;padding-top:0;")
     db = current.db
     ltable = current.s3db.pr_person_user
     ptable = db.pr_person
@@ -616,7 +620,7 @@ class glossary():
             current.response.view = open(view, "rb")
         except IOError:
             from gluon.http import HTTP
-            raise HTTP("404", "Unable to open Custom View: %s" % view)
+            raise HTTP(404, "Unable to open Custom View: %s" % view)
 
         title = current.T("Glossary")
 

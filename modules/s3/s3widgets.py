@@ -61,6 +61,7 @@ __all__ = ["S3ACLWidget",
            "S3PersonAutocompleteWidget",
            "S3PentityAutocompleteWidget",
            "S3PriorityListWidget",
+           "S3SelectChosenWidget",
            "S3SiteAutocompleteWidget",
            "S3SiteAddressAutocompleteWidget",
            "S3SliderWidget",
@@ -2757,68 +2758,79 @@ class S3LocationAutocompleteWidget(FormWidget):
     """
 
     def __init__(self,
-                 prefix="gis",
-                 resourcename="location",
-                 fieldname="name",
-                 level="",
-                 hidden = False,
+                 level = "",
                  post_process = "",
                  delay = 450,     # milliseconds
                  min_length = 2): # Increase this for large deployments
 
-        self.prefix = prefix
-        self.resourcename = resourcename
-        self.fieldname = fieldname
         self.level = level
-        self.hidden = hidden
         self.post_process = post_process
         self.delay = delay
         self.min_length = min_length
 
     def __call__(self, field, value, **attributes):
-        fieldname = self.fieldname
         level = self.level
-        if level:
-            if isinstance(level, list):
-                levels = ""
-                counter = 0
-                for _level in level:
-                    levels += _level
-                    if counter < len(level):
-                        levels += "|"
-                    counter += 1
-                url = URL(c=self.prefix,
-                          f=self.resourcename,
-                          args="search_ac",
-                          vars={"filter":"~",
-                                "field":fieldname,
-                                "level":levels,
-                                })
-            else:
-                url = URL(c=self.prefix,
-                          f=self.resourcename,
-                          args="search_ac",
-                          vars={"filter":"~",
-                                "field":fieldname,
-                                "level":level,
-                                })
-        else:
-            url = URL(c=self.prefix,
-                      f=self.resourcename,
-                      args="search_ac",
-                      vars={"filter":"~",
-                            "field":fieldname,
-                            })
+        if isinstance(level, list):
+            levels = ""
+            counter = 0
+            for _level in level:
+                levels += _level
+                if counter < len(level):
+                    levels += "|"
+                counter += 1
 
-        return S3GenericAutocompleteTemplate(
-            self.post_process,
-            self.delay,
-            self.min_length,
-            field,
-            value,
-            attributes,
-            source = url,
-        )
+        default = dict(
+            _type = "text",
+            value = (value != None and s3_unicode(value)) or "",
+            )
+        attr = StringWidget._attributes(field, default, **attributes)
+
+        # Hide the real field
+        attr["_class"] = attr["_class"] + " hide"
+
+        if "_id" in attr:
+            real_input = attr["_id"]
+        else:
+            real_input = str(field).replace(".", "_")
+
+        dummy_input = "dummy_%s" % real_input
+
+        if value:
+            try:
+                value = long(value)
+            except ValueError:
+                pass
+            # Provide the representation for the current/default Value
+            text = s3_unicode(field.represent(value))
+            if "<" in text:
+                text = s3_strip_markup(text)
+            represent = text.encode("utf-8")
+        else:
+            represent = ""
+
+        # Mandatory part
+        script = '''S3.autocomplete.location("%s"''' % real_input
+        # Optional parts
+        if self.post_process:
+            # We need all
+            script = '''%s,'%s',%s,%s,"%s"''' % (script, level, self.min_length, self.delay, self.post_process)
+        elif self.delay:
+            script = '''%s,"%s",%s,%s''' % (script, level, self.min_length, self.delay)
+        elif self.min_length:
+            script = '''%s,"%s",%s''' % (script, level, self.min_length)
+        elif levels:
+            script = '''%s,"%s"''' % (script, level)
+        # Close
+        script = "%s)" % script
+        current.response.s3.jquery_ready.append(script)
+        return TAG[""](INPUT(_id=dummy_input,
+                             _class="string",
+                             value=represent),
+                       DIV(_id="%s_throbber" % dummy_input,
+                           _class="throbber hide"),
+                       INPUT(**attr),
+                       requires = field.requires
+                       )
 
 # =============================================================================
 class S3LocationDropdownWidget(FormWidget):
@@ -3053,6 +3065,8 @@ class S3LocationSelectorWidget(FormWidget):
             no_map = '''S3.gis.no_map = true;\n'''
         # Should we display LatLon boxes?
         latlon_selector = settings.get_gis_latlon_selector()
+        # Should we display Postcode box?
+        postcode_selector = settings.get_gis_postcode_selector()
         # Show we display Polygons?
         polygon = self.polygon
         # Navigate Away Confirm?
@@ -3338,7 +3352,8 @@ S3.gis.tab="%s"''' % s3.gis.tab
         else:
             NAME_LABEL = T("Building Name")
         STREET_LABEL = T("Street Address")
-        POSTCODE_LABEL = settings.get_ui_label_postcode()
+        if postcode_selector:
+            POSTCODE_LABEL = settings.get_ui_label_postcode()
         LAT_LABEL = T("Latitude")
         LON_LABEL = T("Longitude")
         AUTOCOMPLETE_HELP = T("Enter some characters to bring up a list of possible matches")
@@ -3364,10 +3379,11 @@ S3.gis.tab="%s"''' % s3.gis.tab
                                      _class="text",
                                      _name="gis_location_street",
                                      _disabled="disabled")
-            postcode_widget = INPUT(value=postcode,
-                                    _id="gis_location_postcode",
-                                    _name="gis_location_postcode",
-                                    _disabled="disabled")
+            if postcode_selector:
+                postcode_widget = INPUT(value=postcode,
+                                        _id="gis_location_postcode",
+                                        _name="gis_location_postcode",
+                                        _disabled="disabled")
 
             lat_widget = S3LatLonWidget("lat",
                                         disabled=True).widget(value=lat)
@@ -3416,10 +3432,11 @@ S3.gis.tab="%s"''' % s3.gis.tab
             name_widget = INPUT(_id="gis_location_name",
                                 _name="gis_location_name")
             street_widget = TEXTAREA(_id="gis_location_street",
-                                     _class="text",
+                                     _class="text comments",
                                      _name="gis_location_street")
-            postcode_widget = INPUT(_id="gis_location_postcode",
-                                    _name="gis_location_postcode")
+            if postcode_selector:
+                postcode_widget = INPUT(_id="gis_location_postcode",
+                                        _name="gis_location_postcode")
             lat_widget = S3LatLonWidget("lat").widget()
             lon_widget = S3LatLonWidget("lon", switch_button=True).widget()
 
@@ -3513,16 +3530,19 @@ S3.gis.geocoder=true'''
             hidden = "hide"
         elif value and not postcode:
             hidden = "hide"
-        postcode_rows = DIV(TR(LABEL("%s:" % POSTCODE_LABEL), TD(),
-                               _id="gis_location_postcode_label__row",
-                               _class="%s locselect box_middle" % hidden),
-                            TR(postcode_widget, TD(),
-                               _id="gis_location_postcode__row",
-                               _class="%s locselect box_middle" % hidden),
-                            TR(INPUT(_id="gis_location_postcode_search",
-                                     _disabled="disabled"), TD(),
-                               _id="gis_location_postcode_search__row",
-                               _class="hide locselect box_middle"))
+        if postcode_selector:
+            postcode_rows = DIV(TR(LABEL("%s:" % POSTCODE_LABEL), TD(),
+                                   _id="gis_location_postcode_label__row",
+                                   _class="%s locselect box_middle" % hidden),
+                                TR(postcode_widget, TD(),
+                                   _id="gis_location_postcode__row",
+                                   _class="%s locselect box_middle" % hidden),
+                                TR(INPUT(_id="gis_location_postcode_search",
+                                         _disabled="disabled"), TD(),
+                                   _id="gis_location_postcode_search__row",
+                                   _class="hide locselect box_middle"))
+        else:
+            postcode_rows = DIV()
 
         hidden = ""
         no_latlon = ""
@@ -3726,12 +3746,13 @@ class S3LocationSelectorWidget2(FormWidget):
     """
 
     def __init__(self,
-                 levels = ["L1", "L2", "L3"],   # Which levels of the hierarchy to expose?
+                 levels = ("L1", "L2", "L3"),   # Which levels of the hierarchy to expose?
                  hide_lx = True,                # Whether to hide lower Lx fields until higher level selected
                  reverse_lx = False,            # Whether to show Lx fields in the order usually used by Street Addresses
                  show_address = False,          # Whether to show a field for Street Address
                  show_postcode = False,         # Whether to show a field for Postcode
                  show_map = True,               # Whether to show a Map to select specific points
+                 lines = False,                 # Whether the Map uses a Line draw tool instead of Point
                  polygons = False,              # Whether the Map uses a Polygon draw tool instead of Point
                  ):
 
@@ -3741,6 +3762,7 @@ class S3LocationSelectorWidget2(FormWidget):
         self.show_address = show_address
         self.show_postcode = show_postcode
         self.show_map = show_map
+        self.lines = lines
         self.polygons = polygons
 
     def __call__(self, field, value, **attributes):
@@ -3750,7 +3772,8 @@ class S3LocationSelectorWidget2(FormWidget):
         show_address = self.show_address
         show_postcode = self.show_postcode
         show_map = self.show_map
-        polygons = self.polygons
+        lines = self.lines
+        polygons = self.polygons or lines
 
         T = current.T
         db = current.db
@@ -3772,24 +3795,33 @@ class S3LocationSelectorWidget2(FormWidget):
         config = gis.get_config()
 
         # Should we use a Geocoder?
-        geocoder = config.geocoder
+        geocoder = config.geocoder and show_address
 
         # List of all levels up to the lowest we specify
         if "L5" in levels:
-            _levels = ["L0", "L1", "L2", "L3", "L4", "L5"]
+            _levels = ("L0", "L1", "L2", "L3", "L4", "L5")
         elif "L4" in levels:
-            _levels = ["L0", "L1", "L2", "L3", "L4"]
+            _levels = ("L0", "L1", "L2", "L3", "L4")
         elif "L3" in levels:
-            _levels = ["L0", "L1", "L2", "L3"]
+            _levels = ("L0", "L1", "L2", "L3")
         elif "L2" in levels:
-            _levels = ["L0", "L1", "L2"]
+            _levels = ("L0", "L1", "L2")
         elif "L1" in levels:
-            _levels = ["L0", "L1"]
+            _levels = ("L0", "L1")
 
         default = field.default
         if not default:
             # Check for a default location in the active gis_config
             default = config.default_location_id
+
+        requires = field.requires
+        if requires:
+            if hasattr(requires, "other"):
+                required = False
+            else:
+                required = True
+        else:
+            required = False
 
         gtable = s3db.gis_location
 
@@ -4254,6 +4286,11 @@ class S3LocationSelectorWidget2(FormWidget):
                 # -> Elements moved via JS after page load
                 label = LABEL("%s:" % label, _class="control-label",
                                              _for=id)
+                if required:
+                    label.add_class("required")
+                    # Only top-level required
+                    # @ToDo: More control
+                    required = False
                 widget.add_class("input-xlarge")
                 # Currently unused, so remove if this remains so
                 #from gluon.html import BUTTON
@@ -4265,7 +4302,16 @@ class S3LocationSelectorWidget2(FormWidget):
                 _controls = DIV(widget, throbber, _class="controls")
                 row = DIV(label, _controls, _class="control-group hide", _id="%s__row" % id)
             elif callable(formstyle):
-                # @ToDo
+                # @ToDo: Test
+                if required:
+                    # @ToDo: DRY this setting with s3_mark_required
+                    # @ToDo: How to patch row that coems out of formstyle?
+                    #        - this label will get wiped by the L0-specific labels
+                    label = DIV("%s:" % label,
+                                SPAN(" *", _class="req"))
+                    # Only top-level required
+                    # @ToDo: More control
+                    required = False
                 row = formstyle(id, label, widget, comment, hidden=hidden)
             else:
                 # Unsupported
@@ -4441,8 +4487,10 @@ class S3LocationSelectorWidget2(FormWidget):
                                width = 480,
                                add_feature = not polygons,
                                add_feature_active = not polygons,
-                               add_polygon = polygons,
-                               add_polygon_active = polygons,
+                               add_line = lines,
+                               add_line_active = lines,
+                               add_polygon = polygons and not lines,
+                               add_polygon_active = polygons and not lines,
                                # Hide controls from toolbar
                                nav = False,
                                area = False,
@@ -4551,8 +4599,9 @@ class S3MultiSelectWidget(MultipleOptionsWidget):
             header = '''header:false'''
         else:
             header = '''header:"%s"''' % self.header
-        script = '''$('#%s').multiselect({selectedText:'%s',%s,height:300,minWidth:0,selectedList:%s,noneSelectedText:'%s'})''' % \
+        script = '''$('#%s').multiselect({allSelectedText:'%s',selectedText:'%s',%s,height:300,minWidth:0,selectedList:%s,noneSelectedText:'%s'})''' % \
             (selector,
+             T("All selected"),
              T("# selected"),
              header,
              self.selectedList,
@@ -4946,6 +4995,28 @@ $('#%s').removeClass('list').addClass('prioritylist').prioritylist()''' % \
                        )
 
 # =============================================================================
+class S3SelectChosenWidget(OptionsWidget):
+    """
+        Enhances Select dropdowns:
+        - single selects have an Autocomplete search box 
+        - multi-selects have tag-style selection
+        Uses http://harvesthq.github.io/chosen/
+    """
+
+    def __call__(self, field, value, **attributes):
+        s3 = current.response.s3
+        if s3.debug:
+            script = "chosen.jquery.js"
+        else:
+            script = "chosen.jquery.min.js"
+        s3.scripts.append("/%s/static/scripts/%s" % (current.request.application,
+                                                     script))
+        # @ToDo: Can we not determine a # selector? (faster)
+        script = """$('[name="%s"]').chosen();""" % field.name
+        s3.jquery_ready.append(script)
+        return OptionsWidget.widget(field, value, **attributes)
+
+# =============================================================================
 class S3SiteAutocompleteWidget(FormWidget):
     """
         Renders an org_site SELECT as an INPUT field with AJAX Autocomplete.
@@ -5087,8 +5158,6 @@ class S3SiteAddressAutocompleteWidget(FormWidget):
 class S3SliderWidget(FormWidget):
     """
         Standard Slider Widget
-
-        @author: Daniel Klischies (daniel.klischies@freenet.de)
 
         @ToDo: The range of the slider should ideally be picked up from the Validator
         @ToDo: Show the value of the slider numerically as well as simply a position

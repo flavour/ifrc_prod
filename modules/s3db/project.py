@@ -480,10 +480,10 @@ class S3ProjectModel(S3Model):
         project_id = S3ReusableField("project_id", table,
             sortby="name",
             requires = IS_NULL_OR(
-                            IS_ONE_OF(db(auth.s3_accessible_query("update",
-                                                                  table)),
-                                      "project_project.id",
-                                      project_represent)),
+                        IS_ONE_OF(db(auth.s3_accessible_query("update",
+                                                              table)),
+                                  "project_project.id",
+                                  project_represent)),
             represent = project_represent,
             comment = S3AddResourceLink(c="project", f="project",
                                         tooltip=T("If you don't see the project in the list, you can add a new one by clicking link 'Add Project'.")),
@@ -637,9 +637,8 @@ class S3ProjectModel(S3Model):
                                 readable=False,
                                 writable=False)
 
-        return Storage(
-                project_project_id = lambda: dummy("project_id"),
-            )
+        return dict(project_project_id = lambda **attr: dummy("project_id"),
+                    )
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -805,7 +804,7 @@ class S3ProjectModel(S3Model):
             response.view = "map.html"
             return output
         else:
-            raise HTTP(501, BADMETHOD)
+            raise HTTP(501, current.messages.BADMETHOD)
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -929,7 +928,7 @@ class S3ProjectModel(S3Model):
             return output
 
         else:
-            raise HTTP(501, BADMETHOD)
+            raise HTTP(501, current.messages.BADMETHOD)
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -1260,28 +1259,31 @@ class S3ProjectActivityModel(S3Model):
 
         # Activity Types
         add_component("project_activity_type",
-                      project_activity=Storage(
-                        link="project_activity_activity_type",
-                        joinby="activity_id",
-                        key="activity_type_id",
-                        actuate="replace",
-                        autocomplete="name",
-                        autodelete=False))
+                      project_activity=dict(link="project_activity_activity_type",
+                                            joinby="activity_id",
+                                            key="activity_type_id",
+                                            actuate="replace",
+                                            autocomplete="name",
+                                            autodelete=False))
 
-        # Disabled until beneficiaries are updated to support both
-        # communities and activities
-        #add_component("project_beneficiary",
-        #              project_activity="activity_id")
+        # Beneficiaries
+        add_component("project_beneficiary",
+                      project_activity=dict(link="project_beneficiary_activity",
+                                            joinby="activity_id",
+                                            key="beneficiary_id",
+                                            actuate="hide"))
+        # Format for InlineComponent/filter_widget
+        add_component("project_beneficiary_activity",
+                      project_activity="activity_id")
 
         # Tasks
         add_component("project_task",
-                      project_activity=Storage(
-                        link="project_task_activity",
-                        joinby="activity_id",
-                        key="task_id",
-                        actuate="replace",
-                        autocomplete="name",
-                        autodelete=False))
+                      project_activity=dict(link="project_task_activity",
+                                            joinby="activity_id",
+                                            key="task_id",
+                                            actuate="replace",
+                                            autocomplete="name",
+                                            autodelete=False))
 
         # Coalitions
         add_component("org_group",
@@ -1334,7 +1336,7 @@ class S3ProjectActivityModel(S3Model):
                                 readable=False,
                                 writable=False)
 
-        return dict(project_activity_id = lambda: dummy("activity_id"),
+        return dict(project_activity_id = lambda **attr: dummy("activity_id"),
                     )
 
     # -------------------------------------------------------------------------
@@ -1725,6 +1727,8 @@ class S3ProjectBeneficiaryModel(S3Model):
         # ---------------------------------------------------------------------
         # Project Beneficiary
         #
+        # @ToDo: Split project_id & project_location_id to separate Link Tables
+        #
         tablename = "project_beneficiary"
         table = define_table(tablename,
                              # Link Fields
@@ -1754,11 +1758,12 @@ class S3ProjectBeneficiaryModel(S3Model):
                              # Populated automatically from project_location
                              self.gis_location_id(readable = False,
                                                   writable = False),
-                             Field("value", "double",
+                             Field("value", "integer",
                                    label = T("Quantity"),
                                    requires = IS_INT_IN_RANGE(0, 99999999),
                                    represent = lambda v: \
-                                    IS_INT_AMOUNT.represent(v)),
+                                    IS_INT_AMOUNT.represent(v)
+                                   ),
                              s3_date("date",
                                      label = T("Start Date"),
                                      #empty = False,
@@ -1901,20 +1906,30 @@ class S3ProjectBeneficiaryModel(S3Model):
                   )
 
         # Reusable Field
-        #beneficiary_id = S3ReusableField("beneficiary_id", table,
-        #                                 sortby="name",
-        #                                 requires = IS_NULL_OR(
-        #                                                IS_ONE_OF(db, "project_beneficiary.id",
-        #                                                          self.project_beneficiary_represent,
-        #                                                          sort=True)),
-        #                                 represent = self.project_beneficiary_represent,
-        #                                 label = T("Beneficiaries"),
-        #                                 comment = S3AddResourceLink(c="project",
-        #                                                             f="beneficiary",
-        #                                                             title=ADD_BNF,
-        #                                                             tooltip=\
-        #                                    T("If you don't see the beneficiary in the list, you can add a new one by clicking link 'Add Beneficiary'.")),
-        #                                 ondelete = "SET NULL")
+        beneficiary_id = S3ReusableField("beneficiary_id", table,
+                                         sortby="name",
+                                         requires = IS_NULL_OR(
+                                                        IS_ONE_OF(db, "project_beneficiary.id",
+                                                                  self.project_beneficiary_represent,
+                                                                  sort=True)),
+                                         represent = self.project_beneficiary_represent,
+                                         label = T("Beneficiaries"),
+                                         comment = S3AddResourceLink(c="project",
+                                                                     f="beneficiary",
+                                                                     title=ADD_BNF,
+                                                                     tooltip=\
+                                            T("If you don't see the beneficiary in the list, you can add a new one by clicking link 'Add Beneficiary'.")),
+                                         ondelete = "SET NULL")
+
+        # ---------------------------------------------------------------------
+        # Beneficiary <> Activity Link Table
+        #
+        tablename = "project_beneficiary_activity"
+        table = define_table(tablename,
+                             self.project_activity_id(),
+                             beneficiary_id(),
+                             #s3_comments(),
+                             *s3_meta_fields())
 
         # Pass names back to global scope (s3.*)
         return dict()
@@ -1922,7 +1937,10 @@ class S3ProjectBeneficiaryModel(S3Model):
     # -------------------------------------------------------------------------
     @staticmethod
     def project_beneficiary_represent(id, row=None):
-        """ FK representation """
+        """
+            FK representation
+            @ToDo: Bulk
+        """
 
         if row:
             return row.type
@@ -1933,12 +1951,13 @@ class S3ProjectBeneficiaryModel(S3Model):
         table = db.project_beneficiary
         ttable = db.project_beneficiary_type
         query = (table.id == id) & \
-                (ttable,)
+                (table.parameter_id == ttable.id)
         r = db(query).select(table.value,
                              ttable.name,
                              limitby = (0, 1)).first()
         try:
-            return r.name
+            return "%s %s" % (r["project_beneficiary.value"],
+                              r["project_beneficiary_type.name"])
         except:
             return current.messages.UNKNOWN_OPT
 
@@ -2281,7 +2300,7 @@ class S3ProjectCampaignModel(S3Model):
                              # Populated automatically (by TERA)
                              # & will be a msg_basestation?
                              location_id(writable = False),
-                             Field("value", "double",
+                             Field("value", "integer",
                                    label = T("Number of Responses"),
                                    requires = IS_INT_IN_RANGE(0, 99999999),
                                    represent = lambda v: \
@@ -2977,6 +2996,17 @@ class S3ProjectLocationModel(S3Model):
         #
         return dict(project_location_id = project_location_id,
                     project_location_represent = project_location_represent,
+                    )
+
+    # -------------------------------------------------------------------------
+    def defaults(self):
+        """ Safe defaults for model-global names if module is disabled """
+
+        dummy = S3ReusableField("dummy_id", "integer",
+                                readable=False,
+                                writable=False)
+
+        return dict(project_location_id = lambda **attr: dummy("project_location_id"),
                     )
 
     # -------------------------------------------------------------------------
@@ -5075,7 +5105,7 @@ class S3ProjectTaskModel(S3Model):
             return output
 
         else:
-            raise HTTP(501, BADMETHOD)
+            raise HTTP(501, current.messages.BADMETHOD)
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -5190,7 +5220,7 @@ class S3ProjectTaskModel(S3Model):
             return output
 
         else:
-            raise HTTP(501, BADMETHOD)
+            raise HTTP(501, current.messages.BADMETHOD)
 
 # =============================================================================
 class S3ProjectTaskHRMModel(S3Model):

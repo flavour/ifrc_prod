@@ -206,6 +206,8 @@ settings.L10n.thousands_separator = ","
 settings.L10n.date_format = T("%d-%b-%y")
 # Make last name in person/user records mandatory
 settings.L10n.mandatory_lastname = True
+# Translate Location Names
+settings.L10n.translate_gis_location = True
 
 # -----------------------------------------------------------------------------
 # Finance settings
@@ -232,6 +234,11 @@ settings.search.filter_manager = False
 # Old S3Search
 settings.search.save_widget = False
 
+# -----------------------------------------------------------------------------
+# Messaging
+# Parser
+settings.msg.parser = "IFRC"
+
 # =============================================================================
 # Module Settings
 
@@ -249,6 +256,7 @@ settings.org.dependent_fields = \
      "pr_person_details.company"                 : ["Philippine Red Cross"],
      "pr_person_details.affiliations"            : ["Philippine Red Cross"],
      "vol_details.active"                        : ["Timor-Leste Red Cross Society (Cruz Vermelha de Timor-Leste)"],
+     "vol_details.availability"                  : ["Viet Nam Red Cross"],
      "vol_volunteer_cluster.vol_cluster_type_id"     : ["Philippine Red Cross"],
      "vol_volunteer_cluster.vol_cluster_id"          : ["Philippine Red Cross"],
      "vol_volunteer_cluster.vol_cluster_position_id" : ["Philippine Red Cross"],
@@ -476,6 +484,10 @@ def customize_hrm_programme(**attr):
             branches=False,
             )
 
+    # @ToDo: Special cases for Viet Nam Red Cross
+    # def vn_age_group(age):
+    # settings.pr.age_group = vn_age_group
+
     return attr
 
 settings.ui.customize_hrm_programme = customize_hrm_programme
@@ -619,6 +631,108 @@ def customize_org_organisation(**attr):
 settings.ui.customize_org_organisation = customize_org_organisation
 
 # -----------------------------------------------------------------------------
+def customize_pr_contact(**attr):
+    """
+        Customize pr_contact controller
+    """
+
+    # Special cases for Viet Nam Red Cross
+    db = current.db
+    s3db = current.s3db
+    otable = s3db.org_organisation
+    vnrc = db(otable.name == "Viet Nam Red Cross").select(otable.id,
+                                                          limitby=(0, 1)
+                                                          ).first().id
+    if current.auth.user.organisation_id == vnrc:
+        # Hard to translate in Vietnamese
+        s3db.pr_contact.value.label = ""
+
+    return attr
+
+settings.ui.customize_pr_contact = customize_pr_contact
+
+# -----------------------------------------------------------------------------
+def customize_pr_person(**attr):
+    """
+        Customize pr_person controller
+    """
+
+    # Special cases for Viet Nam Red Cross
+    db = current.db
+    s3db = current.s3db
+    otable = s3db.org_organisation
+    vnrc = db(otable.name == "Viet Nam Red Cross").select(otable.id,
+                                                          limitby=(0, 1)
+                                                          ).first().id
+    if current.auth.user.organisation_id == vnrc:
+        vnrc = True
+        settings.hrm.use_skills = True
+        settings.hrm.vol_experience = "both"
+    else:
+        vnrc = False
+
+    s3 = current.response.s3
+
+    # Custom prep
+    standard_prep = s3.prep
+    def custom_prep(r):
+        # Call standard prep
+        if callable(standard_prep):
+            result = standard_prep(r)
+        else:
+            result = True
+
+        if vnrc:
+            if r.component_name == "address":
+                settings.gis.building_name = False
+                settings.gis.latlon_selector = False
+                settings.gis.map_selector = False
+                settings.gis.postcode_selector = False
+
+            elif r.component_name == "identity":
+                table = s3db.pr_identity
+                table.description.readable = False
+                table.description.writable = False
+                pr_id_type_opts = {1: T("Passport"),
+                                   2: T("National ID Card"),
+                                   }
+                from gluon.validators import IS_IN_SET
+                table.type.requires = IS_IN_SET(pr_id_type_opts,
+                                                zero=None)
+
+            elif r.component_name == "experience":
+                table = s3db.hrm_experience
+                # Use simple free-text variants
+                table.organisation.readable = True
+                table.organisation.writable = True
+                table.job_title.readable = True
+                table.job_title.writable = True
+                table.comments.label = T("Main Duties")
+                crud_form = S3SQLCustomForm("organisation",
+                                            "job_title",
+                                            "comments",
+                                            "start_date",
+                                            "end_date",
+                                            )
+                s3db.configure("hrm_experience",
+                               crud_form=crud_form,
+                               list_fields=["id",
+                                            "organisation",
+                                            "job_title",
+                                            "comments",
+                                            "start_date",
+                                            "end_date",
+                                            ],
+                               )
+
+        return result
+    s3.prep = custom_prep
+
+    return attr
+
+settings.ui.customize_pr_person = customize_pr_person
+
+# -----------------------------------------------------------------------------
 def customize_survey_series(**attr):
     """
         Customize survey_series controller
@@ -633,6 +747,29 @@ def customize_survey_series(**attr):
     return attr
 
 settings.ui.customize_survey_series = customize_survey_series
+
+# -----------------------------------------------------------------------------
+def customize_deploy_mission(**attr):
+    """
+        Customize deploy/mission controller
+    """
+
+    T = current.T
+    table = current.s3db.deploy_mission
+
+    event_type_id = table.event_type_id
+    event_type_id.readable = True
+    event_type_id.writable = True
+    event_type_id.label = T("Disaster Type")
+
+    code = table.code
+    code.readable = True
+    code.writable = True
+    code.label = T("M-Code")
+
+    return attr
+
+settings.ui.customize_deploy_mission = customize_deploy_mission
 
 # -----------------------------------------------------------------------------
 # Projects
