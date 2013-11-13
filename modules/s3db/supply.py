@@ -1240,7 +1240,7 @@ class S3SupplyDistributionModel(S3Model):
                              # Populated automatically from project_location
                              self.gis_location_id(readable = False,
                                                   writable = False),
-                             Field("value", "double",
+                             Field("value", "integer",
                                    label = T("Quantity"),
                                    requires = IS_INT_IN_RANGE(0, 99999999),
                                    represent = lambda v: \
@@ -1706,13 +1706,13 @@ class supply_ItemCategoryRepresent(S3Represent):
         if parent:
             if use_code:
                 # Compact format
-                joiner = "-"
+                sep = "-"
             else:
-                joiner = " - "
-            name = "%s%s%s" % (name, joiner, parent)
+                sep = " - "
+            name = "%s%s%s" % (name, sep, parent)
             grandparent = row["supply_grandparent_item_category.name"]
             if grandparent:
-                name = "%s%s%s" % (name, joiner, grandparent)
+                name = "%s%s%s" % (name, sep, grandparent)
                 # Check for Great-grandparent
                 # Trade-off "all in 1 row" vs "too many joins"
                 greatgrandparent = row["supply_grandparent_item_category.parent_item_category_id"]
@@ -1743,15 +1743,15 @@ class supply_ItemCategoryRepresent(S3Represent):
                         else:
                             greatgrandparent = row["supply_item_category.name"] or row["supply_item_category.code"]
                             greatgreatgrandparent = row["supply_parent_item_category.name"] or row["supply_parent_item_category.code"]
-                        name = "%s%s%s" % (name, joiner, greatgrandparent)
+                        name = "%s%s%s" % (name, sep, greatgrandparent)
                         if greatgreatgrandparent:
-                            name = "%s%s%s" % (name, joiner, greatgreatgrandparent)
+                            name = "%s%s%s" % (name, sep, greatgreatgrandparent)
                             if use_code:
                                 greatgreatgreatgrandparent = row["supply_grandparent_item_category.code"]
                             else:
                                 greatgreatgreatgrandparent = row["supply_grandparent_item_category.name"] or row["supply_grandparent_item_category.code"]
                             if greatgreatgreatgrandparent:
-                                name = "%s%s%s" % (name, joiner, greatgreatgreatgrandparent)
+                                name = "%s%s%s" % (name, sep, greatgreatgreatgrandparent)
 
         if catalog:
             name = "%s > %s" % (catalog, name)
@@ -2213,6 +2213,11 @@ def supply_item_controller():
                 # field = r.table.kit
                 # field.default = True
                 # field.readable = field.writable = False
+
+        elif r.representation == "xls":
+            # Use full Category names in XLS output
+            s3db.supply_item.item_category_id.represent = \
+                supply_ItemCategoryRepresent(use_code=False)
 
         return True
     s3.prep = prep
