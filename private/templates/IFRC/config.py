@@ -1001,22 +1001,24 @@ settings.modules = OrderedDict([
            restricted = True,
            module_type = 10,
        )),
-    ("deploy", Storage(
-           name_nice = T("Regional Disaster Response Teams"),
-           #description = "Alerting and Deployment of Disaster Response Teams",
-           restricted = True,
-           module_type = 10,
-       )),
+    # Not yet anabled in Prod
+    #("deploy", Storage(
+    #       name_nice = T("Regional Disaster Response Teams"),
+    #       #description = "Alerting and Deployment of Disaster Response Teams",
+    #       restricted = True,
+    #       module_type = 10,
+    #   )),
     ("stats", Storage(
             name_nice = T("Statistics"),
             #description = "Manages statistics",
             restricted = True,
             module_type = None,
         )),
-    ("vulnerability", Storage(
-            name_nice = T("Vulnerability"),
-            #description = "Manages vulnerability indicators",
-            restricted = True,
-            module_type = 10,
-        )),
+    # Not yet anabled in Prod
+    #("vulnerability", Storage(
+    #        name_nice = T("Vulnerability"),
+    #        #description = "Manages vulnerability indicators",
+    #        restricted = True,
+    #        module_type = 10,
+    #    )),
 ])
