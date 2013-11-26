@@ -29,13 +29,14 @@
 
 __all__ = ["S3ChannelModel",
            "S3MessageModel",
+           "S3MessageAttachmentModel",
            "S3EmailModel",
            "S3MCommonsModel",
            "S3ParsingModel",
            "S3RSSModel",
            "S3SMSModel",
            "S3SMSOutboundModel",
-           "S3SubscriptionModel",
+           "S3MessageSubscriptionModel",
            "S3TropoModel",
            "S3TwilioModel",
            "S3TwitterModel",
@@ -402,9 +403,13 @@ class S3MessageModel(S3Model):
                                      represent = message_represent,
                                      ondelete = "RESTRICT")
 
+        self.add_component("msg_attachment",
+                           msg_message="message_id")
+
         # ---------------------------------------------------------------------
         # Outbound Messages
-        # ---------------------------------------------------------------------
+        #
+
         # Show only the supported messaging methods
         MSG_CONTACT_OPTS = current.msg.MSG_CONTACT_OPTS
 
@@ -473,6 +478,31 @@ class S3MessageModel(S3Model):
                     )
 
 # =============================================================================
+class S3MessageAttachmentModel(S3Model):
+    """
+        Message Attachments
+        - link table between msg_message & doc_document
+    """
+
+    names = ["msg_attachment",
+             ]
+
+    def model(self):
+
+        # ---------------------------------------------------------------------
+        #
+        tablename = "msg_attachment"
+        table = self.define_table(tablename,
+                                  # FK not instance
+                                  self.msg_message_id(),
+                                  self.doc_document_id(),
+                                  *s3_meta_fields())
+
+        # ---------------------------------------------------------------------
+        # Pass names back to global scope (s3.*)
+        return dict()
+
+# =============================================================================
 class S3EmailModel(S3ChannelModel):
     """
         Email
@@ -489,6 +519,7 @@ class S3EmailModel(S3ChannelModel):
 
         T = current.T
 
+        add_component = self.add_component
         configure = self.configure
         define_table = self.define_table
         set_method = self.set_method
@@ -581,6 +612,18 @@ class S3EmailModel(S3ChannelModel):
         configure(tablename,
                   super_entity = "msg_message",
                   )
+
+        # Components
+        add_component("deploy_response",
+                      msg_email="message_id")
+
+        # Used to link to custom tab deploy_response_select_mission
+        add_component("deploy_mission",
+                      msg_email=dict(name="select",
+                                     link="deploy_response",
+                                     joinby="message_id",
+                                     key="mission_id",
+                                     autodelete=False))
 
         # ---------------------------------------------------------------------
         return dict()
@@ -1215,7 +1258,7 @@ class S3SMSOutboundModel(S3Model):
         return dict()
 
 # =============================================================================
-class S3SubscriptionModel(S3Model):
+class S3MessageSubscriptionModel(S3Model):
     """
         Handle Subscription
         - currently this is just for Saved Searches

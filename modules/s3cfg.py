@@ -223,10 +223,15 @@ class S3Config(Storage):
     def get_auth_registration_mobile_phone_mandatory(self):
         " Make the selection of Mobile Phone Mandatory during registration "
         return self.auth.get("registration_mobile_phone_mandatory", False)
-
+    
     def get_auth_registration_requests_organisation(self):
         " Have the registration form request the Organisation "
         return self.auth.get("registration_requests_organisation", False)
+
+    def get_auth_admin_sees_organisation(self):
+        " See Organisations in User Admin"
+        return self.auth.get("admin_sees_organisation",
+                             self.get_auth_registration_requests_organisation())
 
     def get_auth_registration_organisation_required(self):
         " Make the selection of Organisation required during registration "
@@ -875,6 +880,11 @@ class S3Config(Storage):
             Whether to translate CMS Series names
         """
         return self.L10n.get("translate_cms_series", False)
+    def get_L10n_translate_gis_layer(self):
+        """
+            Whether to translate Layer names
+        """
+        return self.L10n.get("translate_gis_layer", False)
     def get_L10n_translate_gis_location(self):
         """
             Whether to translate Location names
@@ -956,10 +966,6 @@ class S3Config(Storage):
             - defaults to email
         """
         return self.ui.get("auth_user_represent", "email")
-
-    def get_ui_autocomplete(self):
-        """ Currently Unused """
-        return self.ui.get("autocomplete", False)
 
     def get_ui_confirm(self):
         """
@@ -1614,11 +1620,17 @@ class S3Config(Storage):
 
     # -------------------------------------------------------------------------
     # Organisation
+    def get_org_autocomplete(self):
+        """
+            Whether organisation_id fields should use an Autocomplete instead of a dropdown
+        """
+        return self.org.get("autocomplete", False)
+
     def get_org_branches(self):
         """
             Whether to support Organisation branches or not
         """
-        return self.org.get("branches", True)
+        return self.org.get("branches", False)
 
     def get_org_regions(self):
         """
@@ -1649,6 +1661,12 @@ class S3Config(Storage):
             Whether site_id fields should use an Autocomplete instead of a dropdown
         """
         return self.org.get("site_autocomplete", False)
+
+    def get_org_site_autocomplete_fields(self):
+        """
+            Which extra fields should be returned in S3SiteAutocompleteWidget
+        """
+        return self.org.get("site_autocomplete_fields", ["instance_type"])
 
     def get_org_site_address_autocomplete(self):
         """
@@ -1856,6 +1874,16 @@ class S3Config(Storage):
     
     # -------------------------------------------------------------------------
     # Request Settings
+    def get_req_req_type(self):
+        """
+            The Types of Request which can be made.
+            Select one or more from:
+            * People
+            * Stock
+            * Other
+            tbc: Assets, Shelter, Food
+        """
+        return self.req.get("req_type", ["Stock", "People", "Other"])
     def get_req_type_inv_label(self):
         return current.T(self.req.get("type_inv_label", "Warehouse Stock"))
     def get_req_type_hrm_label(self):
@@ -1864,8 +1892,21 @@ class S3Config(Storage):
         return current.T(self.req.get("requester_label", "Requester"))
     def get_req_requester_optional(self):
         return self.req.get("requester_optional", False)
+    def get_req_requester_is_author(self):
+        """
+            Whether the User Account logging the Request is normally the Requester
+        """
+        return self.req.get("requester_is_author", True)
     def get_req_requester_from_site(self):
+        """
+            Whether the Requester has to be a staff of the site making the Request
+        """
         return self.req.get("requester_from_site", False)
+    def get_req_requester_to_site(self):
+        """
+            Whether to set the Requester as being an HR for the Site if no HR record yet & as Site contact if none yet exists
+        """
+        return self.req.get("requester_to_site", False)
     def get_req_date_writable(self):
         """ Whether Request Date should be manually editable """
         return self.req.get("date_writable", True)
@@ -1906,6 +1947,19 @@ class S3Config(Storage):
             Whether there is a Commit step in Requests Management
         """
         return self.req.get("use_commit", True)
+    def get_req_commit_value(self):
+        """
+            Whether Donations should have a Value field
+        """
+        return self.req.get("commit_value", False)
+    def get_req_commit_without_request(self):
+        """
+            Whether to allow Donations to be made without a matching Request
+        """
+        return self.req.get("commit_without_request", False)
+    def get_req_committer_is_author(self):
+        """ Whether the User Account logging the Commitment is normally the Committer """
+        return self.req.get("committer_is_author", True)
     def get_req_ask_security(self):
         """
             Should Requests ask whether Security is required?
@@ -1928,16 +1982,6 @@ class S3Config(Storage):
         return self.req.get("use_req_number", True)
     def get_req_generate_req_number(self):
         return self.req.get("generate_req_number", True)
-    def get_req_req_type(self):
-        """
-            The Types of Request which can be made.
-            Select one or more from:
-            * People
-            * Stock
-            * Other
-            tbc: Assets, Shelter, Food
-        """
-        return self.req.get("req_type", ["Stock", "People", "Other"])
     def get_req_form_name(self):
         return self.req.get("req_form_name", "Requisition Form")
     def get_req_shortname(self):

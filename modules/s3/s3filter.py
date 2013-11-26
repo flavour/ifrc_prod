@@ -602,6 +602,7 @@ class S3DateFilter(S3RangeFilter):
         hide_time = self.opts.get("hide_time", False)
 
         # Generate the input elements
+        T = current.T
         selector = self.selector
         _variable = self._variable
         input_class = self._input_class
@@ -641,7 +642,7 @@ class S3DateFilter(S3RangeFilter):
 
             # Append label and widget
             append(DIV(
-                    DIV(LABEL(current.T(input_labels[operator] + ":"),
+                    DIV(LABEL("%s:" % T(input_labels[operator]),
                             _for=input_id),
                         _class="range-filter-label"),
                     DIV(picker,
@@ -908,6 +909,11 @@ class S3LocationFilter(S3FilterWidget):
         if translate:
             # Get IDs via Path to lookup name_l10n
             ids = set()
+            if joined:
+                if "$" in selector:
+                    selector = "%s.%s" % (rfield.field.tablename, selector.split("$", 1)[1])
+                else:
+                    selector = "%s.%s" % (resource.tablename, selector)
             for row in rows:
                 _row = getattr(row, "gis_location") if joined else row
                 path = _row.path
@@ -916,7 +922,7 @@ class S3LocationFilter(S3FilterWidget):
                 else:
                     # Build it
                     if joined:
-                        location_id = row[resource.tablename][selector]
+                        location_id = row[selector]
                         if location_id:
                             _row.id = location_id
                     if "id" in _row:
@@ -1379,7 +1385,11 @@ class S3OptionsFilter(S3FilterWidget):
                         for opt_value in opt_keys if opt_value]
 
         none = opts["none"]
-        opt_list.sort(key = lambda item: item[1])
+
+        try:
+            opt_list.sort(key=lambda item: item[1])
+        except:
+            opt_list.sort(key=lambda item: s3_unicode(item[1]))
         options = []
         empty = None
         for k, v in opt_list:
@@ -1482,11 +1492,11 @@ class S3HierarchyFilter(S3FilterWidget):
             if script not in scripts:
                 scripts.append(script)
 
-        script = """
+        script = '''
 $('#%(widget_id)s').hierarchicalopts({
     appname: '%(appname)s',
     selected: %(selected)s
-});""" % {
+});''' % {
             "appname": current.request.application,
             "widget_id": widget_id,
             "selected": json.dumps(selected) if selected else "null",
@@ -1568,7 +1578,7 @@ class S3FilterForm(object):
             # Auto-submit
             auto_submit = settings.get_ui_filter_auto_submit()
             if auto_submit and opts.get("auto_submit", True):
-                script = """S3.search.filterFormAutoSubmit('%s',%s)""" % \
+                script = '''S3.search.filterFormAutoSubmit('%s',%s)''' % \
                          (form_id, auto_submit)
                 current.response.s3.jquery_ready.append(script)
 
@@ -1768,7 +1778,7 @@ class S3FilterForm(object):
                 row_id = None
                 label_id = None
             if label:
-                label = LABEL("%s :" % label, _id=label_id, _for=widget_id)
+                label = LABEL("%s:" % label, _id=label_id, _for=widget_id)
             else:
                 label = ""
             if not comment:
@@ -1880,7 +1890,7 @@ class S3FilterForm(object):
         if load_text:
             config["loadText"] = _t(load_text)
             
-        script = """$("#%s").filtermanager(%s)""" % (widget_id,
+        script = '''$("#%s").filtermanager(%s)''' % (widget_id,
                                                      json.dumps(config))
 
         current.response.s3.jquery_ready.append(script)

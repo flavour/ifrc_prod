@@ -3023,7 +3023,7 @@ def customize_org_organisation(**attr):
 
             # Hide fields
             table.organisation_type_id.readable = table.organisation_type_id.writable = False
-            table.region.readable = table.region.writable = False
+            table.region_id.readable = table.region_id.writable = False
             table.country.readable = table.country.writable = False
             table.year.readable = table.year.writable = False
             
@@ -3359,6 +3359,9 @@ def customize_pr_person(**attr):
                         label = T("Photo"),
                         multiple = False,
                         fields = ["image"],
+                        filterby = dict(field = "profile",
+                                        options=[True]
+                                        )
                     ),
                 )
 
