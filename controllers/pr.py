@@ -184,7 +184,7 @@ def person():
                    list_fields=["id",
                                 "group_id",
                                 "group_head",
-                                "description",
+                                "comments",
                                 ])
 
     # Basic tabs
@@ -354,7 +354,7 @@ def group():
                     list_fields=["id",
                                  "person_id",
                                  "group_head",
-                                 "description"
+                                 "comments"
                                  ])
 
     rheader = lambda r: s3db.pr_rheader(r, tabs = [(T("Group Details"), None),
@@ -377,8 +377,18 @@ def image():
 def education():
     """ RESTful CRUD controller """
 
-    tablename = "pr_education"
-    table = s3db[tablename]
+    def prep(r):
+        if r.method in ("create", "create.popup", "update", "update.popup"):
+            # Coming from Profile page?
+            person_id = request.get_vars.get("~.person_id", None)
+            if person_id:
+                field = s3db.pr_education.person_id
+                field.default = person_id
+                field.readable = field.writable = False
+
+        return True
+    s3.prep = prep
+
     return s3_rest_controller("pr", "education")
 
 # -----------------------------------------------------------------------------

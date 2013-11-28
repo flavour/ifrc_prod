@@ -1762,12 +1762,25 @@ class S3Resource(object):
                            getids=getids,
                            represent=True)
 
+
+        rows = data["rows"]
+
+        # Empty table - or just no match?
+        empty = False
+        if not rows:
+            DELETED = current.xml.DELETED
+            if DELETED in table:
+                query = (table[DELETED] != True)
+            else:
+                query = (table._id > 0)
+            row = current.db(query).select(table._id, limitby=(0, 1)).first()
+            if not row:
+                empty = True
+                
         # Generate the data table
-        if data["rows"]:
-            rfields = data["rfields"]
-            dt = S3DataTable(rfields, data["rows"], orderby=orderby)
-        else:
-            dt = None
+        rfields = data["rfields"]
+        dt = S3DataTable(rfields, rows, orderby=orderby, empty=empty)
+        
         return dt, data["numrows"], data["ids"]
 
     # -------------------------------------------------------------------------
@@ -4252,7 +4265,7 @@ class S3Resource(object):
                     # iSortCol_x is either not present in vars or specifies
                     # a non-existent column (i.e. iSortCol_x >= numcols) =>
                     # ignore silently
-                    columns.append({"field": None})
+                    columns.append(Storage(field=None))
                 else:
                     columns.append(rfield)
 

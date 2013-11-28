@@ -50,7 +50,6 @@ except ImportError:
 from gluon import *
 from gluon.dal import Row
 from gluon.languages import lazyT
-from gluon.serializers import json as jsons
 from gluon.storage import Storage
 from gluon.tools import callback
 
@@ -77,11 +76,10 @@ class S3CRUD(S3Method):
             @return: output object to send to the view
         """
 
-        settings = current.deployment_settings
-
-        self.sqlform = settings.get_ui_crud_form(self.tablename)
-        if not self.sqlform:
-            self.sqlform = self._config("crud_form", S3SQLDefaultForm())
+        sqlform = current.deployment_settings.get_ui_crud_form(self.tablename)
+        if not sqlform:
+            sqlform = self._config("crud_form", S3SQLDefaultForm())
+        self.sqlform = sqlform
 
         self.settings = current.response.s3.crud
 
@@ -1225,24 +1223,16 @@ class S3CRUD(S3Method):
                                                     distinct=distinct)
             displayrows = totalrows
 
-            if dt is None:
+            if not dt.data:
                 # Empty table - or just no match?
-
-                table = resource.table
-                if "deleted" in table:
-                    available_records = current.db(table.deleted != True)
-                else:
-                    available_records = current.db(table._id > 0)
-                if available_records.select(table._id,
-                                            limitby=(0, 1)).first():
-                    datatable = DIV(self.crud_string(resource.tablename,
-                                                     "msg_no_match"),
-                                    _class="empty")
-                else:
+                if dt.empty:
                     datatable = DIV(self.crud_string(resource.tablename,
                                                      "msg_list_empty"),
                                     _class="empty")
-
+                else:
+                    datatable = DIV(self.crud_string(resource.tablename,
+                                                     "msg_no_match"),
+                                    _class="empty")
                 s3.no_formats = True
 
                 if r.component and "showadd_btn" in output:

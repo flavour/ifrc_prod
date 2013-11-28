@@ -80,6 +80,7 @@ class S3DataTable(object):
                  limit=None,
                  filterString=None,
                  orderby=None,
+                 empty=False,
                  ):
         """
             S3DataTable constructor
@@ -95,6 +96,7 @@ class S3DataTable(object):
 
         self.data = data
         self.rfields = rfields
+        self.empty = empty
 
         colnames = []
         heading = {}
@@ -696,7 +698,7 @@ class S3DataTable(object):
         config.rowStyles = attr.get("dt_styles", [])
 
 
-        rowActions = s3.actions
+        rowActions = attr.get("dt_row_actions", s3.actions)
         if rowActions:
             config.rowActions = rowActions
         else:
@@ -736,7 +738,7 @@ class S3DataTable(object):
         config.shrinkGroupedRows = attr.get("dt_shrink_groups", "false")
         config.groupIcon = attr.get("dt_group_types", [])
         # Wrap the table in a form and add some data in hidden fields
-        form = FORM()
+        form = FORM(_class="dt-wrapper")
         if not s3.no_formats and len(html) > 0:
             permalink = attr.get("dt_permalink", None)
             base_url = attr.get("dt_base_url", None)

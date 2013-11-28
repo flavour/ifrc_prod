@@ -1010,15 +1010,27 @@ class S3RSSModel(S3ChannelModel):
         table = define_table(tablename,
                              # Instance
                              super_link("channel_id", "msg_channel"),
-                             Field("name",
-                                   length = 255,
-                                   unique = True),
-                             Field("description"),
+                             Field("name", length=255, unique=True,
+                                   label = T("Name"),
+                                   ),
+                             Field("description",
+                                   label = T("Description"),
+                                   ),
                              Field("enabled", "boolean",
                                    label = T("Enabled?"),
                                    represent = s3_yes_no_represent,
                                    ),
-                             Field("url"),
+                             Field("url",
+                                   label = T("URL"),
+                                   requires = IS_URL(),
+                                   ),
+                             s3_datetime(label = T("Last Polled"),
+                                         writable = False
+                                         ),
+                             Field("etag",
+                                   label = T("ETag"),
+                                   writable = False
+                                   ),
                              *s3_meta_fields())
 
         self.configure(tablename,
@@ -1533,6 +1545,7 @@ class S3TwitterModel(S3Model):
         table = define_table(tablename,
                              # Instance
                              self.super_link("message_id", "msg_message"),
+                             self.msg_channel_id(),
                              Field("body", length=140,
                                    label = T("Message"),
                                    ),
@@ -1551,6 +1564,10 @@ class S3TwitterModel(S3Model):
                                        (direction and [T("In")] or \
                                                       [T("Out")])[0],
                                    label = T("Direction"),
+                                   ),
+                             Field("msg_id", # Twitter Message ID
+                                   readable = False,
+                                   writable = False,
                                    ),
                              *s3_meta_fields())
 
@@ -1729,6 +1746,10 @@ class S3TwitterSearchModel(S3ChannelModel):
                    method="keygraph",
                    action=self.twitter_keygraph)
 
+        set_method("msg", "twitter_result",
+                   method="timeline",
+                   action=self.twitter_timeline)
+
         # ---------------------------------------------------------------------
         # Twitter Search Results
         #
@@ -1793,12 +1814,14 @@ class S3TwitterSearchModel(S3ChannelModel):
             S3Method for interactive requests
         """
 
+        id = r.id
         tablename = r.tablename
-        current.s3task.async("msg_twitter_search", args=[r.id])
+        current.s3task.async("msg_twitter_search", args=[id])
         current.session.confirmation = \
             current.T("The search request has been submitted, so new messages should appear shortly - refresh to see them")
-        # @ToDo: Filter to this Search
-        redirect(URL(f="twitter_result"))
+        # Filter results to this Search
+        redirect(URL(f="twitter_result",
+                     vars={"~.search_id": id}))
 
     # -----------------------------------------------------------------------------
     @staticmethod
@@ -1813,9 +1836,99 @@ class S3TwitterSearchModel(S3ChannelModel):
         current.s3task.async("msg_process_keygraph", args=[r.id])
         current.session.confirmation = \
             current.T("The search results are now being processed with KeyGraph")
-        # @ToDo: Link to results
+        # @ToDo: Link to KeyGraph results
         redirect(URL(f="twitter_result"))
 
+# =============================================================================
+    @staticmethod
+    def twitter_timeline(r, **attr):
+        """
+            Display the Tweets on a Simile Timeline
+
+            http://www.simile-widgets.org/wiki/Reference_Documentation_for_Timeline
+        """
+
+        if r.representation == "html" and r.name == "twitter_result":
+            response = current.response
+            s3 = response.s3
+            appname = r.application
+
+            # Add core Simile Code
+            s3.scripts.append("/%s/static/scripts/simile/timeline/timeline-api.js" % appname)
+
+            # Add our control script
+            if s3.debug:
+                s3.scripts.append("/%s/static/scripts/S3/s3.timeline.js" % appname)
+            else:
+                s3.scripts.append("/%s/static/scripts/S3/s3.timeline.min.js" % appname)
+
+            # Add our data
+            # @ToDo: Make this the initial data & then collect extra via REST with a stylesheet
+            # add in JS using S3.timeline.eventSource.addMany(events) where events is a []
+            if r.record:
+                # Single record
+                rows = [r.record]
+            else:
+                # Multiple records
+                # @ToDo: Load all records & sort to closest in time
+                # http://stackoverflow.com/questions/7327689/how-to-generate-a-sequence-of-future-datetimes-in-python-and-determine-nearest-d
+                rows = r.resource.select(["created_on", "body"], limit=2000, as_rows=True)
+
+            data = {"dateTimeFormat": "iso8601",
+                    }
+
+            now = r.utcnow
+            tl_start = tl_end = now
+            events = []
+            import re
+            for row in rows:
+                # Dates
+                start = row.created_on or ""
+                if start:
+                    if start < tl_start:
+                        tl_start = start
+                    if start > tl_end:
+                        tl_end = start
+                    start = start.isoformat()
+
+                title = (re.sub(r"(?<=^|(?<=[^a-zA-Z0-9-_\.]))@([A-Za-z]+[A-Za-z0-9]+)|RT", "", row.body))
+                if len(title) > 30:
+                    title = title[:30]
+
+                events.append({"start": start,
+                               "title": title,
+                               "description": row.body,
+                               })
+            data["events"] = events
+            data = json.dumps(data)
+
+            code = "".join((
+'''S3.timeline.data=''', data, '''
+S3.timeline.tl_start="''', tl_start.isoformat(), '''"
+S3.timeline.tl_end="''', tl_end.isoformat(), '''"
+S3.timeline.now="''', now.isoformat(), '''"
+'''))
+
+            # Control our code in static/scripts/S3/s3.timeline.js
+            s3.js_global.append(code)
+
+            # Create the DIV
+            item = DIV(_id="s3timeline", _class="s3-timeline")
+
+            output = dict(item=item)
+
+            # Maintain RHeader for consistency
+            if attr.get("rheader"):
+                rheader = attr["rheader"](r)
+                if rheader:
+                    output["rheader"] = rheader
+
+            output["title"] = current.T("Twitter Timeline")
+            response.view = "timeline.html"
+            return output
+
+        else:
+            r.error(405, r.ERROR.BAD_METHOD)
 # =============================================================================
 class S3XFormsModel(S3Model):
     """

@@ -1240,9 +1240,9 @@ class S3PersonModel(S3Model):
         limit = int(_vars.limit or 0)
         MAX_SEARCH_RESULTS = current.deployment_settings.get_search_max_results()
         if (not limit or limit > MAX_SEARCH_RESULTS) and resource.count() > MAX_SEARCH_RESULTS:
-            output = jsons([dict(id="",
-                                 name="Search results are over %d. Please input more characters." \
-                                     % MAX_SEARCH_RESULTS)])
+            output = json.dumps([dict(id="",
+                                      name="Search results are over %d. Please input more characters." \
+                                          % MAX_SEARCH_RESULTS)])
         else:
             fields = ["id",
                       "first_name",
@@ -1494,7 +1494,7 @@ class S3GroupModel(S3Model):
 
         # Reusable field
         if current.request.controller in ("hrm", "vol") and \
-           current.deployment_settings.get_hrm_teams() == "Team":
+           current.deployment_settings.get_hrm_teams() == "Teams":
             label = T("Add Team")
             title = T("Create Team")
             tooltip = T("Create a new Team.")
@@ -1537,10 +1537,6 @@ class S3GroupModel(S3Model):
                                    default=False,
                                    represent = lambda group_head: \
                                     (group_head and [T("yes")] or [""])[0]),
-                             s3_comments("description",
-                                         label = T("Description"),
-                                         comment = None,
-                                         ),
                              s3_comments(),
                              *s3_meta_fields())
 
@@ -1590,15 +1586,18 @@ class S3GroupModel(S3Model):
                           )]
 
         configure(tablename,
-                  onaccept = self.group_membership_onaccept,
-                  ondelete = self.group_membership_onaccept,
+                  context = {"person": "person_id",
+                             },
                   filter_widgets = filter_widgets,
                   list_fields = ["id",
                                  "group_id",
                                  "group_id$description",
                                  "person_id",
                                  "group_head",
-                                 ])
+                                 ],
+                  onaccept = self.group_membership_onaccept,
+                  ondelete = self.group_membership_onaccept,
+                  )
 
         # ---------------------------------------------------------------------
         # Pass names back to global scope (s3.*)
@@ -2490,16 +2489,19 @@ class S3PersonEducationModel(S3Model):
             msg_list_empty = T("No education details currently registered"))
 
         self.configure("pr_education",
-                       deduplicate=self.pr_education_deduplicate,
-                       list_fields=["id",
-                                    "person_id",
-                                    "year",
-                                    "level",
-                                    "award",
-                                    "major",
-                                    "grade",
-                                    "institute",
-                                    ],
+                       context = {"person": "person_id",
+                                  },
+                       deduplicate = self.pr_education_deduplicate,
+                       list_fields = ["id",
+                                      # Normally accessed via component
+                                      #"person_id",
+                                      "year",
+                                      "level",
+                                      "award",
+                                      "major",
+                                      "grade",
+                                      "institute",
+                                      ],
                        orderby = ~table.year,
                        sortby = [[1, "desc"]]
                        )
