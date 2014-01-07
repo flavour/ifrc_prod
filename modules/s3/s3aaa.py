@@ -126,7 +126,7 @@ class AuthS3(Auth):
             - s3_create_role
             - s3_delete_role
             - s3_assign_role
-            - s3_retract_role
+            - s3_withdraw_role
             - s3_has_role
             - s3_group_members
 
@@ -512,10 +512,12 @@ Thank you
             @return: a login form
         """
 
-        db = current.db
         T = current.T
-
-        current.response.title = T("Login")
+        db = current.db
+        request = current.request
+        response = current.response
+        session = current.session
+        deployment_settings = current.deployment_settings
 
         utable = self.settings.table_user
         if self.settings.login_userfield:
@@ -526,10 +528,6 @@ Thank you
             username = "email"
         old_requires = utable[username].requires
         utable[username].requires = [IS_NOT_EMPTY(), IS_LOWER()]
-        request = current.request
-        response = current.response
-        session = current.session
-        deployment_settings = current.deployment_settings
         passfield = self.settings.password_field
         try:
             utable[passfield].requires[-1].min_length = 0
@@ -545,6 +543,8 @@ Thank you
             log = self.messages.login_log
 
         user = None # default
+
+        response.title = T("Login")
 
         # Do we use our own login form, or from a central source?
         formstyle = self.settings.formstyle
@@ -580,7 +580,7 @@ Thank you
                                             _name="auth_user_clientlocation",
                                             _style="display:none"),
                        "display:none", "auth_user_client_location")
-                current.response.s3.jquery_ready.append('''s3_get_client_location($('#auth_user_clientlocation'))''')
+                response.s3.jquery_ready.append('''S3.getClientLocation($('#auth_user_clientlocation'))''')
 
             captcha = self.settings.login_captcha or \
                 (self.settings.login_captcha!=False and self.settings.captcha)
@@ -589,7 +589,7 @@ Thank you
                        formstyle,'captcha__row')
 
             accepted_form = False
-            if form.accepts(request.vars, session,
+            if form.accepts(request.post_vars, session,
                             formname="login", dbio=False,
                             onvalidation=onvalidation):
                 accepted_form = True
@@ -951,7 +951,6 @@ Thank you
                 self.add_membership(admin_group_id, users.first().id)
 
                 # Log them in
-                #user = utable[form.vars.id]
                 if "language" not in form.vars:
                     # Was missing from login form
                     form.vars.language = T.accepted_language
@@ -981,7 +980,6 @@ Thank you
 
                 if approved:
                     # Log them in
-                    #user = utable[form.vars.id]
                     if "language" not in form.vars:
                         # Was missing from login form
                         form.vars.language = T.accepted_language
@@ -1060,7 +1058,12 @@ Thank you
         if next == DEFAULT:
             next = settings.verify_email_next
 
-        self.s3_verify_user(user)
+        approved = self.s3_verify_user(user)
+
+        if approved:
+            # Log them in
+            user = Storage(utable._filter_fields(user, id=True))
+            self.login_user(user)
 
         if log:
             self.log_event(log % user)
@@ -1293,7 +1296,11 @@ Thank you
         #utable.reset_password_key.label = messages.label_registration_key
 
         # Organisation
-        req_org = deployment_settings.get_auth_registration_requests_organisation()
+        # @ToDo: Allow Admin to see Org linkage even if Users cannot specify when they register
+        if current.auth.s3_has_role("ADMIN"):         
+            req_org = deployment_settings.get_auth_admin_sees_organisation()
+        else:
+            req_org = deployment_settings.get_auth_registration_requests_organisation()
         if req_org:
             if pe_ids:
                 # Filter orgs to just those belonging to the Org Admin's Org
@@ -1800,6 +1807,15 @@ S3OptionsFilter({
                              id = user.id)
         else:
             approved = True
+            if organisation_id and not user.get("organisation_id", None):
+                # Use the whitelist
+                user["organisation_id"] = organisation_id
+                utable = self.settings.table_user
+                current.db(utable.id == user.id).update(organisation_id = organisation_id)
+                link_user_to = deployment_settings.get_auth_registration_link_user_to_default()
+                if link_user_to and not user.get("link_user_to", None):
+                    user["link_user_to"] = link_user_to
+                self.s3_link_user(user)
             self.s3_approve_user(user)
             session = current.session
             session.confirmation = self.messages.email_verified
@@ -3012,7 +3028,7 @@ S3OptionsFilter({
         return
 
     # -------------------------------------------------------------------------
-    def s3_retract_role(self, user_id, group_id, for_pe=None):
+    def s3_withdraw_role(self, user_id, group_id, for_pe=None):
         """
             Removes a role assignment from a user account
 
@@ -3779,22 +3795,13 @@ S3OptionsFilter({
         def decorator(action):
 
             def f(*a, **b):
+                
                 if self.override:
                     return action(*a, **b)
 
-                if not self.s3_logged_in():
-                    import urllib
-                    request = current.request
-                    next = URL(args=request.args, vars=request.get_vars)
-                    redirect("%s?_next=%s" % (self.settings.login_url,
-                                              urllib.quote(next)))
-
-                system_roles = self.get_system_roles()
-                ADMIN = system_roles.ADMIN
+                ADMIN = self.get_system_roles().ADMIN
                 if not self.s3_has_role(role) and not self.s3_has_role(ADMIN):
-                    current.session.error = self.messages.access_denied
-                    next = self.settings.on_failed_authorization
-                    redirect(next)
+                    self.permission.fail()
 
                 return action(*a, **b)
 
@@ -4485,13 +4492,11 @@ class S3Permission(object):
         "read": READ,
         "update": UPDATE,
         "delete": DELETE,
-
         "search": READ,
         "report": READ,
+        "report2": READ,
         "map": READ,
-
         "import": CREATE,
-
         "review": REVIEW,
         "approve": APPROVE,
         "reject": APPROVE,
@@ -5658,16 +5663,14 @@ class S3Permission(object):
                       or list of applicable ACLs
         """
 
-        db = current.db
-        table = self.table
-
-        gtable = self.auth.settings.table_group
-
         if not self.use_cacls:
             # We do not use ACLs at all (allow all)
             return None
         else:
             acls = Storage()
+
+        db = current.db
+        table = self.table
 
         c = c or self.controller
         f = f or self.function
@@ -5730,9 +5733,6 @@ class S3Permission(object):
 
         ALL = (self.ALL, self.ALL)
         NONE = (self.NONE, self.NONE)
-
-        atn = table._tablename
-        gtn = gtable._tablename
 
         use_facls = self.use_facls
         def rule_type(r):
@@ -7258,9 +7258,9 @@ class S3RoleManager(S3Method):
                                     pe_id = row.pe_id
                                 else:
                                     pe_id = []
-                                auth.s3_retract_role(row.user_id,
-                                                     row.group_id,
-                                                     for_pe=pe_id)
+                                auth.s3_withdraw_role(row.user_id,
+                                                      row.group_id,
+                                                      for_pe=pe_id)
                                 removed += 1
                     if removed:
                         session.confirmation = T("%(count)s Roles of the user removed") % \
@@ -7504,9 +7504,9 @@ class S3RoleManager(S3Method):
                                                    mtable.pe_id,
                                                    limitby=(0, 1)).first()
                             if row:
-                                auth.s3_retract_role(row.user_id,
-                                                     row.group_id,
-                                                     for_pe=row.pe_id)
+                                auth.s3_withdraw_role(row.user_id,
+                                                      row.group_id,
+                                                      for_pe=row.pe_id)
                                 removed += 1
                     if removed:
                         session.confirmation = T("%(count)s Users removed from Role") % \
@@ -8087,13 +8087,13 @@ class S3EntityRoleManager(S3Method):
 
         auth = current.auth
         assign_role = auth.s3_assign_role
-        retract_role = auth.s3_retract_role
+        withdraw_role = auth.s3_withdraw_role
 
         for role_uid in before:
             # If role_uid is not in after,
             # the access level has changed.
             if role_uid not in after:
-                retract_role(user_id, role_uid, entity_id)
+                withdraw_role(user_id, role_uid, entity_id)
 
         for role_uid in after:
             # If the role_uid is not in before,

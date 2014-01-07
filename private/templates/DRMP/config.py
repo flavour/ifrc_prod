@@ -127,6 +127,8 @@ settings.L10n.date_format = "%d %b %y"
 settings.L10n.decimal_separator = "."
 # Thousands separator for numbers (defaults to space)
 settings.L10n.thousands_separator = ","
+# Uncomment this to Translate CMS Series Names
+settings.L10n.translate_cms_series = True
 
 # Restrict the Location Selector to just certain countries
 settings.gis.countries = ["TL"]
@@ -139,6 +141,8 @@ settings.gis.layer_properties = False
 settings.gis.nav_controls = False
 # Uncomment to display the Map Legend as a floating DIV
 settings.gis.legend = "float"
+# Uncomment to disable the ability to add PoIs to the main map
+settings.gis.pois = False
 
 # -----------------------------------------------------------------------------
 # Finance settings
@@ -190,9 +194,6 @@ settings.pr.request_gender = False
 # -----------------------------------------------------------------------------
 # Org
 settings.org.site_label = "Office"
-# Disable the use of Organisation Branches
-settings.org.branches = False
-
 
 # -----------------------------------------------------------------------------
 # Project
@@ -222,27 +223,18 @@ def currency_represent(v):
         return current.messages["NONE"]
 
 # -----------------------------------------------------------------------------
-def render_contacts(listid, resource, rfields, record, **attr):
+def render_contacts(list_id, item_id, resource, rfields, record):
     """
         Custom dataList item renderer for Contacts on the Profile pages
 
-        @param listid: the HTML ID for this list
+        @param list_id: the HTML ID of the list
+        @param item_id: the HTML ID of the item
         @param resource: the S3Resource to render
         @param rfields: the S3ResourceFields to render
         @param record: the record as dict
-        @param attr: additional HTML attributes for the item
     """
 
-    pkey = "hrm_human_resource.id"
-
-    # Construct the item ID
-    if pkey in record:
-        record_id = record[pkey]
-        item_id = "%s-%s" % (listid, record_id)
-    else:
-        # template
-        item_id = "%s-[id]" % listid
-
+    record_id = record["hrm_human_resource.id"]
     item_class = "thumbnail"
 
     raw = record._row
@@ -282,7 +274,7 @@ def render_contacts(listid, resource, rfields, record, **attr):
     permit = current.auth.s3_has_permission
     table = current.s3db.pr_person
     if permit("update", table, record_id=person_id):
-        vars = {"refresh": listid,
+        vars = {"refresh": list_id,
                 "record": record_id,
                 }
         f = current.request.function
@@ -378,27 +370,18 @@ def render_contacts(listid, resource, rfields, record, **attr):
     return item
 
 # -----------------------------------------------------------------------------
-def render_events(listid, resource, rfields, record, **attr):
+def render_events(list_id, item_id, resource, rfields, record):
     """
         Custom dataList item renderer for Events on the Disaster Selection Page
 
-        @param listid: the HTML ID for this list
+        @param list_id: the HTML ID of the list
+        @param item_id: the HTML ID of the item
         @param resource: the S3Resource to render
         @param rfields: the S3ResourceFields to render
         @param record: the record as dict
-        @param attr: additional HTML attributes for the item
     """
 
-    pkey = "event_event.id"
-
-    # Construct the item ID
-    if pkey in record:
-        record_id = record[pkey]
-        item_id = "%s-%s" % (listid, record_id)
-    else:
-        # template
-        item_id = "%s-[id]" % listid
-
+    record_id = record["event_event.id"]
     item_class = "thumbnail"
 
     raw = record._row
@@ -421,7 +404,7 @@ def render_events(listid, resource, rfields, record, **attr):
             edit_btn = A(I(" ", _class="icon icon-edit"),
                          _href=URL(c="event", f="event",
                                    args=[record_id, "update.popup"],
-                                   vars={"refresh": listid,
+                                   vars={"refresh": list_id,
                                          "record": record_id}),
                          _class="s3_modal",
                          _title=current.response.s3.crud_strings.event_event.title_update,
@@ -473,8 +456,8 @@ def render_events(listid, resource, rfields, record, **attr):
     # Render the item
     item = DIV(DIV(A(IMG(_class="media-object",
                          _src=URL(c="static",
-                                  f="themes",
-                                  args=["DRMP", "img", "%s.png" % event_type]),
+                                  f="img",
+                                  args=["event", "%s.png" % event_type]),
                          ),
                      _class="pull-left",
                      _href=event_url,
@@ -539,27 +522,18 @@ def quote_unicode(s):
     return "".join(chars)
 
 # -----------------------------------------------------------------------------
-def render_locations(listid, resource, rfields, record, **attr):
+def render_locations(list_id, item_id, resource, rfields, record):
     """
         Custom dataList item renderer for Locations on the Selection Page
 
-        @param listid: the HTML ID for this list
+        @param list_id: the HTML ID of the list
+        @param item_id: the HTML ID of the item
         @param resource: the S3Resource to render
         @param rfields: the S3ResourceFields to render
         @param record: the record as dict
-        @param attr: additional HTML attributes for the item
     """
 
-    pkey = "gis_location.id"
-
-    # Construct the item ID
-    if pkey in record:
-        record_id = record[pkey]
-        item_id = "%s-%s" % (listid, record_id)
-    else:
-        # template
-        item_id = "%s-[id]" % listid
-
+    record_id = record["gis_location.id"]
     item_class = "thumbnail"
 
     raw = record._row
@@ -588,7 +562,7 @@ def render_locations(listid, resource, rfields, record, **attr):
         # edit_btn = A(I(" ", _class="icon icon-edit"),
                      # _href=URL(c="gis", f="location",
                                # args=[record_id, "update.popup"],
-                               # vars={"refresh": listid,
+                               # vars={"refresh": list_id,
                                      # "record": record_id}),
                      # _class="s3_modal",
                      # _title=current.response.s3.crud_strings.gis_location.title_update,
@@ -698,28 +672,19 @@ def render_locations(listid, resource, rfields, record, **attr):
     return item
 
 # -----------------------------------------------------------------------------
-def render_locations_profile(listid, resource, rfields, record, **attr):
+def render_locations_profile(list_id, item_id, resource, rfields, record):
     """
         Custom dataList item renderer for Locations on the Profile Page
         - UNUSED
 
-        @param listid: the HTML ID for this list
+        @param list_id: the HTML ID of the list
+        @param item_id: the HTML ID of the item
         @param resource: the S3Resource to render
         @param rfields: the S3ResourceFields to render
         @param record: the record as dict
-        @param attr: additional HTML attributes for the item
     """
 
-    pkey = "gis_location.id"
-
-    # Construct the item ID
-    if pkey in record:
-        record_id = record[pkey]
-        item_id = "%s-%s" % (listid, record_id)
-    else:
-        # template
-        item_id = "%s-[id]" % listid
-
+    record_id = record["gis_location.id"]
     item_class = "thumbnail"
 
     raw = record._row
@@ -736,7 +701,7 @@ def render_locations_profile(listid, resource, rfields, record, **attr):
     # permit = current.auth.s3_has_permission
     # table = current.db.gis_location
     # if permit("update", table, record_id=record_id):
-        # vars = {"refresh": listid,
+        # vars = {"refresh": list_id,
                 # "record": record_id,
                 # }
         # f = current.request.function
@@ -781,27 +746,18 @@ def render_locations_profile(listid, resource, rfields, record, **attr):
     return item
 
 # -----------------------------------------------------------------------------
-def render_offices(listid, resource, rfields, record, **attr):
+def render_offices(list_id, item_id, resource, rfields, record):
     """
         Custom dataList item renderer for Offices on the Profile pages
 
-        @param listid: the HTML ID for this list
+        @param list_id: the HTML ID of the list
+        @param item_id: the HTML ID of the item
         @param resource: the S3Resource to render
         @param rfields: the S3ResourceFields to render
         @param record: the record as dict
-        @param attr: additional HTML attributes for the item
     """
 
-    pkey = "org_office.id"
-
-    # Construct the item ID
-    if pkey in record:
-        record_id = record[pkey]
-        item_id = "%s-%s" % (listid, record_id)
-    else:
-        # template
-        item_id = "%s-[id]" % listid
-
+    record_id = record["org_office.id"]
     item_class = "thumbnail"
 
     raw = record._row
@@ -834,7 +790,7 @@ def render_offices(listid, resource, rfields, record, **attr):
     permit = current.auth.s3_has_permission
     table = current.db.org_office
     if permit("update", table, record_id=record_id):
-        vars = {"refresh": listid,
+        vars = {"refresh": list_id,
                 "record": record_id,
                 }
         f = current.request.function
@@ -911,27 +867,18 @@ def render_offices(listid, resource, rfields, record, **attr):
     return item
 
 # -----------------------------------------------------------------------------
-def render_organisations(listid, resource, rfields, record, **attr):
+def render_organisations(list_id, item_id, resource, rfields, record):
     """
         Custom dataList item renderer for Organisations on the Stakeholder Selection Page
 
-        @param listid: the HTML ID for this list
+        @param list_id: the HTML ID of the list
+        @param item_id: the HTML ID of the item
         @param resource: the S3Resource to render
         @param rfields: the S3ResourceFields to render
         @param record: the record as dict
-        @param attr: additional HTML attributes for the item
     """
 
-    pkey = "org_organisation.id"
-
-    # Construct the item ID
-    if pkey in record:
-        record_id = record[pkey]
-        item_id = "%s-%s" % (listid, record_id)
-    else:
-        # template
-        item_id = "%s-[id]" % listid
-
+    record_id = record["org_organisation.id"]
     item_class = "thumbnail span6"
 
     raw = record._row
@@ -966,7 +913,7 @@ def render_organisations(listid, resource, rfields, record, **attr):
         edit_btn = A(I(" ", _class="icon icon-edit"),
                      _href=URL(c="org", f="organisation",
                                args=[record_id, "update.popup"],
-                               vars={"refresh": listid,
+                               vars={"refresh": list_id,
                                      "record": record_id}),
                      _class="s3_modal",
                      _title=current.response.s3.crud_strings.org_organisation.title_update,
@@ -1063,29 +1010,19 @@ def render_organisations(listid, resource, rfields, record, **attr):
     return item
 
 # -----------------------------------------------------------------------------
-def render_posts(listid, resource, rfields, record, 
-                 type = None,
-                 **attr):
+def render_posts(list_id, item_id, resource, rfields, record, type=None):
     """
         Custom dataList item renderer for CMS Posts on the Home & News Feed pages
 
-        @param listid: the HTML ID for this list
+        @param list_id: the HTML ID of the list
+        @param item_id: the HTML ID of the item
         @param resource: the S3Resource to render
         @param rfields: the S3ResourceFields to render
         @param record: the record as dict
-        @param attr: additional HTML attributes for the item
+        @param type: ? (@todo)
     """
 
-    pkey = "cms_post.id"
-
-    # Construct the item ID
-    if pkey in record:
-        record_id = record[pkey]
-        item_id = "%s-%s" % (listid, record_id)
-    else:
-        # template
-        item_id = "%s-[id]" % listid
-
+    record_id = record["cms_post.id"]
     item_class = "thumbnail"
 
     raw = record._row
@@ -1153,7 +1090,7 @@ def render_posts(listid, resource, rfields, record,
         edit_btn = A(I(" ", _class="icon icon-edit"),
                      _href=URL(c="cms", f="post",
                                args=[record_id, "update.popup"],
-                               vars={"refresh": listid,
+                               vars={"refresh": list_id,
                                      "record": record_id}),
                      _class="s3_modal",
                      _title=T("Edit %(type)s") % dict(type=T(series)),
@@ -1293,29 +1230,20 @@ def render_posts(listid, resource, rfields, record,
 s3.render_posts = render_posts
 
 # -----------------------------------------------------------------------------
-def render_profile_posts(listid, resource, rfields, record, **attr):
+def render_profile_posts(list_id, item_id, resource, rfields, record):
     """
         Custom dataList item renderer for CMS Posts on the Profile pages
 
-        @param listid: the HTML ID for this list
+        @param list_id: the HTML ID of the list
+        @param item_id: the HTML ID of the item
         @param resource: the S3Resource to render
         @param rfields: the S3ResourceFields to render
         @param record: the record as dict
-        @param attr: additional HTML attributes for the item
     """
 
-    pkey = "cms_post.id"
-
-    # Construct the item ID
-    if pkey in record:
-        record_id = record[pkey]
-        item_id = "%s-%s" % (listid, record_id)
-    else:
-        # template
-        item_id = "%s-[id]" % listid
-
+    record_id = record["cms_post.id"]
     item_class = "thumbnail"
-
+    
     raw = record._row
     series = record["cms_post.series_id"]
     date = record["cms_post.date"]
@@ -1380,7 +1308,7 @@ def render_profile_posts(listid, resource, rfields, record, **attr):
     table = db.cms_post
     if permit("update", table, record_id=record_id):
         T = current.T
-        vars = {"refresh": listid,
+        vars = {"refresh": list_id,
                 "record": record_id,
                 "~.series_id$name": series,
                 }
@@ -1479,27 +1407,18 @@ def render_profile_posts(listid, resource, rfields, record, **attr):
     return item
 
 # -----------------------------------------------------------------------------
-def render_projects(listid, resource, rfields, record, **attr):
+def render_projects(list_id, item_id, resource, rfields, record):
     """
         Custom dataList item renderer for Projects on the Profile pages
 
-        @param listid: the HTML ID for this list
+        @param list_id: the HTML ID of the list
+        @param item_id: the HTML ID of the item
         @param resource: the S3Resource to render
         @param rfields: the S3ResourceFields to render
         @param record: the record as dict
-        @param attr: additional HTML attributes for the item
     """
 
-    pkey = "project_project.id"
-
-    # Construct the item ID
-    if pkey in record:
-        record_id = record[pkey]
-        item_id = "%s-%s" % (listid, record_id)
-    else:
-        # template
-        item_id = "%s-[id]" % listid
-
+    record_id = record["project_project.id"]
     item_class = "thumbnail"
 
     raw = record._row
@@ -1633,7 +1552,7 @@ def render_projects(listid, resource, rfields, record, **attr):
     permit = current.auth.s3_has_permission
     table = current.db.project_project
     if permit("update", table, record_id=record_id):
-        vars = {"refresh": listid,
+        vars = {"refresh": list_id,
                 "record": record_id,
                 }
         f = current.request.function
@@ -1767,27 +1686,18 @@ def render_projects(listid, resource, rfields, record, **attr):
     return item
 
 # -----------------------------------------------------------------------------
-def render_resources(listid, resource, rfields, record, **attr):
+def render_resources(list_id, item_id, resource, rfields, record):
     """
         Custom dataList item renderer for Resources on the Profile pages
 
-        @param listid: the HTML ID for this list
+        @param list_id: the HTML ID of the list
+        @param item_id: the HTML ID of the item
         @param resource: the S3Resource to render
         @param rfields: the S3ResourceFields to render
         @param record: the record as dict
-        @param attr: additional HTML attributes for the item
     """
 
-    pkey = "org_resource.id"
-
-    # Construct the item ID
-    if pkey in record:
-        record_id = record[pkey]
-        item_id = "%s-%s" % (listid, record_id)
-    else:
-        # template
-        item_id = "%s-[id]" % listid
-
+    record_id = record["org_resource.id"]
     item_class = "thumbnail"
 
     raw = record._row
@@ -1821,7 +1731,7 @@ def render_resources(listid, resource, rfields, record, **attr):
     permit = current.auth.s3_has_permission
     table = current.db.org_resource
     if permit("update", table, record_id=record_id):
-        vars = {"refresh": listid,
+        vars = {"refresh": list_id,
                 "record": record_id,
                 }
         f = current.request.function
@@ -1907,11 +1817,14 @@ def customize_cms_post_fields():
     field.label = ""
     field.represent = s3db.gis_LocationRepresent(sep=" | ")
     field.requires = IS_NULL_OR(
-                        IS_LOCATION_SELECTOR2(levels=["L1", "L2", "L3"])
+                        IS_LOCATION_SELECTOR2(levels=("L1", "L2", "L3"))
                      )
-    field.widget = S3LocationSelectorWidget2(levels=["L1", "L2", "L3"])
+    field.widget = S3LocationSelectorWidget2(levels=("L1", "L2", "L3"))
 
     table.created_by.represent = s3_auth_user_represent_name
+
+    current.auth.settings.table_user.organisation_id.represent = \
+        s3db.org_organisation_represent
 
     list_fields = ["series_id",
                    "location_id",
@@ -2011,7 +1924,7 @@ def cms_post_popup(r):
         edit_btn = A(I(" ", _class="icon icon-edit"),
                      _href=URL(c="cms", f="post",
                                args=[record_id, "update.popup"],
-                               #vars={"refresh": listid,
+                               #vars={"refresh": list_id,
                                #      "record": record_id}
                                ),
                      _class="s3_modal",
@@ -2300,7 +2213,8 @@ def customize_cms_post(**attr):
                 )
                 def create_onaccept(form):
                     table = current.s3db.event_event_post
-                    table.insert(event_id=event_id, post_id=form.vars.id)
+                    table.insert(event_id=event_id,
+                                 post_id=form.vars.id)
 
                 s3db.configure("cms_post",
                                create_onaccept = create_onaccept, 
@@ -2343,7 +2257,8 @@ def customize_cms_post(**attr):
                            list_layout = render_posts,
                            )
 
-            s3.cancel = True
+            # This is awful in Popups & it breaks the styling of the main Save button
+            #s3.cancel = URL(c="cms", f="post")
         elif r.representation == "xls":
             table = r.table
             table.created_by.represent = s3_auth_user_represent_name
@@ -2351,17 +2266,16 @@ def customize_cms_post(**attr):
             utable = current.auth.settings.table_user
             utable.organisation_id.represent = s3db.org_organisation_represent
 
-            list_fields = [
-                (T("Date"), "date"),
-                (T("Disaster"), "event_post.event_id"),
-                (T("Type"), "series_id"),
-                (T("Details"), "body"),
-                (T("District"), "location_id$L1"),
-                (T("Sub-District"), "location_id$L2"),
-                (T("Suco"), "location_id$L3"),
-                (T("Author"), "created_by"),
-                (T("Organization"), "created_by$organisation_id"),
-                ]
+            list_fields = [(T("Date"), "date"),
+                           (T("Disaster"), "event_post.event_id"),
+                           (T("Type"), "series_id"),
+                           (T("Details"), "body"),
+                           (T("District"), "location_id$L1"),
+                           (T("Sub-District"), "location_id$L2"),
+                           (T("Suco"), "location_id$L3"),
+                           (T("Author"), "created_by"),
+                           (T("Organization"), "created_by$organisation_id"),
+                           ]
             s3db.configure("cms_post",
                            list_fields = list_fields,
                            )
@@ -2373,7 +2287,7 @@ def customize_cms_post(**attr):
             table.location_id.represent = s3db.gis_LocationRepresent(sep=" | ")
             table.created_by.represent = s3_auth_user_represent_name
             # Used by default popups
-            series = T(table.series_id.represent(r.record.series_id))
+            series = table.series_id.represent(r.record.series_id)
             s3.crud_strings["cms_post"].title_display = "%(series)s Details" % dict(series=series)
             s3db.configure("cms_post",
                            popup_url="",
@@ -2465,9 +2379,6 @@ def customize_event_event(**attr):
             elif r.method == "profile":
                 # Customise the cms_post table as that is used for the widgets
                 customize_cms_post_fields()
-
-                # Represent used in rendering
-                current.auth.settings.table_user.organisation_id.represent = s3db.org_organisation_represent
 
                 gtable = db.gis_location
                 ltable = db.event_event_location
@@ -2579,8 +2490,8 @@ def customize_event_event(**attr):
                                                             record.name),
                                profile_header = DIV(A(IMG(_class="media-object",
                                                           _src=URL(c="static",
-                                                                   f="themes",
-                                                                   args=["DRMP", "img",
+                                                                   f="img",
+                                                                   args=["event",
                                                                          "%s.png" % event_type]),
                                                           ),
                                                       _class="pull-left",
@@ -2723,7 +2634,7 @@ def customize_gis_location(**attr):
         
                 # Customise tables used by widgets
                 customize_cms_post_fields()
-                customize_org_resource_fields("profile")
+                s3db.org_customize_org_resource_fields("profile")
                 customize_project_project_fields()
 
                 # gis_location table (Sub-Locations)
@@ -2732,9 +2643,6 @@ def customize_gis_location(**attr):
                 list_fields = ["name",
                                "id",
                                ]
-
-                # Represent used in rendering
-                current.auth.settings.table_user.organisation_id.represent = s3db.org_organisation_represent
 
                 location = r.record
                 default = "~.(location)=%s" % location.id
@@ -2864,6 +2772,7 @@ def customize_gis_location(**attr):
         return True
     s3.prep = custom_prep
 
+    attr["hide_filter"] = True
     return attr
 
 settings.ui.customize_gis_location = customize_gis_location
@@ -3093,11 +3002,12 @@ def customize_org_office(**attr):
                 # L1s only
                 from s3.s3validators import IS_LOCATION_SELECTOR2
                 from s3.s3widgets import S3LocationSelectorWidget2
-                location_field.requires = IS_LOCATION_SELECTOR2(levels=["L1", "L2"])
-                location_field.widget = S3LocationSelectorWidget2(levels=["L1", "L2"],
+                location_field.requires = IS_LOCATION_SELECTOR2(levels=("L1", "L2"))
+                location_field.widget = S3LocationSelectorWidget2(levels=("L1", "L2"),
                                                                   show_address=True,
                                                                   show_map=False)
-            s3.cancel = True
+            # This is awful in Popups & inconsistent in dataTable view (People/Documents don't have this & it breaks the styling of the main Save button)
+            #s3.cancel = URL(c="org", f="office")
 
         return True
     s3.prep = custom_prep
@@ -3217,7 +3127,7 @@ def customize_org_organisation(**attr):
                 customize_cms_post_fields()
                 customize_hrm_human_resource_fields()
                 customize_org_office_fields()
-                customize_org_resource_fields("profile")
+                s3db.org_customize_org_resource_fields("profile")
                 customize_project_project_fields()
 
                 contacts_widget = dict(label = "Contacts",
@@ -3360,7 +3270,7 @@ def customize_org_organisation(**attr):
 
             # Hide fields
             table.organisation_type_id.readable = table.organisation_type_id.writable = False
-            table.region.readable = table.region.writable = False
+            table.region_id.readable = table.region_id.writable = False
             table.country.readable = table.country.writable = False
             table.year.readable = table.year.writable = False
             
@@ -3408,35 +3318,6 @@ def customize_org_organisation(**attr):
 settings.ui.customize_org_organisation = customize_org_organisation
 
 # -----------------------------------------------------------------------------
-def customize_org_resource_fields(method):
-    """
-        Customize org_resource fields for Profile widgets and 'more' popups
-    """
-
-    s3db = current.s3db
-
-    table = s3db.org_resource
-    table.location_id.represent = s3db.gis_LocationRepresent(sep=" | ")
-
-    list_fields = ["organisation_id",
-                   "location_id",
-                   "parameter_id",
-                   "value",
-                   "comments",
-                   ]
-    if method in ("datalist", "profile"):
-        table.modified_by.represent = s3_auth_user_represent_name
-        table.modified_on.represent = datetime_represent
-        append = list_fields.append
-        append("modified_by")
-        append("modified_on")
-        append("organisation_id$logo")
-
-    s3db.configure("org_resource",
-                   list_fields = list_fields,
-                   )
-
-# -----------------------------------------------------------------------------
 def customize_org_resource(**attr):
     """
         Customize org_resource controller
@@ -3456,7 +3337,7 @@ def customize_org_resource(**attr):
                 return False
 
         if r.interactive or r.representation == "aadata":
-            customize_org_resource_fields(r.method)
+            s3db.org_customize_org_resource_fields(r.method)
     
             # Configure fields
             #table.site_id.readable = table.site_id.readable = False
@@ -3500,7 +3381,8 @@ def customize_org_resource(**attr):
                            list_layout = render_resources,
                            )
 
-            s3.cancel = True
+            # This is awful in Popups & inconsistent in dataTable view (People/Documents don't have this & it breaks the styling of the main Save button)
+            #s3.cancel = URL(c="org", f="resource")
 
         return True
     s3.prep = custom_prep
@@ -3587,7 +3469,7 @@ def customize_org_resource_type(**attr):
 
     return attr
 
-settings.ui.customize_org_resource_type = customize_org_resource_type
+#settings.ui.customize_org_resource_type = customize_org_resource_type
 
 # -----------------------------------------------------------------------------
 def customize_pr_person(**attr):
@@ -3596,6 +3478,7 @@ def customize_pr_person(**attr):
     """
 
     s3db = current.s3db
+    request = current.request
     s3 = current.response.s3
 
     tablename = "pr_person"
@@ -3616,23 +3499,23 @@ def customize_pr_person(**attr):
             image_field.requires = None
 
         if r.interactive or r.representation == "aadata":
-            from s3.s3forms import S3SQLCustomForm, S3SQLInlineComponent
-            # CRUD Strings
-            ADD_CONTACT = T("Add New Contact")
-            s3.crud_strings[tablename] = Storage(
-                title_create = T("Add Contact"),
-                title_display = T("Contact Details"),
-                title_list = T("Contact Directory"),
-                title_update = T("Edit Contact Details"),
-                title_search = T("Search Contacts"),
-                subtitle_create = ADD_CONTACT,
-                label_list_button = T("List Contacts"),
-                label_create_button = ADD_CONTACT,
-                label_delete_button = T("Delete Contact"),
-                msg_record_created = T("Contact added"),
-                msg_record_modified = T("Contact details updated"),
-                msg_record_deleted = T("Contact deleted"),
-                msg_list_empty = T("No Contacts currently registered"))
+            if request.controller != "default":
+                # CRUD Strings
+                ADD_CONTACT = T("Add New Contact")
+                s3.crud_strings[tablename] = Storage(
+                    title_create = T("Add Contact"),
+                    title_display = T("Contact Details"),
+                    title_list = T("Contact Directory"),
+                    title_update = T("Edit Contact Details"),
+                    title_search = T("Search Contacts"),
+                    subtitle_create = ADD_CONTACT,
+                    label_list_button = T("List Contacts"),
+                    label_create_button = ADD_CONTACT,
+                    label_delete_button = T("Delete Contact"),
+                    msg_record_created = T("Contact added"),
+                    msg_record_modified = T("Contact details updated"),
+                    msg_record_deleted = T("Contact deleted"),
+                    msg_list_empty = T("No Contacts currently registered"))
 
             MOBILE = settings.get_ui_label_mobile_phone()
             EMAIL = T("Email")
@@ -3667,13 +3550,14 @@ def customize_pr_person(**attr):
                          ]
             if r.method in ("create", "update"):
                 # Context from a Profile page?"
-                organisation_id = current.request.get_vars.get("(organisation)", None)
+                organisation_id = request.get_vars.get("(organisation)", None)
                 if organisation_id:
                     field = s3db.hrm_human_resource.organisation_id
                     field.default = organisation_id
                     field.readable = field.writable = False
                     hr_fields.remove("organisation_id")
 
+            from s3.s3forms import S3SQLCustomForm, S3SQLInlineComponent
             s3_sql_custom_fields = [
                     "first_name",
                     #"middle_name",
@@ -3756,7 +3640,7 @@ def customize_pr_person(**attr):
             #iappend('''i18n.job_title="%s"''' % T("Job Title"))
             #i18n = '''\n'''.join(i18n)
             #s3.js_global.append(i18n)
-            #s3.scripts.append('/%s/static/themes/DRMP/js/contacts.js' % current.request.application)
+            #s3.scripts.append('/%s/static/themes/DRMP/js/contacts.js' % request.application)
 
         return True
     s3.prep = custom_prep
@@ -4058,7 +3942,8 @@ def customize_project_project(**attr):
                            filter_widgets = filter_widgets,
                            )
 
-            s3.cancel = True
+            # This is awful in Popups & inconsistent in dataTable view (People/Documents don't have this & it breaks the styling of the main Save button)
+            #s3.cancel = URL(c="project", f="project")
 
         return True
     s3.prep = custom_prep
@@ -4173,6 +4058,8 @@ def customize_doc_document(**attr):
 
             # Force added docs to have a name
             table.name.requires = IS_NOT_EMPTY()
+            table.organisation_id.readable = True
+            table.organisation_id.writable = True
 
             list_fields = ["name",
                            "file",

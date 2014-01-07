@@ -77,6 +77,13 @@ S3.Utf8 = {
 };
 
 S3.addTooltips = function() {
+    // Popovers (Bootstrap themes only)
+    if (typeof($.fn.popover) != 'undefined') {
+        $('.s3-popover').popover({
+            trigger: 'hover',
+            placement: 'left'
+        });
+    }
     // Help Tooltips
     $.cluetip.defaults.cluezIndex = 9999; // Need to be able to show on top of Ext Windows
     $('.tooltip').cluetip({activation: 'hover', sticky: false, splitTitle: '|'});
@@ -131,13 +138,13 @@ S3.addModals = function() {
         }
         return url_out;
     });
-    $('.s3_add_resource_link, .s3_modal').unbind('click')
-                                         .click(function() {
+    $('.s3_add_resource_link, .s3_modal').unbind('click.S3Modal')
+                                         .on('click.S3Modal', function() {
         var title = this.title;
         var url = this.href;
         var id = S3.uid();
         // Open a jQueryUI Dialog showing a spinner until iframe is loaded
-        var dialog = $('<iframe id="' + id + '" class="loading" src=' + url + ' marginWidth="0" marginHeight="0" frameBorder="0" scrolling="auto" onload="S3.popup_loaded(\'' + id + '\')" style = "width:740px;"></iframe>')
+        var dialog = $('<iframe id="' + id + '" src=' + url + ' onload="S3.popup_loaded(\'' + id + '\')" class="loading" marginWidth="0" marginHeight="0" frameBorder="0" style="width:740px"></iframe>')
                       .appendTo('body');
         dialog.dialog({
             // add a close listener to prevent adding multiple divs to the document
@@ -166,190 +173,38 @@ S3.popup_loaded = function(id) {
     $('#' + id).css({width: width})
                // Display the hidden form
                .contents().find('#popup form').show();
-}
-function s3_popup_remove() {
+};
+S3.popup_remove = function() {
     // Close jQueryUI Dialog Modal Popup
+    // - called from s3.popup.js but in parent scope
     $('iframe.ui-dialog-content').dialog('close');
+};
+
+// Functions to re-run after new page elements are brought in via AJAX
+// - an be added-to dynamically
+S3.redraw_fns = [// jQueryUI Dialog Modal Popups
+                 'addModals',
+                 // Help Tooltips
+                 'addTooltips'
+                 ];
+S3.redraw = function() {
+    var redraw_fns = S3.redraw_fns;
+    var len = redraw_fns.length;
+    for (var i=0; i< len; i++) {
+        S3[redraw_fns[i]]();
+    }
 }
 
-$(document).ready(function() {
-    // Web2Py Layer
-    $('.error').hide().slideDown('slow');
-    $('.error').click(function() {
-        $(this).fadeOut('slow');
-        return false;
-    });
-    $('.warning').hide().slideDown('slow');
-    $('.warning').click(function() {
-        $(this).fadeOut('slow');
-        return false;
-    });
-    $('.information').hide().slideDown('slow');
-    $('.information').click(function() {
-        $(this).fadeOut('slow');
-        return false;
-    });
-    $('.confirmation').hide().slideDown('slow');
-    $('.confirmation').click(function() {
-        $(this).fadeOut('slow');
-        return false;
-    });
-    $("input[type='checkbox'].delete").click(function() {
-        if ((this.checked) && (!confirm(i18n.delete_confirmation))) {
-                this.checked = false;
-        }
-    });
-
-    // If a form is submitted with errors, this will scroll
-    // the window to the first form error message
-    var inputErrorId = $('form .error[id]').eq(0).attr('id');
-    if (inputErrorId != undefined) {
-        inputName = inputErrorId.replace('__error', '');
-        inputId = $('[name=' + inputName + ']').attr('id');
-        inputLabel = $('[for=' + inputId + ']');
-        window.scrollTo(0, inputLabel.offset().top);
-    }
-
-    // T2 Layer
-    //try { $('.zoom').fancyZoom( {
-    //    scaleImg: true,
-    //    closeOnClick: true,
-    //    directory: S3.Ap.concat('/static/media')
-    //}); } catch(e) {}
-
-    // S3 Layer
-    // dataTables' delete button
-    // (can't use S3ConfirmClick as the buttons haven't yet rendered)
-    if (S3.interactive) {
-        $(document).on('click', 'a.delete-btn', function(event) {
-            if (confirm(i18n.delete_confirmation)) {
-                return true;
-            } else {
-                event.preventDefault();
-                return false;
-            }
-        });
-
-        if (S3.FocusOnFirstField != false) {
-            // Focus On First Field
-            $('input:text:visible:first').focus();
-        };
-    }
-
-    // Accept comma as thousands separator
-    $('input.int_amount').keyup(function() {
-        this.value = this.value.reverse()
-                               .replace(/[^0-9\-,]|\-(?=.)/g, '')
-                               .reverse();
-    });
-    $('input.float_amount').keyup(function() {
-        this.value = this.value.reverse()
-                               .replace(/[^0-9\-\.,]|[\-](?=.)|[\.](?=[0-9]*[\.])/g, '')
-                               .reverse();
-    });
-    // Auto-capitalize first names
-    $('input[name="first_name"]').focusout(function() {
-        this.value = this.value.charAt(0).toLocaleUpperCase() + this.value.substring(1);
-    });
-
-    // Resizable textareas
-    $('textarea.resizable:not(.textarea-processed)').each(function() {
-        var that = $(this);
-        // Avoid non-processed teasers.
-        if (that.is(('textarea.teaser:not(.teaser-processed)'))) {
-            return false;
-        }
-        var textarea = that.addClass('textarea-processed');
-        var staticOffset = null;
-        // When wrapping the text area, work around an IE margin bug. See:
-        // http://jaspan.com/ie-inherited-margin-bug-form-elements-and-haslayout
-        that.wrap('<div class="resizable-textarea"><span></span></div>')
-        .parent().append($('<div class="grippie"></div>').mousedown(startDrag));
-        var grippie = $('div.grippie', that.parent())[0];
-        grippie.style.marginRight = (grippie.offsetWidth - that[0].offsetWidth) + 'px';
-        function startDrag(e) {
-            staticOffset = textarea.height() - e.pageY;
-            textarea.css('opacity', 0.25);
-            $(document).mousemove(performDrag).mouseup(endDrag);
-            return false;
-        }
-        function performDrag(e) {
-            textarea.height(Math.max(32, staticOffset + e.pageY) + 'px');
-            return false;
-        }
-        function endDrag(e) {
-            $(document).unbind('mousemove', performDrag).unbind('mouseup', endDrag);
-            textarea.css('opacity', 1);
-        }
-        return true;
-    });
-
-    // IE6 non anchor hover hack
-    $('#modulenav .hoverable').hover(
-        function() {
-            $(this).addClass('hovered');
-        },
-        function() {
-            $(this).removeClass('hovered');
-        }
-    );
-
-    // Menu popups (works in IE6)
-    $('#modulenav li').hover(
-        function() {
-                var header_width = $(this).width();
-                var popup_width = $('ul', this).width();
-                if (popup_width !== null){
-                  if (popup_width < header_width){
-                    $('ul', this).css({
-                        'width': header_width.toString() + 'px'
-                    });
-                  }
-                }
-                $('ul', this).css('display', 'block');
-            },
-        function() {
-            $('ul', this).css('display', 'none');
-        }
-    );
-
-    // jQueryUI Dialog Modal Popups
-    S3.addModals();
-
-    // Help Tooltips
-    S3.addTooltips();
-
-    // De-duplication Event Handlers
-    S3.deduplication();
-
-    // UTC Offset
-    now = new Date();
-    $('form').append("<input type='hidden' value=" + now.getTimezoneOffset() + " name='_utc_offset'/>");
-
-    // Social Media 'share' buttons
-    if ($('#socialmedia_share').length > 0) {
-        // DIV exists (deployment_setting on)
-        var currenturl = document.location.href;
-        var currenttitle = document.title;
-        // Linked-In
-        $('#socialmedia_share').append("<div class='socialmedia_element'><script src='//platform.linkedin.com/in.js'></script><script type='IN/Share' data-counter='right'></script></div>");
-        // Twitter
-        $('#socialmedia_share').append("<div class='socialmedia_element'><a href='https://twitter.com/share' class='twitter-share-button' data-count='none' data-hashtags='sahana-eden'>Tweet</a><script>!function(d,s,id){var js,fjs=d.getElementsByTagName(s)[0];if(!d.getElementById(id)){js=d.createElement(s);js.id=id;js.src='//platform.twitter.com/widgets.js';fjs.parentNode.insertBefore(js,fjs);}}(document,'script','twitter-wjs');</script></div>");
-        // Facebook
-        $('#socialmedia_share').append("<div class='socialmedia_element'><div id='fb-root'></div><script>(function(d, s, id) { var js, fjs = d.getElementsByTagName(s)[0]; if (d.getElementById(id)) return; js = d.createElement(s); js.id = id; js.src = '//connect.facebook.net/en_US/all.js#xfbml=1'; fjs.parentNode.insertBefore(js, fjs); }(document, 'script', 'facebook-jssdk'));</script> <div class='fb-like' data-send='false' data-layout='button_count' data-show-faces='true' data-href='" + currenturl + "'></div></div>");
-    }
-
-});
-
-function s3_get_client_location(targetfield) {
-   // Geolocation
+// Geolocation
+// - called from Auth.login()
+S3.getClientLocation = function(targetfield) {
    if (navigator.geolocation) {
     	navigator.geolocation.getCurrentPosition(function(position) {
 			var clientlocation = position.coords.latitude + '|' + position.coords.longitude + '|' + position.coords.accuracy;
 			targetfield.val(clientlocation);
     	});
     }
-}
+};
 
 // ============================================================================
 S3.deduplication = function() {
@@ -427,7 +282,7 @@ S3.deduplication = function() {
 };
 
 // ============================================================================
-function S3ConfirmClick(ElementID, Message) {
+S3.confirmClick = function(ElementID, Message) {
 	// @param ElementID: the ID of the element which will be clicked
 	// @param Message: the Message displayed in the confirm dialog
 	if (S3.interactive) {
@@ -440,92 +295,168 @@ function S3ConfirmClick(ElementID, Message) {
             }
         });
     }
-}
+};
+
+// ============================================================================
+S3.trunk8 = function(selector, lines, more) {
+    // Line-truncation, see s3utils.s3_trunk8
+    var settings = {
+        fill: '&hellip; <a class="s3-truncate-more" href="#">' + more + '</a>'
+    };
+    if (lines) {
+        settings['lines'] = lines;
+    }
+    $(selector).trunk8(settings);
+    // Attach to any new items after Ajax-listUpdate (dataLists)
+    $('.dl').on('listUpdate', function() {
+        $(this).find(selector).each(function() {
+            if (this.trunk8 === undefined) {
+                $(this).trunk8(settings);
+            }
+        });
+    });
+};
+
+// ============================================================================
+// Limit the size of a textbox dynamically
+S3.maxLength = {
+    init: function(id, maxLength) {
+        var apply = this.apply;
+        if (maxLength) {
+            var input = $('#' + id);
+            input.next('div.maxLength_status').remove();
+            input.after('<div class="maxLength_status"></div>');
+            // Apply current settings
+            apply(id, maxLength);
+            input.unbind('keyup.maxLength')
+                 .bind('keyup.maxLength', function(evt) {
+                // Apply new settings
+                apply(id, maxLength);
+            });
+        } else {
+            // Remove the limits & cleanup
+            $('#' + id).removeClass('maxLength')
+                       .unbind('keyup.maxLength')
+                       .next('div.maxLength_status').remove();
+        }
+    },
+
+    apply: function(id, maxLength) {
+        message = i18n.characters_left || 'characters left';
+        var input = $('#' + id);
+        var currentLength = input.val().length;
+        if (currentLength >= maxLength) {
+            // Add the notification class
+            input.addClass('maxLength');
+            // Cut down the string
+            input.val(input.val().substr(0, maxLength));
+        } else {
+            // Remove the notification class
+            input.removeClass('maxLength');
+        }
+        var remaining = maxLength - currentLength;
+        if (remaining < 0) {
+            remaining = 0;
+        }
+        input.next('div.maxLength_status').html(remaining + ' ' + message);
+    }
+};
 
 // ============================================================================
 // Code to warn on exit without saving
-function S3SetNavigateAwayConfirm() {
+var S3SetNavigateAwayConfirm = function() {
     window.onbeforeunload = function() {
         return i18n.unsaved_changes;
     };
-}
+};
 
-function S3ClearNavigateAwayConfirm() {
+var S3ClearNavigateAwayConfirm = function() {
     window.onbeforeunload = function() {};
-}
+};
 
-function S3EnableNavigateAwayConfirm() {
+var S3EnableNavigateAwayConfirm = function() {
     $(document).ready(function() {
-        if ( $('[class=error]').length > 0 ) {
+        if ($('[class=error]').length > 0) {
             // If there are errors, ensure the unsaved form is still protected
             S3SetNavigateAwayConfirm();
         }
         var form = 'form:not(form.filter-form)',
             input = 'input:not(input[id=gis_location_advanced_checkbox])',
             select = 'select';
-        $(form + ' ' + input).keypress( S3SetNavigateAwayConfirm );
-        $(form + ' ' + input).change( S3SetNavigateAwayConfirm );
-        $(form + ' ' + select).change( S3SetNavigateAwayConfirm );
-        $('form').submit( S3ClearNavigateAwayConfirm );
+        $(form + ' ' + input).keypress(S3SetNavigateAwayConfirm);
+        $(form + ' ' + input).change(S3SetNavigateAwayConfirm);
+        $(form + ' ' + select).change(S3SetNavigateAwayConfirm);
+        $('form').submit(S3ClearNavigateAwayConfirm);
     });
-}
+};
 
 // ============================================================================
 /**
  * ajaxS3
- * added by sunneach 2010-feb-14
+ * - wrapper for jQuery AJAX to handle poor network environments
+ * - retries failed requests & alerts on errors
  */
 
 (function($) {
     // Default AJAX settings
     $.ajaxS3Settings = {
         timeout : 10000,
-        msgTimeout: 2000,
-        retryLimit : 10,
+        //msgTimeout: 2000,
+        retryLimit: 5,
         dataType: 'json',
         async: true,
         type: 'GET'
     };
 
-    // Wrapper for jQuery's .ajax to provide notifications on errors
     $.ajaxS3 = function(s) {
+        var message;
         var options = $.extend( {}, $.ajaxS3Settings, s );
         options.tryCount = 0;
         options.error = null;   // prevent callback from being executed twice
         options.success = null; // prevent callback from being executed twice
         if (s.message) {
-            s3_showStatus(i18n.ajax_get + ' ' + (s.message ? s.message : i18n.ajax_fmd) + '...', this.ajaxS3Settings.msgTimeout);
+            message = i18n.ajax_get + ' ' + (s.message ? s.message : i18n.ajax_fmd) + '...';
+            S3.showAlert(message, 'info');
         }
         $.ajax(
             options
         ).done(function(data, status) {
-            s3_hideStatus();
+            S3.hideAlerts();
+            this.tryCount = 0;
+            if (data.message) {
+                S3.showAlert(data.message, 'success');
+            }
+            // @ToDo: support drop-in replacement functions by calling .done()
             if (s.success) {
+                // Calling function's success callback
                 s.success(data, status);
             }
         }).fail(function(jqXHR, textStatus, errorThrown) {
             if (textStatus == 'timeout') {
                 this.tryCount++;
                 if (this.tryCount <= this.retryLimit) {
-                    // try again
-                    s3_showStatus(i18n.ajax_get + ' ' + (s.message ? s.message : i18n.ajax_fmd) + '... ' + i18n.ajax_rtr + ' ' + this.tryCount,
-                        $.ajaxS3Settings.msgTimeout);
+                    // Try again
+                    message = i18n.ajax_get + ' ' + (s.message ? s.message : i18n.ajax_fmd) + '... ' + i18n.ajax_rtr + ' ' + this.tryCount;
+                    S3.showAlert(message, 'warning');
                     $.ajax(this);
                     return;
                 }
-                s3_showStatus(i18n.ajax_wht + ' ' + (this.retryLimit + 1) + ' ' + i18n.ajax_gvn,
-                    $.ajaxS3Settings.msgTimeout, false, true);
+                message = i18n.ajax_wht + ' ' + (this.retryLimit + 1) + ' ' + i18n.ajax_gvn;
+                S3.showAlert(message, 'error');
                 if (s.error) {
+                    // Calling function's error callback
                     s.error(jqXHR, textStatus, errorThrown);
                 }
                 return;
             }
             if (jqXHR.status == 500) {
-                s3_showStatus(i18n.ajax_500, $.ajaxS3Settings.msgTimeout, false, true);
+                // @ToDo: Can we find & show the ticket URL?
+                S3.showAlert(i18n.ajax_500, 'error');
             } else {
-                s3_showStatus(i18n.ajax_dwn, $.ajaxS3Settings.msgTimeout, false, true);
+                S3.showAlert(i18n.ajax_dwn, 'error');
             }
             if (s.error) {
+                // Calling function's error callback
                 s.error(jqXHR, textStatus, errorThrown);
             }
         });
@@ -534,7 +465,7 @@ function S3EnableNavigateAwayConfirm() {
     // Simplified wrappers for .ajaxS3
     $.getS3 = function(url, data, callback, type, message, sync) {
         // shift arguments if data argument was omitted
-        if ( $.isFunction( data ) ) {
+        if ( $.isFunction(data) ) {
             sync = message;
             message = type;
             type = callback;
@@ -558,7 +489,7 @@ function S3EnableNavigateAwayConfirm() {
 
     $.getJSONS3 = function(url, data, callback, message, sync) {
         // shift arguments if data argument was omitted
-        if ( $.isFunction( data ) ) {
+        if ( $.isFunction(data) ) {
             sync = message;
             message = callback;
             callback = data;
@@ -573,106 +504,34 @@ function S3EnableNavigateAwayConfirm() {
 })($);
 
 /**
- * status bar for ajaxS3 operation
- * taken from http://www.west-wind.com/WebLog/posts/388213.aspx
- * added and fixed by sunneach on Feb 16, 2010
+ * Display Status in Alerts section
  *
- *  to use make a call:
- *  s3_showStatus(message, timeout, additive, isError)
- *     1. message  - string - message to display
- *     2. timeout  - integer - milliseconds to change the statusbar style - flash effect (1000 works OK)
- *     3. additive - boolean - default false - to accumulate messages in the bar
- *     4. isError  - boolean - default false - show in the statusbarerror class
+ *  To display an alert:
+ *  S3.showAlert(message, type)
+ *    message - string - message to display
+ *    type    - string - alert type: 'error', 'info', 'success', 'warning'
  *
- *  to remove bar, use
- *  s3_hideStatus()
+ *  To hide alerts:
+ *  S3.hideAlerts()
  */
-function S3StatusBar(sel, options) {
-    var _I = this;
-    var _sb = null;
-    // options
-    // ToDo allow options passed-in to over-ride defaults
-    this.elementId = '_showstatus';
-    this.prependMultiline = true;
-    this.showCloseButton = false;
-    this.afterTimeoutText = null;
+S3.showAlert = function(message, type) {
+    if (undefined == type) {
+        type = 'success';
+    }
+    var alert = '<div class="alert alert-' + type + '">' + message + '<button type="button" class="close" data-dismiss="alert">×</button></div>';
+    $('#alert-space').append(alert);
+    $('.alert-' + type).click(function() {
+        $(this).fadeOut('slow');
+        return false;
+    });
+};
 
-    this.cssClass = 'statusbar';
-    this.highlightClass = 'statusbarhighlight';
-    this.errorClass = 'statusbarerror';
-    this.closeButtonClass = 'statusbarclose';
-    this.additive = false;
-    $.extend(this, options);
-    if (sel) {
-      _sb = $(sel);
-    }
-    // Create statusbar object manually
-    if (!_sb) {
-        _sb = $("<div id='_statusbar' class='" + _I.cssClass + "'>" +
-                "<div class='" + _I.closeButtonClass +  "'>" +
-                (_I.showCloseButton ? ' X </div></div>' : '') )
-                .appendTo(document.body)
-                .show();
-    }
-    //if (_I.showCloseButton)
-        $('.' + _I.cssClass).click(function(e) { $(_sb).hide(); });
-    this.show = function(message, timeout, additive, isError) {
-        if (additive || ((additive == undefined) && _I.additive)) {
-            var html = "<div style='margin-bottom: 2px;' >" + message + '</div>';
-            if (_I.prependMultiline) {
-                _sb.prepend(html);
-            } else {
-                _sb.append(html);
-            }
-        } else {
-            if (!_I.showCloseButton) {
-                _sb.text(message);
-            } else {
-                var t = _sb.find('div.statusbarclose');
-                _sb.text(message).prepend(t);
-            }
-        }
-        _sb.show();
-        if (timeout) {
-            if (isError) {
-                _sb.addClass(_I.errorClass);
-            } else {
-                _sb.addClass(_I.highlightClass);
-            }
-            setTimeout(
-                function() {
-                    _sb.removeClass(_I.highlightClass);
-                    if (_I.afterTimeoutText) {
-                       _I.show(_I.afterTimeoutText);
-                    }
-                },
-                timeout);
-        }
-    };
-    this.release = function() {
-        if (_statusbar) {
-            $('#_statusbar').remove();
-            _statusbar = undefined;
-        }
-    };
-}
-// Use this as a global instance to customize constructor
-// or do nothing and get a default status bar
-var _statusbar = null;
-function s3_showStatus(message, timeout, additive, isError) {
-    if (!_statusbar) {
-        _statusbar = new S3StatusBar();
-    }
-    _statusbar.show(message, timeout, additive, isError);
-}
-function s3_hideStatus() {
-    if (_statusbar) {
-        _statusbar.release();
-    }
-}
+S3.hideAlerts = function() {
+    $('#alert-space').empty();
+};
 
 // ============================================================================
-function s3_viewMap(feature_id) {
+var s3_viewMap = function(feature_id) {
     // Display a Feature on a BaseMap within an iframe
     var url = S3.Ap.concat('/gis/display_feature/') + feature_id;
     var oldhtml = $('#map').html();
@@ -680,15 +539,15 @@ function s3_viewMap(feature_id) {
     var closelink = $('<a href=\"#\">' + i18n.close_map + '</a>');
 
     // @ToDo: Also make the represent link act as a close
-    closelink.bind( "click", function(evt) {
+    closelink.bind('click', function(evt) {
         $('#map').html(oldhtml);
         evt.preventDefault();
     });
 
     $('#map').html(iframe);
     $('#map').append($("<div style='margin-bottom: 10px' />").append(closelink));
-}
-function s3_viewMapMulti(module, resource, instance, jresource) {
+};
+var s3_viewMapMulti = function(module, resource, instance, jresource) {
     // Display a set of Features on a BaseMap within an iframe
     var url = S3.Ap.concat('/gis/display_feature//?module=') + module + '&resource=' + resource + '&instance=' + instance + '&jresource=' + jresource;
     var oldhtml = $('#map').html();
@@ -696,14 +555,14 @@ function s3_viewMapMulti(module, resource, instance, jresource) {
     var closelink = $('<a href=\"#\">' + i18n.close_map + '</a>');
 
     // @ToDo: Also make the represent link act as a close
-    closelink.bind( 'click', function(evt) {
+    closelink.bind('click', function(evt) {
         $('#map').html(oldhtml);
         evt.preventDefault();
     });
 
     $('#map').html(iframe);
     $('#map').append($("<div style='margin-bottom: 10px' />").append(closelink));
-}
+};
 S3.popupWin = null;
 S3.openPopup = function(url, center) {
     if ( !S3.popupWin || S3.popupWin.closed ) {
@@ -714,8 +573,8 @@ S3.openPopup = function(url, center) {
         }
         S3.popupWin = window.open(url, 'popupWin', params);
     } else S3.popupWin.focus();
-}
-function s3_showMap(feature_id) {
+};
+var s3_showMap = function(feature_id) {
     // Display a Feature on a BaseMap within an iframe
     var url = S3.Ap.concat('/gis/display_feature/') + feature_id;
 	// new Ext.Window({
@@ -732,18 +591,18 @@ function s3_showMap(feature_id) {
 		// }]
 	// }).show();
     S3.openPopup(url, true);
-}
+};
 
 // ============================================================================
 /**
- * Re-usable function to filter a select field based on a "filter field", eg:
- * Competency Ratings filtered by Skill Type
- * Item Packs filtered by Item
- * Rooms filtered by Site
- * Themes filtered by Sector
+ * Filter a select field based on a "filter field", eg:
+ * - Competency Ratings filtered by Skill Type
+ * - Item Packs filtered by Item
+ * - Rooms filtered by Site
+ * - Themes filtered by Sector
  **/
 
-function S3OptionsFilter(settings) {
+var S3OptionsFilter = function(settings) {
     /**
      * Settings:
      *          triggerName: the trigger field name (not the HTML element name)
@@ -850,7 +709,7 @@ function S3OptionsFilter(settings) {
             currentValue = targetField.val();
             if (!currentValue) {
                 // Options list not populated yet?
-                currentValue = targetField.attr('value');
+                currentValue = targetField.attr('value'); // jQuery Migrate doesn't like this
             }
         } else if (targetField.length > 1) {
             // Checkboxes
@@ -1081,56 +940,264 @@ function S3OptionsFilter(settings) {
 
     // If the field value is empty - disable - but keep initial value
     triggerField.change();
-}
+};
 
 // ============================================================================
 /**
  * Add a Slider to a field - used by S3SliderWidget
  */
-S3.slider = function(fieldname, minval, maxval, steprange, value) {
-    $( '#' + fieldname ).slider({
-        min: parseFloat(minval),
-        max: parseFloat(maxval),
-        step: parseFloat(steprange),
-        value: parseFloat(value),
+S3.slider = function(fieldname, min, max, step, value) {
+    var real_input = $('#' + fieldname);
+    var selector = '#' + fieldname + '_slider';
+    $(selector).slider({
+        min: min,
+        max: max,
+        step: step,
+        value: value,
         slide: function (event, ui) {
-            $( '#' + fieldname + '_input' ).val( ui.value );
+            // Set the value of the real input
+            real_input.val(ui.value);
+        },
+        change: function(event, ui) {
+            if (value == null) {
+                // Set a default value
+                // - halfway between min & max
+                value = (min + max) / 2;
+                // - rounded to nearest step
+                var modulo = value % step;
+                if (modulo != 0) {
+                    if (modulo < (step / 2)) {
+                        // round down
+                        value = value - modulo;
+                    } else {
+                        // round up
+                        value = value + modulo;
+                    }
+                }
+                $(selector).slider('option', 'value', value);
+                // Show the control
+                $(selector + ' .ui-slider-handle').show();
+                // Show the value
+                // Hide the help text
+                real_input.show().next().remove();
+            }
         }
+    });
+    if (value == null) {
+        // Don't show a value until Slider is touched
+        $(selector + ' .ui-slider-handle').hide();
+        // Show help text
+        real_input.hide()
+                  .after('<p>' + i18n.slider_help + '</p>');
+    }
+    // Enable the field before form is submitted
+    $('form').submit(function() {
+        real_input.prop('disabled', false);
+        // Normal Submit
+        return true;
     });
 };
 
 // ============================================================================
 /**
- * Reusable function to add a querystring variable to an existing URL and redirect into it.
+ * Add a querystring variable to an existing URL and redirect into it.
  * It accounts for existing variables and will override an existing one.
  * Sample usage: _onchange="S3reloadWithQueryStringVars({'_language': $(this).val()});")
  */
 
-function S3reloadWithQueryStringVars(queryStringVars) {
-    var existingQueryVars = location.search ? location.search.substring(1).split("&") : [],
-        currentUrl = location.search ? location.href.replace(location.search,"") : location.href,
+var S3reloadWithQueryStringVars = function(queryStringVars) {
+    var existingQueryVars = location.search ? location.search.substring(1).split('&') : [],
+        currentUrl = location.search ? location.href.replace(location.search, '') : location.href,
         newQueryVars = {},
-        newUrl = currentUrl + "?";
-    if(existingQueryVars.length > 0) {
+        newUrl = currentUrl + '?';
+    if (existingQueryVars.length > 0) {
         for (var i = 0; i < existingQueryVars.length; i++) {
-            var pair = existingQueryVars[i].split("=");
+            var pair = existingQueryVars[i].split('=');
             newQueryVars[pair[0]] = pair[1];
         }
     }
-    if(queryStringVars) {
+    if (queryStringVars) {
         for (var queryStringVar in queryStringVars) {
             newQueryVars[queryStringVar] = queryStringVars[queryStringVar];
         }
     }
-    if(newQueryVars) { 
+    if (newQueryVars) {
         for (var newQueryVar in newQueryVars) {
-            newUrl += newQueryVar + "=" + newQueryVars[newQueryVar] + "&";
+            newUrl += newQueryVar + '=' + newQueryVars[newQueryVar] + '&';
         }
-        newUrl = newUrl.substring(0, newUrl.length-1);
+        newUrl = newUrl.substring(0, newUrl.length - 1);
         window.location.href = newUrl;
     } else {
         window.location.href = location.href;
     }
-}
+};
+
+// ============================================================================
+
+$(document).ready(function() {
+    // Web2Py Layer
+    $('.alert-error').hide().slideDown('slow');
+    $('.alert-error').click(function() {
+        $(this).fadeOut('slow');
+        return false;
+    });
+    $('.alert-warning').hide().slideDown('slow');
+    $('.alert-warning').click(function() {
+        $(this).fadeOut('slow');
+        return false;
+    });
+    $('.alert-info').hide().slideDown('slow');
+    $('.alert-info').click(function() {
+        $(this).fadeOut('slow');
+        return false;
+    });
+    $('.alert-success').hide().slideDown('slow');
+    $('.alert-success').click(function() {
+        $(this).fadeOut('slow');
+        return false;
+    });
+    $("input[type='checkbox'].delete").click(function() {
+        if ((this.checked) && (!confirm(i18n.delete_confirmation))) {
+                this.checked = false;
+        }
+    });
+
+    // If a form is submitted with errors, this will scroll
+    // the window to the first form error message
+    var inputErrorId = $('form .error[id]').eq(0).attr('id');
+    if (inputErrorId != undefined) {
+        inputName = inputErrorId.replace('__error', '');
+        inputId = $('[name=' + inputName + ']').attr('id');
+        inputLabel = $('[for=' + inputId + ']');
+        window.scrollTo(0, inputLabel.offset().top);
+    }
+
+    // T2 Layer
+    //try { $('.zoom').fancyZoom( {
+    //    scaleImg: true,
+    //    closeOnClick: true,
+    //    directory: S3.Ap.concat('/static/media')
+    //}); } catch(e) {}
+
+    // S3 Layer
+    // dataTables' delete button
+    // (can't use S3.confirmClick as the buttons haven't yet rendered)
+    if (S3.interactive) {
+        $(document).on('click', 'a.delete-btn', function(event) {
+            if (confirm(i18n.delete_confirmation)) {
+                return true;
+            } else {
+                event.preventDefault();
+                return false;
+            }
+        });
+
+        if (S3.FocusOnFirstField != false) {
+            // Focus On First Field
+            $('input:text:visible:first').focus();
+        };
+    }
+
+    // Accept comma as thousands separator
+    $('input.int_amount').keyup(function() {
+        this.value = this.value.reverse()
+                               .replace(/[^0-9\-,]|\-(?=.)/g, '')
+                               .reverse();
+    });
+    $('input.float_amount').keyup(function() {
+        this.value = this.value.reverse()
+                               .replace(/[^0-9\-\.,]|[\-](?=.)|[\.](?=[0-9]*[\.])/g, '')
+                               .reverse();
+    });
+    // Auto-capitalize first names
+    $('input[name="first_name"]').focusout(function() {
+        this.value = this.value.charAt(0).toLocaleUpperCase() + this.value.substring(1);
+    });
+
+    // Resizable textareas
+    $('textarea.resizable:not(.textarea-processed)').each(function() {
+        var that = $(this);
+        // Avoid non-processed teasers.
+        if (that.is(('textarea.teaser:not(.teaser-processed)'))) {
+            return false;
+        }
+        var textarea = that.addClass('textarea-processed');
+        var staticOffset = null;
+        // When wrapping the text area, work around an IE margin bug. See:
+        // http://jaspan.com/ie-inherited-margin-bug-form-elements-and-haslayout
+        that.wrap('<div class="resizable-textarea"><span></span></div>')
+        .parent().append($('<div class="grippie"></div>').mousedown(startDrag));
+        var grippie = $('div.grippie', that.parent())[0];
+        grippie.style.marginRight = (grippie.offsetWidth - that[0].offsetWidth) + 'px';
+        function startDrag(e) {
+            staticOffset = textarea.height() - e.pageY;
+            textarea.css('opacity', 0.25);
+            $(document).mousemove(performDrag).mouseup(endDrag);
+            return false;
+        }
+        function performDrag(e) {
+            textarea.height(Math.max(32, staticOffset + e.pageY) + 'px');
+            return false;
+        }
+        function endDrag(e) {
+            $(document).unbind('mousemove', performDrag).unbind('mouseup', endDrag);
+            textarea.css('opacity', 1);
+        }
+        return true;
+    });
+
+    // IE6 non anchor hover hack
+    $('#modulenav .hoverable').hover(
+        function() {
+            $(this).addClass('hovered');
+        },
+        function() {
+            $(this).removeClass('hovered');
+        }
+    );
+
+    // Menu popups (works in IE6)
+    $('#modulenav li').hover(
+        function() {
+                var header_width = $(this).width();
+                var popup_width = $('ul', this).width();
+                if (popup_width !== null){
+                  if (popup_width < header_width){
+                    $('ul', this).css({
+                        'width': header_width.toString() + 'px'
+                    });
+                  }
+                }
+                $('ul', this).css('display', 'block');
+            },
+        function() {
+            $('ul', this).css('display', 'none');
+        }
+    );
+
+    // Event Handlers for the page
+    S3.redraw();
+
+    // De-duplication Event Handlers
+    S3.deduplication();
+
+    // UTC Offset
+    now = new Date();
+    $('form').append("<input type='hidden' value=" + now.getTimezoneOffset() + " name='_utc_offset'/>");
+
+    // Social Media 'share' buttons
+    if ($('#socialmedia_share').length > 0) {
+        // DIV exists (deployment_setting on)
+        var currenturl = document.location.href;
+        var currenttitle = document.title;
+        // Linked-In
+        $('#socialmedia_share').append("<div class='socialmedia_element'><script src='//platform.linkedin.com/in.js'></script><script type='IN/Share' data-counter='right'></script></div>");
+        // Twitter
+        $('#socialmedia_share').append("<div class='socialmedia_element'><a href='https://twitter.com/share' class='twitter-share-button' data-count='none' data-hashtags='sahana-eden'>Tweet</a><script>!function(d,s,id){var js,fjs=d.getElementsByTagName(s)[0];if(!d.getElementById(id)){js=d.createElement(s);js.id=id;js.src='//platform.twitter.com/widgets.js';fjs.parentNode.insertBefore(js,fjs);}}(document,'script','twitter-wjs');</script></div>");
+        // Facebook
+        $('#socialmedia_share').append("<div class='socialmedia_element'><div id='fb-root'></div><script>(function(d, s, id) { var js, fjs = d.getElementsByTagName(s)[0]; if (d.getElementById(id)) return; js = d.createElement(s); js.id = id; js.src = '//connect.facebook.net/en_US/all.js#xfbml=1'; fjs.parentNode.insertBefore(js, fjs); }(document, 'script', 'facebook-jssdk'));</script> <div class='fb-like' data-send='false' data-layout='button_count' data-show-faces='true' data-href='" + currenturl + "'></div></div>");
+    }
+
+});
 
 // ============================================================================

@@ -43,7 +43,6 @@ except ImportError:
 
 from gluon import *
 from gluon.html import BUTTON
-from gluon.serializers import json as jsons
 from gluon.sqlhtml import MultipleOptionsWidget
 from gluon.storage import Storage
 
@@ -1480,12 +1479,6 @@ i18n.edit_saved_search="%s"
             dt_pagination = "false"
             limit = None
             left = None
-
-        # Truncate long texts
-        if r.interactive or representation == "aadata":
-            for f in table:
-                if str(f.type) == "text" and not f.represent:
-                    f.represent = self.truncate
 
         # Get the results
         if not orderby:

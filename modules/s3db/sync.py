@@ -2,8 +2,6 @@
 
 """ Sahana Eden Synchronization
 
-    @author: Dominic König <dominic[at]aidiq.com>
-
     @copyright: 2009-2013 (c) Sahana Software Foundation
     @license: MIT
 
@@ -485,7 +483,8 @@ class SyncDataModel(S3Model):
                                    default=False,
                                    label=T("Remote Error"),
                                    represent=lambda opt: opt and T("yes") or ("no")),
-                             Field("message", "text"),
+                             Field("message", "text",
+                                   represent=s3_strip_markup),
                              *s3_meta_fields())
 
         # CRUD Strings

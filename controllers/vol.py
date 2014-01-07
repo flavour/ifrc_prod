@@ -36,9 +36,8 @@ def human_resource():
 
     # Custom method for Service Record
     s3db.set_method("hrm", "human_resource",
-                    method="form",
-                    action=s3db.vol_service_record
-                    )
+                    method = "form",
+                    action = s3db.vol_service_record)
 
     def prep(r):
         if r.method in ("form", "lookup"):
@@ -89,10 +88,15 @@ def human_resource():
                                 hidden=True,
                                 ),
                 ]
-            if settings.get_hrm_teams():
+            teams = settings.get_hrm_teams()
+            if teams:
+                if teams == "Teams":
+                    teams = "Team"
+                elif teams == "Groups":
+                    teams = "Group"
                 filter_widgets.append(
                     S3OptionsFilter("group_membership.group_id",
-                                    label = T("Team"),
+                                    label = T(teams),
                                     widget="multiselect",
                                     hidden=True,
                                     ))
@@ -120,6 +124,7 @@ def human_resource():
                 )
 
             s3db.configure("hrm_human_resource",
+                           filter_widgets = filter_widgets,
                            # Match staff
                            list_fields = ["id",
                                           "person_id",
@@ -130,26 +135,25 @@ def human_resource():
                                           (T("Email"), "email.value"),
                                           (settings.get_ui_label_mobile_phone(), "phone.value"),
                                           ],
-                           summary=[{"name": "table",
-                                     "label": "Table",
-                                     "widgets": [{"method": "datatable"}]
-                                    },
-                                    {"name": "report",
-                                     "label": "Report",
-                                     "widgets": [{"method": "report2",
-                                                  "ajax_init": True}]
-                                    },
-                                    {"name": "map",
-                                     "label": "Map",
-                                     "widgets": [{"method": "map",
-                                                  "ajax_init": True}],
-                                    },
-                            ],
-                            filter_widgets = filter_widgets,
-                            report_options = report_options,
-                            # Needed for Age Group VirtualField to avoid extra DB calls
-                            report_fields = ["person_id$date_of_birth"],
-                            )
+                           # Needed for Age Group VirtualField to avoid extra DB calls
+                           report_fields = ["person_id$date_of_birth"],
+                           report_options = report_options,
+                           summary = [{"name": "table",
+                                       "label": "Table",
+                                       "widgets": [{"method": "datatable"}]
+                                       },
+                                      {"name": "report",
+                                       "label": "Report",
+                                       "widgets": [{"method": "report2",
+                                                    "ajax_init": True}]
+                                       },
+                                      {"name": "map",
+                                       "label": "Map",
+                                       "widgets": [{"method": "map",
+                                                    "ajax_init": True}],
+                                       },
+                                      ],
+                           )
             s3.filter = None
         else:
             # Default to Volunteers
@@ -209,8 +213,7 @@ def volunteer():
     s3.filter = (_type == 2)
     _location = table.location_id
     _location.label = T("Home Address")
-    list_fields = ["id",
-                   "person_id",
+    list_fields = ["person_id",
                    "job_title_id",
                    "organisation_id",
                    (settings.get_ui_label_mobile_phone(), "phone.value"),
@@ -227,13 +230,14 @@ def volunteer():
                                "search_method")
     report_options = get_config(tablename,
                                 "report_options")
-    if settings.get_hrm_vol_experience() == "programme":
+    vol_experience = settings.get_hrm_vol_experience()
+    if vol_experience in ("programme", "both"):
         enable_active_field = settings.set_org_dependent_field("vol_details", "active",
                                                                enable_field = False)
         # Add to List Fields
         if enable_active_field:
-            list_fields.insert(4, (T("Active?"), "details.active"))
-        list_fields.insert(7, "person_id$hours.programme_id")
+            list_fields.insert(3, (T("Active?"), "details.active"))
+        list_fields.insert(6, "person_id$hours.programme_id")
         # Add to Report Options
         report_fields = report_options.rows
         report_fields.append("person_id$hours.programme_id")
@@ -284,7 +288,7 @@ def volunteer():
 
         widget = s3base.S3SearchOptionsWidget(
                             name="human_resource_search_programme",
-                            label=T("Programme"),
+                            label=T("Program"),
                             field="person_id$hours.programme_id",
                             cols = 2,
                             options = hrm_programme_opts
@@ -328,6 +332,7 @@ def volunteer():
                 set_org_dependent_field("pr_person_details", "mother_name")
                 set_org_dependent_field("pr_person_details", "affiliations")
                 set_org_dependent_field("pr_person_details", "company")
+                set_org_dependent_field("vol_details", "availability")
                 set_org_dependent_field("vol_volunteer_cluster", "vol_cluster_type_id")
                 set_org_dependent_field("vol_volunteer_cluster", "vol_cluster_id")
                 set_org_dependent_field("vol_volunteer_cluster", "vol_cluster_position_id")
@@ -346,6 +351,20 @@ def volunteer():
                 redirect(URL(f="person",
                              args="import",
                              vars={"group": "volunteer"}))
+
+        elif r.representation == "xls":
+            # Split person_id into first/middle/last to make it match Import sheets
+            list_fields = s3db.get_config(tablename,
+                                          "list_fields")
+            list_fields.remove("person_id")
+            list_fields = ["person_id$first_name",
+                           "person_id$middle_name",
+                           "person_id$last_name",
+                           ] + list_fields
+
+            s3db.configure(tablename,
+                           list_fields = list_fields)
+
         return True
     s3.prep = prep
 
@@ -365,7 +384,8 @@ def volunteer():
                             "_class": "action-btn send",
                             "label": str(T("Send Message"))
                         })
-                if settings.get_hrm_vol_experience() == "programme" and \
+                vol_experience = settings.get_hrm_vol_experience()
+                if vol_experience in ("programme", "both") and \
                    r.method not in ["search", "report", "import"] and \
                    "form" in output:
                     # Insert field to set the Programme
@@ -380,6 +400,7 @@ def volunteer():
                     label = LABEL(label, label and sep, _for=field_id,
                                   _id=field_id + SQLFORM.ID_LABEL_SUFFIX)
                     row_id = field_id + SQLFORM.ID_ROW_SUFFIX
+                    # @ToDo: Bootstrap support
                     programme = s3_formstyle(row_id, label, widget,
                                              field.comment)
                     try:
@@ -391,10 +412,12 @@ def volunteer():
                         output["form"][0].insert(4, programme[0])
                     except:
                         pass
+
         elif r.representation == "plain" and \
              r.method !="search":
             # Map Popups
             output = s3db.hrm_map_popup(r)
+
         return output
     s3.postp = postp
 
@@ -414,19 +437,30 @@ def person():
 
     # Custom Method for Contacts
     set_method("pr", resourcename,
-               method="contacts",
-               action=s3db.pr_contacts)
+               method = "contacts",
+               action = s3db.pr_contacts)
+
+    # Custom Method for CV
+    set_method("pr", resourcename,
+               method = "cv",
+               action = s3db.hrm_cv)
+
+    # Custom Method for HR Record
+    set_method("pr", resourcename,
+               method = "record",
+               action = s3db.hrm_record)
 
     # Plug-in role matrix for Admins/OrgAdmins
     realms = auth.user is not None and auth.user.realms or []
     if ADMIN in realms or ORG_ADMIN in realms:
-        set_method("pr", resourcename, method="roles",
-                   action=s3base.S3PersonRoleManager())
+        set_method("pr", resourcename,
+                   method = "roles",
+                   action = s3base.S3PersonRoleManager())
 
     if settings.has_module("asset"):
         # Assets as component of people
         s3db.add_component("asset_asset",
-                           pr_person="assigned_to_id")
+                           pr_person = "assigned_to_id")
         # Edits should always happen via the Asset Log
         # @ToDo: Allow this method too, if we can do so safely
         configure("asset_asset",
@@ -456,7 +490,7 @@ def person():
     tablename = "pr_person"
     table = s3db[tablename]
     configure(tablename,
-              deletable=False)
+              deletable = False)
 
     mode = session.s3.hrm.mode
     if mode is not None:
@@ -571,32 +605,11 @@ def person():
                 set_org_dependent_field("pr_person_details", "company")
 
             else:
-                if r.component_name == "human_resource":
-                    table = r.component.table
-                    table.code.writable = table.code.readable = False
-                    table.department_id.writable = table.department_id.readable = False
-                    table.essential.writable = table.essential.readable = False
-                    #table.location_id.readable = table.location_id.writable = True
-                    table.site_id.writable = table.site_id.readable = False
-                    table.site_contact.writable = table.site_contact.readable = False
-                    org = session.s3.hrm.org
-                    field = table.organisation_id
-                    if org is None:
-                        field.widget = None
-                    else:
-                        field.default = org
-                        field.readable = field.writable = False
-
-                    # Organisation Dependent Fields
-                    set_org_dependent_field = settings.set_org_dependent_field
-                    set_org_dependent_field("vol_volunteer_cluster", "vol_cluster_type_id")
-                    set_org_dependent_field("vol_volunteer_cluster", "vol_cluster_id")
-                    set_org_dependent_field("vol_volunteer_cluster", "vol_cluster_position_id")
-
-                elif r.component_name == "hours":
+                if r.component_name == "hours":
                     # Exclude records which are just to link to Programme
                     filter = (r.component.table.hours != None)
                     r.resource.add_component_filter("hours", filter)
+
                 elif r.component_name == "physical_description":
                     # Hide all but those details that we want
                     # Lock all the fields
@@ -608,6 +621,7 @@ def person():
                     table.blood_type.writable = table.blood_type.readable = True
                     table.medical_conditions.writable = table.medical_conditions.readable = True
                     table.other_details.writable = table.other_details.readable = True
+
                 elif r.component_name == "asset":
                     # Edits should always happen via the Asset Log
                     # @ToDo: Allow this method too, if we can do so safely
@@ -615,8 +629,33 @@ def person():
                               insertable = False,
                               editable = False,
                               deletable = False)
+
                 elif r.component_name == "group_membership":
                     s3db.hrm_configure_pr_group_membership()
+
+            if r.method == "record" or r.component_name == "human_resource":
+                table = s3db.hrm_human_resource
+                table.code.writable = table.code.readable = False
+                table.department_id.writable = table.department_id.readable = False
+                table.essential.writable = table.essential.readable = False
+                #table.location_id.readable = table.location_id.writable = True
+                table.person_id.writable = table.person_id.readable = False
+                table.site_id.writable = table.site_id.readable = False
+                table.site_contact.writable = table.site_contact.readable = False
+                org = session.s3.hrm.org
+                field = table.organisation_id
+                if org is None:
+                    field.widget = None
+                else:
+                    field.default = org
+                    field.readable = field.writable = False
+
+                # Organisation Dependent Fields
+                set_org_dependent_field = settings.set_org_dependent_field
+                set_org_dependent_field("vol_details", "availability")
+                set_org_dependent_field("vol_volunteer_cluster", "vol_cluster_type_id")
+                set_org_dependent_field("vol_volunteer_cluster", "vol_cluster_id")
+                set_org_dependent_field("vol_volunteer_cluster", "vol_cluster_position_id")
 
             resource = r.resource
             if mode is not None:
@@ -654,7 +693,8 @@ def person():
                 # Set the minimum end_date to the same as the start_date
                 s3.jquery_ready.append(
 '''S3.start_end_date('hrm_human_resource_start_date','hrm_human_resource_end_date')''')
-                if settings.get_hrm_vol_experience() == "programme" and \
+                vol_experience = settings.get_hrm_vol_experience()
+                if vol_experience in ("programme", "both") and \
                    r.method not in ["search", "report", "import"] and \
                    "form" in output:
                     # Insert field to set the Programme
@@ -709,30 +749,32 @@ def person():
         orgname = None
 
     output = s3_rest_controller("pr", resourcename,
-                                rheader=s3db.hrm_rheader,
-                                orgname=orgname,
-                                replace_option=T("Remove existing data before import"),
-                                csv_template=("hrm", "volunteer"),
-                                csv_stylesheet=("hrm", "person.xsl"),
-                                csv_extra_fields=[
+                                csv_template = ("hrm", "volunteer"),
+                                csv_stylesheet = ("hrm", "person.xsl"),
+                                csv_extra_fields = [
                                     dict(label="Type",
                                          field=s3db.hrm_human_resource.type)
-                                                  ]
+                                                  ],
+                                orgname = orgname,
+                                replace_option = T("Remove existing data before import"),
+                                rheader = s3db.hrm_rheader,
                                 )
     return output
 
 # -----------------------------------------------------------------------------
 def person_search():
     """
-        Person REST controller
+        Human Resource REST controller
         - limited to just search_ac for use in Autocompletes
         - allows differential access permissions
     """
 
-    # Filter
+    # Filter to just Volunteers
     s3.filter = (s3db.hrm_human_resource.type == 2)
 
+    # Only allow use in the search_ac method
     s3.prep = lambda r: r.method == "search_ac"
+
     return s3_rest_controller("hrm", "human_resource")
 
 # =============================================================================
@@ -741,7 +783,7 @@ def person_search():
 def group():
     """
         Team controller
-        - uses the group table from PR
+        - uses the group table from PR, but filtered to just 'Relief Teams'
     """
 
     return s3db.hrm_group_controller()
@@ -755,13 +797,12 @@ def group_membership():
 
     # Change Labels
     s3db.hrm_configure_pr_group_membership()
-    
+
     table = db.pr_group_membership
+
     # Amend list_fields
-    table.group_id.label = T("Team Name")
     s3db.configure("pr_group_membership",
-                   list_fields=["id",
-                                "group_id",
+                   list_fields=["group_id",
                                 "group_id$description",
                                 "group_head",
                                 "person_id$first_name",
@@ -781,7 +822,19 @@ def group_membership():
                 (htable.type == 2) & \
                 (htable.person_id == table.person_id)
 
+    def prep(r):
+        if r.method in ("create", "create.popup", "update", "update.popup"):
+            # Coming from Profile page?
+            person_id = request.get_vars.get("~.person_id", None)
+            if person_id:
+                field = table.person_id
+                field.default = person_id
+                field.readable = field.writable = False
+        return True
+    s3.prep = prep
+
     output = s3_rest_controller("pr", "group_membership",
+                                hide_filter=False,
                                 csv_template=("hrm", "group_membership"),
                                 csv_stylesheet=("hrm", "group_membership.xsl"),
                                 )
@@ -971,18 +1024,6 @@ def training_event():
     return s3db.hrm_training_event_controller()
 
 # -----------------------------------------------------------------------------
-def experience():
-    """ Experience Controller """
-
-    mode = session.s3.hrm.mode
-    if mode is not None:
-        session.error = T("Access denied")
-        redirect(URL(f="index"))
-
-    output = s3_rest_controller()
-    return output
-
-# -----------------------------------------------------------------------------
 def competency():
     """ RESTful CRUD controller used to allow searching for people by Skill"""
 
@@ -990,6 +1031,24 @@ def competency():
     s3.filter = ((table.type == 2) & \
                  (s3db.hrm_competency.person_id == table.person_id))
     return s3db.hrm_competency_controller()
+
+# -----------------------------------------------------------------------------
+def credential():
+    """ Credentials Controller """
+
+    table = s3db.hrm_human_resource
+    s3.filter = ((table.type == 2) & \
+                 (s3db.hrm_credential.person_id == table.person_id))
+    return s3db.hrm_credential_controller()
+
+# -----------------------------------------------------------------------------
+def experience():
+    """ Experience Controller """
+
+    table = s3db.hrm_human_resource
+    s3.filter = ((table.type == 2) & \
+                 (s3db.hrm_experience.person_id == table.person_id))
+    return s3db.hrm_experience_controller()
 
 # -----------------------------------------------------------------------------
 def person_search():
@@ -1061,8 +1120,7 @@ def programme():
     def prep(r):
         if r.component_name == "person":
             s3db.configure("hrm_programme_hours",
-                           list_fields=["id",
-                                        "person_id",
+                           list_fields=["person_id",
                                         "training",
                                         "programme_id",
                                         "date",
@@ -1105,13 +1163,27 @@ def award():
 
 # -----------------------------------------------------------------------------
 def volunteer_award():
-    """ ONLY FOR RETURNING options to the S3AddResourceLink PopUp """
+    """
+        Used for returning options to the S3AddResourceLink PopUp
+    """
+
+    # We use component form instead
+    #def prep(r):
+    #    if r.method in ("create", "create.popup", "update", "update.popup"):
+    #        # Coming from Profile page?
+    #        person_id = request.get_vars.get("~.person_id", None)
+    #        if person_id:
+    #            field = r.table.person_id
+    #            field.default = person_id
+    #            field.readable = field.writable = False
+    #    return True
+    #s3.prep = prep
 
     return s3_rest_controller()
 
 # =============================================================================
 def cluster_type():
-    """ Volunteer Clusters controller """
+    """ Volunteer Cluster Types controller """
 
     return s3_rest_controller()
 

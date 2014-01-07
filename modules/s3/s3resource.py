@@ -176,7 +176,9 @@ class S3Resource(object):
                     self._alias = self.table._tablename
                     tablename = tablename.tablename
                 else:
-                    raise SyntaxError("illegal argument")
+                    error = manager.error = \
+                        "%s is not a valid type for a tablename" % tablename
+                    raise SyntaxError(error)
             if "_" in tablename:
                 prefix, name = tablename.split("_", 1)
             else:
@@ -1762,12 +1764,25 @@ class S3Resource(object):
                            getids=getids,
                            represent=True)
 
+
+        rows = data["rows"]
+
+        # Empty table - or just no match?
+        empty = False
+        if not rows:
+            DELETED = current.xml.DELETED
+            if DELETED in table:
+                query = (table[DELETED] != True)
+            else:
+                query = (table._id > 0)
+            row = current.db(query).select(table._id, limitby=(0, 1)).first()
+            if not row:
+                empty = True
+                
         # Generate the data table
-        if data["rows"]:
-            rfields = data["rfields"]
-            dt = S3DataTable(rfields, data["rows"], orderby=orderby)
-        else:
-            dt = None
+        rfields = data["rfields"]
+        dt = S3DataTable(rfields, rows, orderby=orderby, empty=empty)
+        
         return dt, data["numrows"], data["ids"]
 
     # -------------------------------------------------------------------------
@@ -1779,7 +1794,7 @@ class S3Resource(object):
                  orderby=None,
                  distinct=False,
                  getids=False,
-                 listid=None,
+                 list_id=None,
                  layout=None):
         """
             Generate a data list of this resource
@@ -1792,7 +1807,7 @@ class S3Resource(object):
             @param distinct: distinct-flag for DB query
             @param getids: return the record IDs of all records matching the
                            query (used in search to create a filter)
-            @param listid: the list identifier
+            @param list_id: the list identifier
             @param layout: custom renderer function (see S3DataList.render)
 
             @return: tuple (S3DataList, numrows, ids), where numrows represents
@@ -1828,7 +1843,7 @@ class S3Resource(object):
         dl = S3DataList(self,
                         fields,
                         data["rows"],
-                        listid=listid,
+                        list_id=list_id,
                         start=start,
                         limit=limit,
                         total=numrows,
@@ -2329,8 +2344,8 @@ class S3Resource(object):
 
         # XSLT transformation
         if tree and xmlformat is not None:
-            if DEBUG:
-                _start = datetime.datetime.now()
+            #if DEBUG:
+            #    _start = datetime.datetime.now()
             import uuid
             tfmt = xml.ISOFORMAT
             args.update(domain=manager.domain,
@@ -2401,10 +2416,8 @@ class S3Resource(object):
                               level element (off by default)
         """
 
-        define_resource = current.s3db.resource
-
-        manager = current.manager
         xml = current.xml
+        manager = current.manager
 
         if manager.show_urls:
             base_url = manager.s3.base_url
@@ -2455,6 +2468,16 @@ class S3Resource(object):
 
         format = current.auth.permission.format
         if format == "geojson":
+            if results > current.deployment_settings.get_gis_max_features():
+                headers = {"Content-Type": "application/json"}
+                message = "Too Many Records"
+                status = 509
+                raise HTTP(status,
+                           body=xml.json_message(success=False,
+                                                 statuscode=status,
+                                                 message=message),
+                           web2py_error=message,
+                           **headers)
             # Lookups per layer not per record
             if tablename == "gis_layer_shapefile":
                 # GIS Shapefile Layer
@@ -2520,6 +2543,8 @@ class S3Resource(object):
         # Add referenced resources to the tree
         #if DEBUG:
         #    _start = datetime.datetime.now()
+
+        define_resource = current.s3db.resource
 
         depth = dereference and manager.MAX_DEPTH or 0
         while reference_map and depth:
@@ -2898,7 +2923,7 @@ class S3Resource(object):
         xml.gis_encode(self, record, element, rmap,
                        locations=locations, master=master)
 
-        # Restore user-ID representations
+        # Restore normal user_id representations
         for fn in auth_user_represent:
             ogetattr(table, fn).represent = auth_user_represent[fn]
 
@@ -3048,7 +3073,7 @@ class S3Resource(object):
         else:
             # job ID given
             pass
-
+        
         response = current.response
         # Flag to let onvalidation/onaccept know this is coming from a Bulk Import
         response.s3.bulk = True
@@ -3535,8 +3560,8 @@ class S3Resource(object):
             return (value, error)
 
     # -------------------------------------------------------------------------
-    @staticmethod
-    def original(table, record):
+    @classmethod
+    def original(cls, table, record, mandatory=None):
         """
             Find the original record for a possible duplicate:
                 - if the record contains a UUID, then only that UUID is used
@@ -3596,9 +3621,11 @@ class S3Resource(object):
             else:
                 query = _query
 
+        fields = cls.import_fields(table, pvalues, mandatory=mandatory)
+
         # Try to find exactly one match by non-UID unique keys
         if query is not None:
-            original = db(query).select(table.ALL, limitby=(0, 2))
+            original = db(query).select(limitby=(0, 2), *fields)
             if len(original) == 1:
                 return original.first()
 
@@ -3606,12 +3633,24 @@ class S3Resource(object):
         if UID in pvalues:
             uid = xml.import_uid(pvalues[UID])
             query = (table[UID] == uid)
-            original = db(query).select(table.ALL, limitby=(0, 1)).first()
+            original = db(query).select(limitby=(0, 1), *fields).first()
             if original:
                 return original
 
         # No match or multiple matches
         return None
+
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def import_fields(table, data, mandatory=None):
+        
+        fnames = set(s3_all_meta_field_names())
+        fnames.add(table._id.name)
+        if mandatory:
+            fnames |= set(mandatory)
+        for fn in data:
+            fnames.add(fn)
+        return [table[fn] for fn in fnames if fn in table.fields]
 
     # -------------------------------------------------------------------------
     def readable_fields(self, subset=None):
@@ -4228,7 +4267,7 @@ class S3Resource(object):
                     # iSortCol_x is either not present in vars or specifies
                     # a non-existent column (i.e. iSortCol_x >= numcols) =>
                     # ignore silently
-                    columns.append({"field": None})
+                    columns.append(Storage(field=None))
                 else:
                     columns.append(rfield)
 
@@ -4349,44 +4388,6 @@ class S3Resource(object):
                                                for row in rows)
 
         return axisfilter
-
-    # -------------------------------------------------------------------------
-    @classmethod
-    def sortleft(cls, joins):
-        """
-            Sort a list of left-joins by their interdependency
-
-            @param joins: the list of joins
-        """
-
-        if len(joins) <= 1:
-            return joins
-        r = list(joins)
-
-        tables = current.db._adapter.tables
-
-        append = r.append
-        head = None
-        for i in xrange(len(joins)):
-            join = r.pop(0)
-            head = join
-            tablenames = tables(join.second)
-            for j in r:
-                try:
-                    tn = j.first._tablename
-                except AttributeError:
-                    tn = str(j.first)
-                if tn in tablenames:
-                    head = None
-                    break
-            if head is not None:
-                break
-            else:
-                append(join)
-        if head is not None:
-            return [head] + cls.sortleft(r)
-        else:
-            raise RuntimeError("circular left-join dependency")
 
     # -------------------------------------------------------------------------
     def prefix_selector(self, selector):
@@ -6678,16 +6679,19 @@ class S3ResourceFilter(object):
                     fields = table.fields
 
                     fname = None
+                    sname = None
                     if k.find(".") != -1:
                         fname = k.split(".")[1]
+                        if fname not in fields:
+                            # Field not found - ignore
+                            continue
                     elif tablename not in tablenames:
                         for f in fields:
-                            if str(table[f].type) == "reference gis_location":
+                            if not fname and str(table[f].type) == "reference gis_location":
                                 fname = f
                                 break
-                    if fname is not None and fname not in fields:
-                        # Field not found - ignore
-                        continue
+                            if not sname and str(table[f].type) == "reference org_site":
+                                sname = f
                     try:
                         minLon, minLat, maxLon, maxLat = v.split(",")
                     except:
@@ -6727,6 +6731,12 @@ class S3ResourceFilter(object):
                         if fname is not None:
                             # Need a join
                             join = (gtable.id == table[fname])
+                            bbox = (join & bbox_filter)
+                        elif sname is not None:
+                            # Need a double join
+                            stable = current.s3db.org_site
+                            join = (stable.site_id == table[sname]) & \
+                                   (gtable.id == stable.location_id)
                             bbox = (join & bbox_filter)
                         else:
                             bbox = bbox_filter
@@ -6829,12 +6839,8 @@ class S3ResourceFilter(object):
 
         left_joins = self.get_left_joins()
         if left_joins:
-            try:
-                left_joins = resource.sortleft(left_joins)
-            except:
-                pass
-            left = left_joins
-            joins = ", ".join([str(j) for j in left_joins])
+            left = S3LeftJoins(resource.tablename, left_joins)
+            joins = ", ".join([str(j) for j in left.as_list()])
         else:
             left = None
             joins = None
@@ -7020,17 +7026,13 @@ class S3RecordMerger(object):
         self.main = main
 
         db = current.db
-        manager = current.manager
-
         resource = self.resource
         table = resource.table
         tablename = resource.tablename
 
-        raise_error = self.raise_error
-
         # Check for master resource
         if resource.parent:
-            raise_error("Must not merge from component", SyntaxError)
+            self.raise_error("Must not merge from component", SyntaxError)
 
         # Check permissions
         auth = current.auth
@@ -7040,7 +7042,7 @@ class S3RecordMerger(object):
                     has_permission("delete", table,
                                    record_id = duplicate_id)
         if not permitted:
-            raise_error("Operation not permitted", auth.permission.error)
+            self.raise_error("Operation not permitted", auth.permission.error)
 
         # Load all models
         s3db = current.s3db

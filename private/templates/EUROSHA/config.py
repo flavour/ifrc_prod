@@ -216,6 +216,8 @@ settings.frontpage.rss = [
 ]
 
 # Organisation Management
+# Enable the use of Organisation Branches
+settings.org.branches = True
 # Uncomment to add summary fields for Organisations/Offices for # National/International staff
 settings.org.summary = True
 
@@ -246,6 +248,10 @@ settings.project.mode_3w = True
 settings.project.codes = True
 # Uncomment this to call project locations 'Communities'
 #settings.project.community = True
+# Uncomment this to enable Hazards in 3W projects
+settings.project.hazards = True
+# Uncomment this to enable Themes in 3W projects
+settings.project.themes = True
 # Uncomment this to use multiple Budgets per project
 settings.project.multiple_budgets = True
 # Uncomment this to use multiple Organisations per project
@@ -273,7 +279,7 @@ def customize_org_organisation(**attr):
         else:
             result = True
 
-        if r.interactive or r.representation.lower() == "aadata":
+        if r.interactive or r.representation == "aadata":
             s3db = current.s3db
             list_fields = ["id",
                            "name",

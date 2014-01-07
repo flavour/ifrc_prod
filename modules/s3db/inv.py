@@ -355,7 +355,7 @@ class S3WarehouseModel(S3Model):
         # ---------------------------------------------------------------------
         # Pass names back to global scope (s3.*)
         #
-        return Storage()
+        return dict()
 
     # -------------------------------------------------------------------------
     #@staticmethod
@@ -725,12 +725,11 @@ S3OptionsFilter({
         # ---------------------------------------------------------------------
         # Pass names back to global scope (s3.*)
         #
-        return Storage(
-                    inv_item_id = inv_item_id,
+        return dict(inv_item_id = inv_item_id,
                     inv_item_represent = self.inv_item_represent,
                     inv_remove = self.inv_remove,
                     inv_prep = self.inv_prep,
-                )
+                    )
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -981,7 +980,6 @@ class S3TrackingModel(S3Model):
              "inv_kit",
              "inv_track_item",
              "inv_track_item_onaccept",
-             "inv_get_shipping_code",
              ]
 
     def model(self):
@@ -1153,11 +1151,15 @@ class S3TrackingModel(S3Model):
                                    ),
                              s3_datetime(label = T("Date Sent"),
                                          represent = "date",
-                                         writable = False),
+                                         # Not always sent straight away
+                                         #default = "now",
+                                         writable = False,
+                                         ),
                              s3_datetime("delivery_date",
                                          represent = "date",
                                          label = T("Estimated Delivery Date"),
-                                         writable = False),
+                                         writable = False,
+                                         ),
                              Field("status", "integer",
                                    requires = IS_NULL_OR(
                                                 IS_IN_SET(shipment_status)
@@ -1386,9 +1388,10 @@ class S3TrackingModel(S3Model):
                                      writable = False),
                              s3_datetime(label = T("Date Received"),
                                          represent = "date",
-                                         comment = DIV(_class="tooltip",
-                                                       _title="%s|%s" % (T("Date Received"),
-                                                                         T("Will be filled automatically when the Shipment has been Received"))),
+                                         # Can also be set manually (when catching up with backlog of paperwork)
+                                         #comment = DIV(_class="tooltip",
+                                         #              _title="%s|%s" % (T("Date Received"),
+                                         #                                T("Will be filled automatically when the Shipment has been Received"))),
                                          ),
                              send_ref(),
                              recv_ref(),
@@ -1888,13 +1891,12 @@ S3OptionsFilter({
         #---------------------------------------------------------------------
         # Pass names back to global scope (s3.*)
         #
-        return Storage(inv_get_shipping_code = self.inv_get_shipping_code,
-                       inv_send_controller = self.inv_send_controller,
-                       inv_send_onaccept = self.inv_send_onaccept,
-                       inv_send_process = self.inv_send_process,
-                       inv_track_item_deleting = self.inv_track_item_deleting,
-                       inv_track_item_onaccept = self.inv_track_item_onaccept,
-                       )
+        return dict(inv_send_controller = self.inv_send_controller,
+                    inv_send_onaccept = self.inv_send_onaccept,
+                    inv_send_process = self.inv_send_process,
+                    inv_track_item_deleting = self.inv_track_item_deleting,
+                    inv_track_item_onaccept = self.inv_track_item_onaccept,
+                    )
 
     # ---------------------------------------------------------------------
     @staticmethod
@@ -2050,7 +2052,7 @@ S3OptionsFilter({
         # If the send_ref is None then set it up
         record = stable[id]
         if not record.send_ref:
-            code = S3TrackingModel.inv_get_shipping_code(
+            code = current.s3db.supply_get_shipping_code(
                     current.deployment_settings.get_inv_send_shortname(),
                     record.site_id,
                     stable.send_ref,
@@ -2228,13 +2230,14 @@ S3OptionsFilter({
                         return s3.inv_track_item_deleting(r.component_id)
                 if record.get("site_id"):
                     # Restrict to items from this facility only
-                    tracktable.send_inv_item_id.requires = IS_ONE_OF(db,
-                                                                     "inv_inv_item.id",
+                    tracktable.send_inv_item_id.requires = IS_ONE_OF(db, "inv_inv_item.id",
                                                                      s3db.inv_item_represent,
-                                                                     orderby="inv_inv_item.id",
-                                                                     sort=True,
                                                                      filterby = "site_id",
-                                                                     filter_opts = [record.site_id]
+                                                                     filter_opts = [record.site_id],
+                                                                     not_filterby = "quantity",
+                                                                     not_filter_opts = [0],
+                                                                     orderby = "inv_inv_item.id",
+                                                                     sort = True,
                                                                      )
                 # Hide the values that will be copied from the inv_inv_item record
                 if r.component_id:
@@ -2381,16 +2384,10 @@ S3OptionsFilter({
         db = current.db
         s3db = current.s3db
         stable = db.inv_send
-        tracktable = db.inv_track_item
-        siptable = s3db.supply_item_pack
-        rrtable = s3db.req_req
-        ritable = s3db.req_req_item
 
         session = current.session
 
-        if not auth.s3_has_permission("update",
-                                      stable,
-                                      record_id=send_id):
+        if not auth.s3_has_permission("update", stable, record_id=send_id):
             session.error = T("You do not have permission to send this shipment.")
 
         send_record = db(stable.id == send_id).select(stable.status,
@@ -2406,6 +2403,11 @@ S3OptionsFilter({
 
         if send_record.status != SHIP_STATUS_IN_PROCESS:
             session.error = T("This shipment has already been sent.")
+
+        tracktable = db.inv_track_item
+        siptable = s3db.supply_item_pack
+        rrtable = s3db.req_req
+        ritable = s3db.req_req_item
 
         # Get the track items that are part of this shipment
         query = (tracktable.send_id == send_id ) & \
@@ -2583,7 +2585,7 @@ S3OptionsFilter({
         record = rtable[id]
         if not record.recv_ref:
             # AR Number
-            code = S3TrackingModel.inv_get_shipping_code(
+            code = current.s3db.supply_get_shipping_code(
                     current.deployment_settings.get_inv_recv_shortname(),
                     record.site_id,
                     rtable.recv_ref,
@@ -2890,27 +2892,6 @@ S3OptionsFilter({
 
     # -------------------------------------------------------------------------
     @staticmethod
-    def inv_get_shipping_code(type, site_id, field):
-
-        if site_id:
-            ostable = current.s3db.org_site
-            scode = ostable[site_id].code
-            code = "%s-%s-" % (type, scode)
-        else:
-            code = "%s-###-" % (type)
-        number = 0
-        if field:
-            query = (field.like("%s%%" % code))
-            ref_row = current.db(query).select(field,
-                                               limitby=(0, 1),
-                                               orderby=~field).first()
-            if ref_row:
-                ref = ref_row(field)
-                number = int(ref[-6:])
-        return "%s%06d" % (code, number+1)
-
-    # -------------------------------------------------------------------------
-    @staticmethod
     def inv_track_item_onaccept(form):
         """
            When a track item record is created and it is linked to an inv_item
@@ -3164,7 +3145,6 @@ S3OptionsFilter({
             request = current.request
             response = current.response
             s3 = response.s3
-            now = request.utcnow   
 
             # Add core Simile Code
             s3.scripts.append("/%s/static/scripts/simile/timeline/timeline-api.js" % request.application)
@@ -3192,14 +3172,13 @@ S3OptionsFilter({
                 rows = r.resource._rows
             
             
-            data = {'dateTimeFormat': 'iso8601',
-                    'events': []
+            data = {"dateTimeFormat": "iso8601",
                     }
 
-            tl_start = now
-            tl_end = now
+            now = request.utcnow
+            tl_start = tl_end = now
             events = []
-            if r.name is "send" :
+            if r.name is "send":
                 rr = (rows, rows2)
             else:
                 rr = (rows1, rows)
@@ -3220,14 +3199,14 @@ S3OptionsFilter({
                     end = end.isoformat()
                     
                 # append events
-                events.append({'start': start,
-                            'end': end,
-                            # 'title': row.name,
-                            # 'caption': row.comments or "",
-                            # 'description': row.comments or "",
+                events.append({"start": start,
+                               "end": end,
+                               #"title": row.name,
+                               #"caption": row.comments or "",
+                               #"description": row.comments or "",
                                # @ToDo: Colour based on Category (More generically: Resource or Resource Type)
-                               # 'color' : 'blue'
-                            })
+                               # "color" : "blue",
+                               })
 
             data["events"] = events
             data = json.dumps(data)
@@ -3243,7 +3222,7 @@ S3.timeline.now="''', now.isoformat(), '''"
             s3.js_global.append(code)
 
             # Create the DIV
-            item = DIV(_id="s3timeline", _style="height:400px;border:1px solid #aaa;font-family:Trebuchet MS,sans-serif;font-size:85%;")
+            item = DIV(_id="s3timeline", _class="s3-timeline")
 
             output = dict(item = item)
 
@@ -3329,14 +3308,14 @@ def inv_rheader(r):
         # RHeaders only used in interactive views
         return None
 
-    s3db = current.s3db
-
     # Need to use this format as otherwise req_match?viewing=org_office.x
     # doesn't have an rheader
     tablename, record = s3_rheader_resource(r)
     if not record:
+        # List or Create form: rheader makes no sense here
         return None
 
+    s3db = current.s3db
     table = s3db.table(tablename)
 
     rheader = None
@@ -3652,7 +3631,7 @@ def inv_send_rheader(r):
                                         )
                                       )
 
-                        jappend('''S3ConfirmClick("#send_process","%s")''' \
+                        jappend('''S3.confirmClick("#send_process","%s")''' \
                                    % T("Do you want to send this shipment?"))
                     #if not r.component and not r.method == "form":
                     #    ritable = s3db.req_req_item
@@ -3680,7 +3659,7 @@ def inv_send_rheader(r):
                                         _class = "action-btn"
                                         )
                                       )
-                        jappend('''S3ConfirmClick("#return_process","%s")''' \
+                        jappend('''S3.confirmClick("#return_process","%s")''' \
                             % T("Do you want to complete the return process?") )
                     else:
                         msg = T("You need to check all item quantities before you can complete the return process")
@@ -3703,7 +3682,7 @@ def inv_send_rheader(r):
                                         )
                                       )
 
-                        jappend('''S3ConfirmClick("#send_return","%s")''' \
+                        jappend('''S3.confirmClick("#send_return","%s")''' \
                             % T("Confirm that some items were returned from a delivery to beneficiaries and they will be accepted back into stock."))
                         action.append(A(T("Confirm Shipment Received"),
                                         _href = URL(f = "send",
@@ -3716,7 +3695,7 @@ def inv_send_rheader(r):
                                         )
                                       )
 
-                        jappend('''S3ConfirmClick("#send_receive","%s")''' \
+                        jappend('''S3.confirmClick("#send_receive","%s")''' \
                             % T("Confirm that the shipment has been received by a destination which will not record the shipment directly into the system and confirmed as received.") )
                     if s3_has_permission("delete",
                                          "inv_send",
@@ -3731,7 +3710,7 @@ def inv_send_rheader(r):
                                         )
                                       )
 
-                        jappend('''S3ConfirmClick("#send_cancel","%s")''' \
+                        jappend('''S3.confirmClick("#send_cancel","%s")''' \
                             % T("Do you want to cancel this sent shipment? The items will be returned to the Warehouse. This action CANNOT be undone!") )
             if not r.method == "form":
             #    msg = ""
@@ -3758,48 +3737,47 @@ def inv_send_pdf_footer(r):
     """
 
     if r.record:
-        footer = DIV (TABLE (TR(TH(T("Commodities Loaded")),
-                                TH(T("Date")),
-                                TH(T("Function")),
-                                TH(T("Name")),
-                                TH(T("Signature")),
-                                TH(T("Location (Site)")),
-                                TH(T("Condition")),
-                                ),
-                             TR(TD(T("Loaded By")),
-                                TD(),
-                                TD(),
-                                TD(),
-                                TD(),
-                                TD(),
-                                TD(),
-                                ),
-                             TR(TD(T("Transported By")),
-                                TD(),
-                                TD(),
-                                TD(),
-                                TD(),
-                                TD(),
-                                TD(),
-                                ),
-                             TR(TH(T("Reception")),
-                                TH(T("Date")),
-                                TH(T("Function")),
-                                TH(T("Name")),
-                                TH(T("Signature")),
-                                TH(T("Location (Site)")),
-                                TH(T("Condition")),
-                                ),
-                             TR(TD(T("Received By")),
-                                TD(),
-                                TD(),
-                                TD(),
-                                TD(),
-                                TD(),
-                                TD(),
-                                ),
-                            )
-                     )
+        footer = DIV(TABLE(TR(TH(T("Commodities Loaded")),
+                              TH(T("Date")),
+                              TH(T("Function")),
+                              TH(T("Name")),
+                              TH(T("Signature")),
+                              TH(T("Location (Site)")),
+                              TH(T("Condition")),
+                              ),
+                           TR(TD(T("Loaded By")),
+                              TD(),
+                              TD(),
+                              TD(),
+                              TD(),
+                              TD(),
+                              TD(),
+                              ),
+                           TR(TD(T("Transported By")),
+                              TD(),
+                              TD(),
+                              TD(),
+                              TD(),
+                              TD(),
+                              TD(),
+                              ),
+                           TR(TH(T("Reception")),
+                              TH(T("Date")),
+                              TH(T("Function")),
+                              TH(T("Name")),
+                              TH(T("Signature")),
+                              TH(T("Location (Site)")),
+                              TH(T("Condition")),
+                              ),
+                           TR(TD(T("Received By")),
+                              TD(),
+                              TD(),
+                              TD(),
+                              TD(),
+                              TD(),
+                              TD(),
+                              ),
+                           ))
         return footer
     return None
 
@@ -3827,41 +3805,40 @@ def inv_recv_rheader(r):
             site_id = record.site_id
             org_id = s3db.org_site[site_id].organisation_id
             logo = s3db.org_organisation_logo(org_id)
-            rData = TABLE(
-                           TR(TD(T(current.deployment_settings.get_inv_recv_form_name()),
-                                 _colspan=2, _class="pdf_title"),
-                              TD(logo, _colspan=2),
-                              ),
-                           TR(TH("%s: " % table.recv_ref.label),
-                              TD(table.recv_ref.represent(record.recv_ref))
-                              ),
-                           TR( TH("%s: " % table.status.label),
-                               table.status.represent(record.status),
-                              ),
-                           TR( TH( "%s: " % table.eta.label),
-                               table.eta.represent(record.eta),
-                               TH( "%s: " % table.date.label),
-                               table.date.represent(record.date),
-                              ),
-                           TR( TH( "%s: " % table.from_site_id.label),
-                               table.from_site_id.represent(record.from_site_id),
-                               TH( "%s: " % table.site_id.label),
-                               table.site_id.represent(record.site_id),
-                              ),
-                           TR( TH( "%s: " % table.sender_id.label),
-                               s3_fullname(record.sender_id),
-                               TH( "%s: " % table.recipient_id.label),
-                               s3_fullname(record.recipient_id),
-                              ),
-                           TR( TH( "%s: " % table.send_ref.label),
-                               table.send_ref.represent(record.send_ref),
-                               TH( "%s: " % table.recv_ref.label),
-                               table.recv_ref.represent(record.recv_ref),
-                              ),
-                           TR( TH( "%s: " % table.comments.label),
-                               TD(record.comments or "", _colspan=3),
-                              ),
-                            )
+            rData = TABLE(TR(TD(T(current.deployment_settings.get_inv_recv_form_name()),
+                                _colspan=2, _class="pdf_title"),
+                             TD(logo, _colspan=2),
+                             ),
+                          TR(TH("%s: " % table.recv_ref.label),
+                             TD(table.recv_ref.represent(record.recv_ref))
+                             ),
+                          TR(TH("%s: " % table.status.label),
+                             table.status.represent(record.status),
+                             ),
+                          TR(TH("%s: " % table.eta.label),
+                             table.eta.represent(record.eta),
+                             TH("%s: " % table.date.label),
+                             table.date.represent(record.date),
+                             ),
+                          TR(TH("%s: " % table.from_site_id.label),
+                             table.from_site_id.represent(record.from_site_id),
+                             TH("%s: " % table.site_id.label),
+                             table.site_id.represent(record.site_id),
+                             ),
+                          TR(TH("%s: " % table.sender_id.label),
+                             s3_fullname(record.sender_id),
+                             TH("%s: " % table.recipient_id.label),
+                             s3_fullname(record.recipient_id),
+                             ),
+                          TR(TH("%s: " % table.send_ref.label),
+                             table.send_ref.represent(record.send_ref),
+                             TH("%s: " % table.recv_ref.label),
+                             table.recv_ref.represent(record.recv_ref),
+                             ),
+                          TR(TH("%s: " % table.comments.label),
+                             TD(record.comments or "", _colspan=3),
+                             ),
+                           )
 
             rfooter = TAG[""]()
             action = DIV()
@@ -3876,16 +3853,15 @@ def inv_recv_rheader(r):
                                                   "inv_recv",
                                                   record_id=record.id):
                     if cnt > 0:
-                        action.append( A( T("Receive Shipment"),
-                                              _href = URL(c = "inv",
-                                                          f = "recv_process",
-                                                          args = [record.id]
-                                                          ),
-                                              _id = "recv_process",
-                                              _class = "action-btn"
-                                        )
-                                      )
-                        recv_btn_confirm = SCRIPT("S3ConfirmClick('#recv_process', '%s')"
+                        action.append(A(T("Receive Shipment"),
+                                        _href = URL(c = "inv",
+                                                    f = "recv_process",
+                                                    args = [record.id]
+                                                    ),
+                                        _id = "recv_process",
+                                        _class = "action-btn"
+                                        ))
+                        recv_btn_confirm = SCRIPT("S3.confirmClick('#recv_process', '%s')"
                                                   % T("Do you want to receive this shipment?") )
                         rfooter.append(recv_btn_confirm)
                     else:
@@ -3897,33 +3873,31 @@ def inv_recv_rheader(r):
             #        if current.auth.s3_has_permission("delete",
             #                                          "inv_recv",
             #                                          record_id=record.id):
-            #            action.append( A( T("Cancel Shipment"),
+            #            action.append(A(T("Cancel Shipment"),
             #                            _href = URL(c = "inv",
             #                                        f = "recv_cancel",
             #                                        args = [record.id]
             #                                        ),
             #                            _id = "recv_cancel",
             #                            _class = "action-btn"
-            #                            )
-            #                         )
+            #                            ))
 
-            #            cancel_btn_confirm = SCRIPT("S3ConfirmClick('#recv_cancel', '%s')"
+            #            cancel_btn_confirm = SCRIPT("S3.confirmClick('#recv_cancel', '%s')"
             #                                         % T("Do you want to cancel this received shipment? The items will be removed from the Warehouse. This action CANNOT be undone!") )
             #            rfooter.append(cancel_btn_confirm)
             msg = ""
             if cnt == 1:
-                msg = T("This shipment contains one item")
+                msg = T("This shipment contains one line item")
             elif cnt > 1:
                 msg = T("This shipment contains %s items") % cnt
-            rData.append(
-                         TR( TH(action, _colspan=2),
-                             TD(msg)
-                           )
-                        )
+            rData.append(TR(TH(action,
+                               _colspan=2),
+                            TD(msg)
+                            ))
 
             current.response.s3.rfooter = rfooter
-            rheader = DIV (rData,
-                           rheader_tabs,
+            rheader = DIV(rData,
+                          rheader_tabs,
                           )
             return rheader
     return None
@@ -3935,32 +3909,31 @@ def inv_recv_pdf_footer(r):
 
     record = r.record
     if record:
-        footer = DIV (TABLE (TR(TH(T("Delivered By")),
-                                TH(T("Date")),
-                                TH(T("Function")),
-                                TH(T("Name")),
-                                TH(T("Signature")),
-                                ),
-                             TR(TD(),
-                                TD(),
-                                TD(),
-                                TD(),
-                                TD(),
-                                ),
-                            TR(TH(T("Received By")),
-                                TH(T("Date")),
-                                TH(T("Function")),
-                                TH(T("Name")),
-                                TH(T("Signature / Stamp")),
-                                ),
-                             TR(TD(),
-                                TD(),
-                                TD(),
-                                TD(),
-                                TD(),
-                                ),
-                            )
-                     )
+        footer = DIV(TABLE(TR(TH(T("Delivered By")),
+                              TH(T("Date")),
+                              TH(T("Function")),
+                              TH(T("Name")),
+                              TH(T("Signature")),
+                              ),
+                           TR(TD(),
+                              TD(),
+                              TD(),
+                              TD(),
+                              TD(),
+                              ),
+                           TR(TH(T("Received By")),
+                              TH(T("Date")),
+                              TH(T("Function")),
+                              TH(T("Name")),
+                              TH(T("Signature / Stamp")),
+                              ),
+                           TR(TD(),
+                              TD(),
+                              TD(),
+                              TD(),
+                              TD(),
+                              ),
+                           ))
         return footer
     return None
 
@@ -4000,10 +3973,10 @@ class S3AdjustModel(S3Model):
         #
         adjust_type = {0 : T("Shipment"),
                        1 : T("Inventory"),
-                      }
+                       }
         adjust_status = {0 : T("In Process"),
                          1 : T("Complete"),
-                        }
+                         }
 
         tablename = "inv_adj"
         table = define_table(tablename,
@@ -4080,7 +4053,7 @@ class S3AdjustModel(S3Model):
                          6 : T("Transfer Ownership"),
                          7 : T("Issued without Record"),
                          7 : T("Distributed without Record"),
-                        }
+                         }
 
         # CRUD strings
         if settings.get_inv_stock_count():
@@ -4223,9 +4196,8 @@ class S3AdjustModel(S3Model):
         self.add_component("inv_adj_item",
                            inv_adj="adj_id")
 
-        return Storage(
-                    inv_adj_item_id = adj_item_id,
-                )
+        return dict(inv_adj_item_id = adj_item_id,
+                    )
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -4393,7 +4365,7 @@ def inv_adj_rheader(r):
                                   _id = "adj_close",
                                   _class = "action-btn"
                                   )
-                    close_btn_confirm = SCRIPT("S3ConfirmClick('#adj_close', '%s')"
+                    close_btn_confirm = SCRIPT("S3.confirmClick('#adj_close', '%s')"
                                               % T("Do you want to complete & close this adjustment?") )
                     rheader.append(close_btn)
                     rheader.append(close_btn_confirm)

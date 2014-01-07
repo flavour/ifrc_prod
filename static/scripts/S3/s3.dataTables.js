@@ -35,7 +35,8 @@
     var totalRecords = [];
 
     var appendUrlQuery = function(url, extension, query) {
-        var parts = url.split('?'), q = '';
+        var parts = url.split('?'),
+            q = '';
         var newurl = parts[0] + '.' + extension;
         if (parts.length > 1) {
             if (query) {
@@ -313,18 +314,21 @@
             }
         }
         if (tableConfig['bulkActions']) {
-            $('.bulkcheckbox').unbind('change')
-                              .change(function(event) {
-                var id = this.id.substr(6);
-                var posn = inList(id, selectedRows[t]);
+            $('.bulkcheckbox').unbind('click.bulkSelect')
+                              .on('click.bulkSelect', function(event) {
+                                  
+                var id = this.id.substr(6),
+                    rows = selectedRows[t];
+                    
+                var posn = inList(id, rows);
                 if (posn == -1) {
-                    selectedRows[t].push(id);
-                    posn = 0; // force the row to be selected
+                    rows.push(id);
+                    posn = 0; // toggle selection class
                 } else {
-                    selectedRows[t].splice(posn, 1);
-                    posn = -1; // force the row to be deselected
+                    rows.splice(posn, 1);
+                    posn = -1; // toggle selection class
                 }
-                var row = $(this).parent().parent();
+                var row = $(this).closest('tr');
                 togglePairActions(t);
                 setSelectionClass(t, row, posn);
             });
@@ -333,34 +337,63 @@
 
     // Show which rows have been selected for a bulk select action
     var setSelectionClass = function(t, row, index) {
+        var $totalAvailable = $('#totalAvailable'),
+            $totalSelected = $('#totalSelected'),
+            numSelected = selectedRows[t].length;
         if (selectionMode[t] == 'Inclusive') {
             // @ToDo: can 'selected' be pulled in from a parameter rather than module-scope?
-            $('#totalSelected').text(selected.length);
+            if ($totalSelected.length && $totalAvailable.length) {
+                $('#totalSelected').text(numSelected);
+            }
             if (index == -1) {
+                // Row is not currently selected
                 $(row).removeClass('row_selected');
                 $('.bulkcheckbox', row).prop('checked', false);
             } else {
+                // Row is currently selected
                 $(row).addClass('row_selected');
                 $('.bulkcheckbox', row).prop('checked', true);
             }
-        }
-        if (selectionMode[t] == 'Exclusive') {
-            $('#totalSelected').text(parseInt($('#totalAvailable').text(), 10) - selected.length);
+            if (numSelected == totalRecords[t]) {
+                $('#modeSelectionAll').prop('checked', true);
+                selectionMode[t] = 'Exclusive';
+                selectedRows[t] = [];
+            }
+        } else {
+            if ($totalSelected.length && $totalAvailable.length) {
+                $('#totalSelected').text(parseInt($('#totalAvailable').text(), 10) - numSelected);
+            }
             if (index == -1) {
+                // Row is currently selected
                 $(row).addClass('row_selected');
                 $('.bulkcheckbox', row).prop('checked', true);
             } else {
+                // Row is not currently selected
                 $(row).removeClass('row_selected');
                 $('.bulkcheckbox', row).prop('checked', false);
             }
+            if (numSelected == totalRecords[t]) {
+                $('#modeSelectionAll').prop('checked', false);
+                selectionMode[t] = 'Inclusive';
+                selectedRows[t] = [];
+            }
         }
+
         if (aoTableConfig[t]['bulkActions']) {
-            // Make sure that the details of the selected records are stored in the hidden fields
+
+            // Make sure that the details of the selected records
+            // are stored in the hidden fields
             $(aHiddenFieldsID[t][0]).val(selectionMode[t]);
             $(aHiddenFieldsID[t][1]).val(selectedRows[t].join(','));
+            
             // Add the bulk action controls to the dataTable
             $('.dataTable-action').remove();
             $(bulk_action_controls).insertBefore('#bulk_select_options');
+
+            // Activate bulk actions?
+            numSelected = selectedRows[t].length;
+            var off = selectionMode[t] == 'Inclusive' ? 0 : totalRecords[t];
+            $('.selected-action').prop('disabled', (numSelected == off));
             togglePairActions(t);
         };
     }
@@ -640,8 +673,7 @@
         }
         if (tableConfig['bulkActions']) {
             tableColumns[tableConfig['bulkCol']] = {
-                // @ToDo: i18n
-                'sTitle': '<select id="bulk_select_options"><option></option><option id="modeSelectionAll">Select All</option><option id="modeSelectionNone">Deselect All</option></select>',
+                'sTitle': '<div id="bulk_select_options"><input id="modeSelectionAll" type="checkbox">' + i18n.sSelectAll + '</input></div>',
                 'bSortable': false
             };
         }
@@ -666,11 +698,13 @@
             };
         }
 
-        /* Code to calculate the bulk action buttons
+        /*
+           Code to calculate the bulk action buttons
 
            They will actually be placed on the dataTable inside the fnHeaderCallback
            It is necessary to do this inside of the callback because the dataTable().fnDraw
-           that these buttons trigger will remove the onClick binding. */
+           that these buttons trigger will remove the onClick binding.
+        */
         if (tableConfig['bulkActions']) {
             var bulk_submit = '';
             for (var i=0, iLen=tableConfig['bulkActions'].length; i < iLen; i++) {
@@ -688,7 +722,7 @@
                     value = bulk_action;
                     name = value;
                 }
-                bulk_submit += '<input type="submit" id="submitSelection" class="' + cls + '" name="' + name + '" value="' + value + '">&nbsp;';
+                bulk_submit += '<input type="submit" id="' + name + '-selected-action" class="' + cls + ' selected-action" name="' + name + '" value="' + value + '">&nbsp;';
             }
             // Module-scope currently as read by setSelectionClass()
             bulk_action_controls = '<div class="dataTable-action">' + bulk_submit + '</div>';
@@ -868,11 +902,11 @@
             tableConfig['ajaxUrl'] = null;
             var fnDataTablesPipeline = function(url, data, callback) {
                 var nonDefaultData = data.filter(isNonDefaultData);
-                $.ajax({
-                    'url': url,
-                    'data': nonDefaultData,
-                    'dataType': 'json',
-                    'cache': false
+                // @ToDo: Switch to ajaxS3
+                $.ajax({'url': url,
+                        'data': nonDefaultData,
+                        'dataType': 'json',
+                        'cache': false
                 }).done(function(data, status) {
                     if (callback) {
                         callback(data, status);
@@ -928,23 +962,17 @@
                 'sZeroRecords': i18n.sZeroRecords
             },
             'fnHeaderCallback' : function (nHead, aasData, iStart, iEnd, aiDisplay) {
-                $('#modeSelectionAll').on('click', function(event) {
-                    //var wrapper = $(this).parents('.dataTables_wrapper')[0].id;
-                    //var selector = '#' + wrapper.substr(0, wrapper.length - 8);
-                    //var t = tableIdReverse(selector);
-                    selectionMode[t] = 'Exclusive';
-                    selectedRows[t] = [];
-                    //oDataTable[t].fnDraw(false);
-                    dt.fnDraw(false);
-                });
-                $('#modeSelectionNone').on('click', function(event) {
-                    //var wrapper = $(this).parents('.dataTables_wrapper')[0].id;
-                    //var selector = '#' + wrapper.substr(0, wrapper.length - 8);
-                    //var t = tableIdReverse(selector);
-                    selectionMode[t] = 'Inclusive';
-                    selectedRows[t] = [];
-                    //oDataTable[t].fnDraw(false);
-                    dt.fnDraw(false);
+                $('#modeSelectionAll').unbind('click.selectAll')
+                                      .on('click.selectAll', function(event) {
+                    if ($(this).prop('checked')) {
+                        selectionMode[t] = 'Exclusive';
+                        selectedRows[t] = [];
+                        dt.fnDraw(false);
+                    } else {
+                        selectionMode[t] = 'Inclusive';
+                        selectedRows[t] = [];
+                        dt.fnDraw(false);
+                    }
                 });
             },
             'fnServerData': fnAjaxCallback[t],
@@ -960,37 +988,43 @@
                 }
                 // Set the action buttons in the id column for each row
                 if (tableConfig['rowActions'].length || tableConfig['bulkActions']) {
-                    var Buttons = '';
+                    var Buttons = '', add_modals = false;
                     if (tableConfig['rowActions'].length) {
-                        var Actions = tableConfig['rowActions'];
+                        var Actions = tableConfig['rowActions'], action;
                         // Loop through each action to build the button
                         for (var i=0; i < Actions.length; i++) {
+                            action = Actions[i];
 
                             //$('th:eq(0)').css( { 'width': 'auto' } );
 
                             // Check if action is restricted to a subset of records
-                            if ('restrict' in Actions[i]) {
-                                if (inList(action_id, Actions[i].restrict) == -1) {
+                            if ('restrict' in action) {
+                                if (inList(action_id, action.restrict) == -1) {
                                     continue;
                                 }
                             }
-                            var c = Actions[i]._class;
-                            var label = S3.Utf8.decode(Actions[i].label);
+                            var c = action._class;
+                            var label = S3.Utf8.decode(action.label);
                             re = /%5Bid%5D/g;
-                            if (Actions[i]._onclick) {
+                            if (action._onclick) {
                                 var oc = Actions[i]._onclick.replace(re, action_id);
                                 Buttons = Buttons + '<a class="' + c + '" onclick="' + oc + '">' + label + '</a>' + '&nbsp;';
-                            } else if (Actions[i]._jqclick) {
+                            } else if (action._jqclick) {
                                 Buttons = Buttons + '<span class="' + c + '" id="' + action_id + '">' + label + '</span>' + '&nbsp;';
                                 if (typeof S3ActionCallBack != 'undefined') {
                                     fnActionCallBacks.push([action_id, S3ActionCallBack]);
                                 }
-                            } else {
-                                if (Actions[i].icon) {
-                                    label = '<img src="' + Actions[i].icon + '" alt="' + label + '" title="' + label + '">';
+                            } else if (action.url) {
+                                if (action.icon) {
+                                    label = '<img src="' + action.icon + '" alt="' + label + '" title="' + label + '">';
                                 }
-                                var url = Actions[i].url.replace(re, action_id);
+                                var url = action.url.replace(re, action_id);
                                 Buttons = Buttons + '<a db_id="'+ action_id + '" class="' + c + '" href="' + url + '" title="' + label + '">' + label + '</a>' + '&nbsp;';
+                            } else {
+                                if (action.icon) {
+                                    label = '<img src="' + action.icon + '" alt="' + label + '" title="' + label + '">';
+                                }
+                                Buttons = Buttons + '<a db_id="'+ action_id + '" class="' + c + '" title="' + label + '">' + label + '</a>' + '&nbsp;';
                             }
                         } // end of loop through for each row Action for this table
                     } // end of if there are to be Row Actions for this table
@@ -1051,8 +1085,6 @@
             'fnDrawCallback': function(oSettings) {
                 //var table = '#' + oSettings.nTable.id;
                 //var t = tableIdReverse(table);
-                // If using Modals for Update forms:
-                //S3.addModals();
                 bindButtons(t, tableConfig, fnActionCallBacks);
                 if (oSettings.aiDisplay.length === 0) {
                     return;
@@ -1117,6 +1149,26 @@
                     $(id + '_paginate').css('display', 'block');
                 } else {
                     $(id + '_paginate').css('display', 'none');
+                }
+                // Add modals if necessary
+                // - in future maybe use S3.redraw() to catach all elements
+                if ($(id).find('.s3_modal').length) {
+                    S3.addModals();
+                }
+                // Do we have any records? => toggle empty section
+                var numrows = oSettings.fnRecordsDisplay();
+                if (numrows > 0) {
+                    $(id).closest('.dt-contents')
+                         .find('.empty')
+                         .hide()
+                         .siblings('.dt-wrapper')
+                         .show();
+                } else {
+                    $(id).closest('.dt-contents')
+                         .find('.empty')
+                         .show()
+                         .siblings('.dtwrapper')
+                         .hide();
                 }
             } // end of fnDrawCallback
         }); // end of call to $(id).datatable()

@@ -33,6 +33,7 @@ __all__ = ["S3EventModel",
            "S3IncidentGroupModel",
            "S3IncidentTypeModel",
            "S3IncidentTypeTagModel",
+           "S3EventActivityModel",
            "S3EventAssetModel",
            "S3EventCMSModel",
            "S3EventHRModel",
@@ -63,6 +64,7 @@ class S3EventModel(S3Model):
     """
 
     names = ["event_event_type",
+             "event_type_id",
              "event_event",
              "event_event_id",
              "event_event_location",
@@ -84,12 +86,12 @@ class S3EventModel(S3Model):
         # Event Types / Disaster Types
         #
         tablename = "event_event_type"
-        table = self.define_table(tablename,
-                                  Field("name", notnull=True,
-                                        length=64,
-                                        label=T("Name")),
-                                  s3_comments(),
-                                  *s3_meta_fields())
+        table = define_table(tablename,
+                             Field("name", notnull=True,
+                                   length=64,
+                                   label=T("Name")),
+                             s3_comments(),
+                             *s3_meta_fields())
 
         crud_strings[tablename] = Storage(
             title_create = T("Add Event Type"),
@@ -263,6 +265,7 @@ class S3EventModel(S3Model):
         # - can be used to add extra attributes (e.g. Area, Population)
         # - can link Events to other Systems, such as:
         #   * GLIDE (http://glidenumber.net/glide/public/about.jsp)
+        #   * OCHA Financial Tracking System, for HXL (http://fts.unocha.org/api/v1/emergency/year/2013.xml)
         #   * Mayon
         #   * WebEOC
         # - can be a Triple Store for Semantic Web support
@@ -282,7 +285,8 @@ class S3EventModel(S3Model):
         # ---------------------------------------------------------------------
         # Pass names back to global scope (s3.*)
         #
-        return dict(event_event_id = event_id,
+        return dict(event_type_id = event_type_id,
+                    event_event_id = event_id,
                     )
 
     # -------------------------------------------------------------------------
@@ -298,7 +302,7 @@ class S3EventModel(S3Model):
                                                  writable=False),
                 )
 
-    # ---------------------------------------------------------------------
+    # -------------------------------------------------------------------------
     @staticmethod
     def event_update_onaccept(form):
         """
@@ -328,7 +332,7 @@ class S3EventModel(S3Model):
             for row in rows:
                 db(table.id == row.post_id).update(expired=True)
 
-    # ---------------------------------------------------------------------
+    # -------------------------------------------------------------------------
     @staticmethod
     def event_duplicate(item):
         """
@@ -350,7 +354,7 @@ class S3EventModel(S3Model):
             item.data.id = _duplicate.id
             item.method = item.METHOD.UPDATE
 
-    # ---------------------------------------------------------------------
+    # -------------------------------------------------------------------------
     @staticmethod
     def event_type_duplicate(item):
         """
@@ -529,7 +533,7 @@ class S3IncidentModel(S3Model):
                                              autodelete=False))
 
         # Human Resources
-        add_component("event_human_resource", event_event="event_id")
+        add_component("event_human_resource", event_incident="incident_id")
         add_component("hrm_human_resource",
                       event_incident=Storage(link="event_human_resource",
                                              joinby="incident_id",
@@ -941,6 +945,28 @@ class S3IncidentTypeTagModel(S3Model):
                                   Field("tag", label=T("Key")),
                                   Field("value", label=T("Value")),
                                   s3_comments(),
+                                  *s3_meta_fields())
+
+        # Pass names back to global scope (s3.*)
+        return dict()
+
+# =============================================================================
+class S3EventActivityModel(S3Model):
+    """
+        Link Activities to Events
+    """
+
+    names = ["event_activity"]
+
+    def model(self):
+
+        if not current.deployment_settings.has_module("project"):
+            return None
+
+        tablename = "event_activity"
+        table = self.define_table(tablename,
+                                  self.event_event_id(empty=False),
+                                  self.project_activity_id(empty=False),
                                   *s3_meta_fields())
 
         # Pass names back to global scope (s3.*)

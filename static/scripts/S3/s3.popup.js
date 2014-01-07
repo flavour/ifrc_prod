@@ -3,46 +3,54 @@
  */
 
 function s3_popup_refresh_main_form() {
-    // The Get parameters
+    // The GET parameters
     var $_GET = getQueryParams(document.location.search);
 
-    // Update Form?
+    // Is this a modal that is to refresh a datatable/datalist/map?
+    // => must specify ?refresh=list_id in the popup-URL, and for
+    //    datalists (optionally) &record_id=record_id in order to just
+    //    refresh this one record
     var refresh = $_GET['refresh'];
     if (typeof refresh != 'undefined') {
-        // Update DataList/DataTable
+        // Update DataList/DataTable (if appropriate)
         var selector = self.parent.$('#' + refresh);
-        if (typeof selector.dataTable !== 'undefined') {
-            // refresh dataTable
-            selector.dataTable().fnReloadAjax();
-        } else {
+        if (selector.hasClass('dl')) {
+            // Refresh dataList
             var record = $_GET['record'];
             if (record !== undefined) {
                 // reload a single item
-                self.parent.dlAjaxReloadItem(refresh, record);
+                selector.datalist('ajaxReloadItem', record)
             } else {
                 // reload the whole list
-                self.parent.dlAjaxReload(refresh);
+                selector.datalist('ajaxReload');
             }
+        } else {
+            // Refresh dataTable
+            try {
+                selector.dataTable().fnReloadAjax();
+            } catch(e) {}
         }
-        // Also update the layer on the Maps (if any)
+        // Update the layer on the Maps (if appropriate)
         var maps = self.parent.S3.gis.maps
         if (typeof maps != 'undefined') {
-            var map_id, map, needle, layers, i, len, layer, strategies, j, jlen, strategy;
+            var map_id, map, layer_id, layers, i, len, layer, strategies, j, jlen, strategy;
             for (map_id in maps) {
                 map = maps[map_id];
-                needle = refresh.replace(/-/g, '_');
+                layer_id = refresh.replace(/-/g, '_');
                 layers = map.layers;
                 for (i=0, len=layers.length; i < len; i++) {
                     layer = layers[i];
-                    if (layer.s3_layer_id == needle) {
+                    if (layer.s3_layer_id == layer_id) {
                         strategies = layer.strategies;
                         for (j=0, jlen=strategies.length; j < jlen; j++) {
                             strategy = strategies[j];
                             if (strategy.CLASS_NAME == 'OpenLayers.Strategy.Refresh') {
                                 // Reload the layer
                                 strategy.refresh();
+                                break;
                             }
                         }
+                        break;
                     }
                 }
             }
@@ -53,29 +61,110 @@ function s3_popup_refresh_main_form() {
             self.parent.S3.search.ajaxUpdateOptions(filterform);
         }
         // Remove popup
-        self.parent.s3_popup_remove();
+        self.parent.S3.popup_remove();
         return;
     }
 
-    // Create form (e.g. S3AddResourceLink)
+    // Is this a Map popup? (e.g. PoI entry)
+    var layer_id = $_GET['refresh_layer'];
+    if (typeof layer_id != 'undefined') {
+        var maps = self.parent.S3.gis.maps
+        if (typeof maps != 'undefined') {
+            layer_id = parseInt(layer_id);
+            var map_id, map, layers, i, len, layer, found, strategies, j, jlen, strategy;
+            for (map_id in maps) {
+                map = maps[map_id];
+                layers = map.layers;
+                for (i=0, len=layers.length; i < len; i++) {
+                    layer = layers[i];
+                    if (layer.s3_layer_id == layer_id) {
+                        found = true;
+                        strategies = layer.strategies;
+                        for (j=0, jlen=strategies.length; j < jlen; j++) {
+                            strategy = strategies[j];
+                            if (strategy.CLASS_NAME == 'OpenLayers.Strategy.Refresh') {
+                                // Reload the layer
+                                strategy.refresh();
+                                break;
+                            }
+                        }
+                        break;
+                    }
+                }
+                if (found) {
+                    if (document.location.pathname.indexOf('/create') != -1) {
+                        // Remove the Draft Feature & it's Popup
+                        var gis_draft_layer = self.parent.i18n.gis_draft_layer;
+                        for (i=0, len=layers.length; i < len; i++) {
+                            layer = layers[i];
+                            if (layer.name == gis_draft_layer) {
+                                var features = layer.features,
+                                    feature,
+                                    popup;
+                                for (j=features.length - 1; j >= 0; j--) {
+                                    feature = features[j];
+                                    popup = feature.popup;
+                                    map.removePopup(popup);
+                                    popup.destroy();
+                                    delete feature.popup;
+                                    feature.destroy();
+                                }
+                                break;
+                            }
+                        }
+                    } else {
+                        // Remove the Update Popup
+                        /* Not working - for some reason the feature loses its ref to the popup
+                        var features = layer.features,
+                            feature,
+                            popup;
+                        for (j=features.length - 1; j >= 0; j--) {
+                            feature = features[j];
+                            popup = feature.popup;
+                            if (popup) {
+                                map.removePopup(popup);
+                                popup.destroy();
+                                delete feature.popup;
+                            }
+                        } */
+                        // Close ALL popups
+                        while (map.popups.length) {
+                            map.removePopup(map.popups[0]);
+                        }
+                    }
+                }
+            }
+        }
+        return;
+    }
+
+    // Modal opened from a form (e.g. S3AddResourceLink)?
+    // => update the respective form field (=the caller)
+
     var level = $_GET['level'];
     if (typeof level != 'undefined') {
         // Location Selector
-        self.parent.s3_popup_remove();
+        self.parent.S3.popup_remove();
         return;
     }
 
     var caller = $_GET['caller'];
-    s3_debug('caller', caller);
+    if (caller === undefined) {
+        // All code after this is there to update the caller, so pointless
+        // to continue beyond this point without it.
+        s3_debug('Neither calling element nor refresh-target specified in popup URL!');
+        self.parent.S3.popup_remove();
+        return;
+    } else {
+        s3_debug('Caller: ', caller);
+    }
 
     var person_id = $_GET['person_id'];
     if (typeof person_id != 'undefined') {
         // Person Selector
-        if (typeof caller != 'undefined') {
-            var field = self.parent.$('#' + caller);
-            field.val(person_id).change();
-        }
-        self.parent.s3_popup_remove();
+        var field = self.parent.$('#' + caller);
+        field.val(person_id).change();
+        self.parent.S3.popup_remove();
         return;
     }
 
@@ -266,20 +355,22 @@ function s3_popup_refresh_main_form() {
         //    }, 1);
 
         // Clean-up
-        self.parent.s3_popup_remove();
+        self.parent.S3.popup_remove();
     });
 }
 
 // Function to get the URL parameters
 function getQueryParams(qs) {
     // We want all the vars, i.e. after the ?
-    qs = qs.split('?')[1];
-    var pairs = qs.split('&');
     var params = {};
-    var check = [];
-    for (var i=0; i < pairs.length; i++) {
-        check = pairs[i].split('=');
-        params[decodeURIComponent(check[0])] = decodeURIComponent(check[1]);
+    qs = qs.substring(1);
+    if (qs) {
+        var pairs = qs.split('&');
+        var check = [];
+        for (var i=0; i < pairs.length; i++) {
+            check = pairs[i].split('=');
+            params[decodeURIComponent(check[0])] = decodeURIComponent(check[1]);
+        }
     }
     return params;
 }

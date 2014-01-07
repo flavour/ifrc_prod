@@ -93,6 +93,14 @@ settings.gis.map_width = 960 # container_12
 settings.gis.display_L0 = True
 # Deployment only covers Asia-Pacific
 settings.gis.countries = [ "AF", "AU", "BD", "BN", "CK", "CN", "FJ", "FM", "HK", "ID", "IN", "JP", "KH", "KI", "KP", "KR", "LA", "MH", "MM", "MN", "MV", "MY", "NP", "NZ", "PG", "PH", "PK", "PW", "SB", "SG", "SL", "TH", "TL", "TO", "TV", "TW", "VN", "VU", "WS"]
+# Uncomment to disable the ability to add PoIs to the main map
+settings.gis.pois = False
+
+# =============================================================================
+# Organisation Deployment Settings
+# Enable the use of Organisation Branches
+# RMS-compatibility
+settings.org.branches = True
 
 # =============================================================================
 # Project Deployment Settings
@@ -104,6 +112,8 @@ settings.project.mode_drr = True
 settings.project.codes = True
 # Uncomment this to call project locations 'Communities'
 #settings.project.community = True
+# Uncomment this to enable Hazards in 3W projects
+settings.project.hazards = True
 # Uncomment this to create a project_location for each country which is a project is implemented in
 # - done via Custom Form instead
 #settings.project.locations_from_countries = True
@@ -113,6 +123,8 @@ settings.project.codes = True
 settings.project.multiple_organisations = True
 # Uncomment this to disable Sectors in projects
 settings.project.sectors = False
+# Uncomment this to enable Themes in 3W projects
+settings.project.themes = True
 # Uncomment this to customise
 # Links to Filtered Components for Donors & Partners
 settings.project.organisation_roles = {
@@ -951,4 +963,11 @@ settings.modules = OrderedDict([
             restricted = True,
             module_type = 1
         )),
+    # Stats required if using beneficiary model
+    #("stats", Storage(
+    #       name_nice = T("Statistics"),
+    #       #description = "Manages statistics",
+    #       restricted = True,
+    #       module_type = None,
+    #   )),
 ])

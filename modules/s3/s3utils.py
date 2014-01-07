@@ -66,6 +66,9 @@ if DEBUG:
 else:
     _debug = lambda m: None
 
+URLSCHEMA = re.compile("((?:(())(www\.([^/?#\s]*))|((http(s)?|ftp):)"
+                       "(//([^/?#\s]*)))([^?#\s]*)(\?([^#\s]*))?(#([^\s]*))?)")
+    
 # =============================================================================
 def s3_debug(message, value=None):
     """
@@ -148,6 +151,7 @@ def s3_dev_toolbar():
 def s3_mark_required(fields,
                      mark_required=[],
                      label_html=(lambda field_label:
+                                 # @ToDo: DRY this setting with s3.locationselector.widget2.js
                                  DIV("%s:" % field_label,
                                      SPAN(" *", _class="req"))),
                      map_names=None):
@@ -171,6 +175,9 @@ def s3_mark_required(fields,
             fname, flabel = map_names[field.name]
         else:
             fname, flabel = field.name, field.label
+        if not flabel:
+            labels[fname] = ""
+            continue
         if field.writable:
             validators = field.requires
             if isinstance(validators, IS_EMPTY_OR) and field.name not in mark_required:
@@ -237,6 +244,49 @@ def s3_truncate(text, length=48, nice=True):
             return "%s..." % text[:45]
     else:
         return text
+
+# =============================================================================
+def s3_trunk8(selector=None, lines=None, less=None, more=None):
+    """
+        Intelligent client-side text truncation
+
+        @param selector: the jQuery selector (default: .s3-truncate)
+        @param lines: maximum number of lines (default: 1)
+    """
+    
+    T = current.T
+    
+    s3 = current.response.s3
+    scripts = s3.scripts
+    script = "/%s/static/scripts/trunk8.js" % current.request.application
+    if script not in scripts:
+        scripts.append(script)
+
+        # Toggle-script
+        # - only required once per page
+        script = \
+"""$(document).on('click','.s3-truncate-more',function(event){
+ $(this).parent()
+        .trunk8('revert')
+        .append(' <a class="s3-truncate-less" href="#">%(less)s</a>')
+ return false
+})
+$(document).on('click','.s3-truncate-less',function(event){
+ $(this).parent().trunk8()
+ return false
+})""" % dict(less=T("less") if less is None else less)
+        s3.jquery_ready.append(script)
+
+    # Init-script
+    # - required separately for each selector
+    script = """S3.trunk8('%(selector)s', %(lines)s, '%(more)s')""" % \
+             dict(selector = ".s3-truncate" if selector is None else selector,
+                  lines = "null" if lines is None else lines,
+                  more=T("more") if more is None else more,
+                 )
+
+    s3.jquery_ready.append(script)
+    return
 
 # =============================================================================
 def s3_split_multi_value(value):
@@ -430,6 +480,18 @@ def s3_url_represent(url):
         return ""
     return A(url, _href=url, _target="blank")
 
+# =============================================================================
+def s3_URLise(text):
+    """
+        Convert all URLs in a text into an HTML <A> tag.
+
+        @param text: the text
+    """
+
+    output = URLSCHEMA.sub(lambda m: '<a href="%s">%s</a>' %
+                          (m.group(0), m.group(0)), text)
+    return output
+    
 # =============================================================================
 def s3_avatar_represent(id, tablename="auth_user", gravatar=False, **attr):
     """
@@ -674,9 +736,9 @@ def s3_include_ext():
     scripts_append(locale)
 
     if xtheme:
-        s3.jquery_ready.append('''$('style:first').after("%s").after("%s")''' % (xtheme, main_css))
+        s3.jquery_ready.append('''$('link:first').after("%s").after("%s")''' % (xtheme, main_css))
     else:
-        s3.jquery_ready.append('''$('style:first').after("%s")''' % main_css)
+        s3.jquery_ready.append('''$('link:first').after("%s")''' % main_css)
     s3.ext_included = True
 
 # =============================================================================
@@ -958,10 +1020,17 @@ def s3_orderby_fields(table, orderby, expr=False):
         elif isinstance(item, str):
             fn, direction = (item.strip().split() + ["asc"])[:2]
             tn, fn = ([tablename] + fn.split(".", 1))[-2:]
-            try:
-                f = s3db.table(tn)[fn]
-            except (AttributeError, KeyError):
-                continue
+            if tn:
+                try:
+                    f = s3db.table(tn)[fn]
+                except (AttributeError, KeyError):
+                    continue
+            else:
+                if current.response.s3.debug:
+                    raise SyntaxError('Tablename prefix required for orderby="%s"' % item)
+                else:
+                    # Ignore
+                    continue
             if expr and direction[:3] == "des":
                 f = ~f
         else:
@@ -987,7 +1056,7 @@ def search_vars_represent(search_vars):
     try:
         search_vars = cPickle.loads(str(search_vars))
     except:
-        raise HTTP(500,"ERROR RETRIEVING THE SEARCH CRITERIA")
+        raise HTTP(500, "ERROR RETRIEVING THE SEARCH CRITERIA")
     else:
         s = "<p>"
         pat = '_'
@@ -1349,7 +1418,7 @@ class S3CustomController(object):
             current.response.view = open(view, "rb")
         except IOError:
             from gluon.http import HTTP
-            raise HTTP("404", "Unable to open Custom View: %s" % view)
+            raise HTTP(404, "Unable to open Custom View: %s" % view)
         return
 
 # =============================================================================

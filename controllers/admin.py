@@ -95,18 +95,24 @@ def user():
     lappend = list_fields.append
     if len(settings.get_L10n_languages()) > 1:
         lappend("language")
-    if settings.get_auth_registration_requests_organisation():
+    if auth.s3_has_role("ADMIN"):
+        if settings.get_auth_admin_sees_organisation():
+            lappend("organisation_id")
+    elif settings.get_auth_registration_requests_organisation():
         lappend("organisation_id")
     if settings.get_auth_registration_requests_organisation_group():
         lappend("org_group_id")
     if settings.get_auth_registration_requests_site():
         lappend("site_id")
-    if settings.get_auth_registration_link_user_to() and settings.get_auth_show_link():
+    link_user_to = settings.get_auth_registration_link_user_to()
+    if link_user_to and len(link_user_to) > 1 and settings.get_auth_show_link():
         lappend("link_user_to")
+    lappend((T("Registration"), "created_on"))
+    table.created_on.represent = s3base.S3DateTime.date_represent
     lappend((T("Roles"), "membership.group_id"))
 
     s3db.configure("auth_user",
-                   main="first_name",
+                   main = "first_name",
                    create_next = URL(c="admin", f="user", args=["[id]", "roles"]),
                    create_onaccept = lambda form: auth.s3_approve_user(form.vars),
                    list_fields = list_fields,
@@ -849,8 +855,8 @@ def translate():
             # Retrieve list of active modules
             activemodlist = settings.modules.keys()
             modlist = activemodlist
-            # Hide core modules
-            hidden_modules = ["auth", "default", "error", "appadmin"]
+            # Hiding core modules
+            hidden_modules = A.core_modules
             for module in hidden_modules:
                 if module in modlist:
                     modlist.remove(module)

@@ -81,6 +81,8 @@ settings.base.guided_tour = True
 #settings.auth.registration_organisation_group_required = True
 # Uncomment this to request the Site when a user registers
 #settings.auth.registration_requests_site = True
+# Uncomment this to allow Admin to see Organisations in user Admin even if the Registration doesn't request this
+#settings.auth.admin_sees_organisation = True
 # Uncomment to set the default role UUIDs assigned to newly-registered users
 # This is a dictionary of lists, where the key is the realm that the list of roles applies to
 # The key 0 implies not realm restricted
@@ -121,13 +123,13 @@ settings.base.guided_tour = True
 #    ("fr", "Français"),
 #    ("de", "Deutsch"),
 #    ("el", "ελληνικά"),
+#    ("es", "Español"),
 #    ("it", "Italiano"),
 #    ("ja", "日本語"),
 #    ("ko", "한국어"),
 #    ("pt", "Português"),
 #    ("pt-br", "Português (Brasil)"),
 #    ("ru", "русский"),
-#    ("es", "Español"),
 #    ("tl", "Tagalog"),
 #    ("ur", "اردو"),
 #    ("vi", "Tiếng Việt"),
@@ -164,6 +166,8 @@ settings.L10n.decimal_separator = "."
                                 #})
 # Uncomment this to Translate CMS Series Names
 #settings.L10n.translate_cms_series = True
+# Uncomment this to Translate Layer Names
+#settings.L10n.translate_gis_layer = True
 # Uncomment this to Translate Location Names
 #settings.L10n.translate_gis_location = True
 
@@ -238,6 +242,8 @@ settings.L10n.decimal_separator = "."
 #settings.gis.overview = False
 # Uncomment to hide the permalink control
 #settings.gis.permalink = False
+# Uncomment to disable the ability to add PoIs to the main map
+#settings.gis.pois = False
 # PoIs to export in KML/OSM feeds from Admin locations
 #settings.gis.poi_resources = ["cr_shelter", "hms_hospital", "org_office"]
 # Uncomment to hide the ScaleLine control
@@ -314,6 +320,15 @@ settings.L10n.decimal_separator = "."
 #settings.ui.interim_save = True
 
 # -----------------------------------------------------------------------------
+# CMS
+# Uncomment to use Bookmarks in Newsfeed
+#settings.cms.bookmarks = True
+# Uncomment to use Rich Text editor in Newsfeed
+#settings.cms.richtext = True
+# Uncomment to show tags in Newsfeed
+#settings.cms.show_tags = True
+
+# -----------------------------------------------------------------------------
 # Persons
 # Uncomment to hide fields in S3AddPersonWidget[2]
 #settings.pr.request_dob = False
@@ -325,8 +340,13 @@ settings.L10n.decimal_separator = "."
 
 # -----------------------------------------------------------------------------
 # Organisations
-# Disable the use of Organisation Branches
-#settings.org.branches = False
+# Uncomment to use an Autocomplete for Organisation lookup fields
+#settings.org.autocomplete = True
+# Enable the use of Organisation Branches
+#settings.org.branches = True
+# Enable the use of Organisation Groups & what their name is
+#settings.org.groups = "Coalition"
+#settings.org.groups = "Network"
 # Enable the use of Organisation Regions
 #settings.org.regions = True
 # Set the length of the auto-generated org/site code the default is 10
@@ -337,6 +357,8 @@ settings.L10n.decimal_separator = "."
 #settings.org.site_last_contacted = True
 # Uncomment to use an Autocomplete for Site lookup fields
 #settings.org.site_autocomplete = True
+# Extra fields to show in Autocomplete Representations
+#settings.org.site_autocomplete_fields = ["instance_type", "location_id$L1", "organisation_id$name"]
 # Uncomment to have Site Autocompletes search within Address fields
 #settings.org.site_address_autocomplete = True
 # Uncomment to hide inv & req tabs from Sites
@@ -382,6 +404,8 @@ settings.L10n.decimal_separator = "."
 #settings.hrm.vol_experience = False
 # Uncomment to show the Organisation name in HR represents
 #settings.hrm.show_organisation = True
+# Uncomment to consolidate tabs into a single CV
+#settings.hrm.cv_tab = True
 # Uncomment to disable the use of Volunteer Awards
 #settings.hrm.use_awards = False
 # Uncomment to disable the use of HR Certificates
@@ -457,8 +481,13 @@ settings.L10n.decimal_separator = "."
 #settings.req.type_hrm_label = "Volunteers"
 # Label for Requester
 #settings.req.requester_label = "Site Contact"
+#settings.req.requester_optional = True
+# Uncomment if the User Account logging the Request is NOT normally the Requester
+#settings.req.requester_is_author = False
 # Filter Requester as being from the Site 
 #settings.req.requester_from_site = True
+# Set the Requester as being an HR for the Site if no HR record yet & as Site contact if none yet exists
+#settings.req.requester_to_site = True
 #settings.req.date_writable = False
 # Allow the status for requests to be set manually,
 # rather than just automatically from commitments and shipments
@@ -469,8 +498,14 @@ settings.L10n.decimal_separator = "."
 #settings.req.multiple_req_items = False
 #settings.req.prompt_match = False
 #settings.req.items_ask_purpose = False
+# Uncomment to disable the Commit step in the workflow & simply move direct to Ship
 #settings.req.use_commit = False
-#settings.req.requester_optional = True
+# Uncomment to have Donations include a 'Value' field
+#settings.req.commit_value = True
+# Uncomment to allow Donations to be made without a matching Request
+#settings.req.commit_without_request = True
+# Uncomment if the User Account logging the Commitment is NOT normally the Committer
+#settings.req.comittter_is_author = False
 # Should Requests ask whether Security is required?
 #settings.req.ask_security = True
 # Should Requests ask whether Transportation is required?
@@ -537,16 +572,24 @@ settings.L10n.decimal_separator = "."
 #settings.project.mode_drr = True
 # Uncomment this to use settings suitable for detailed Task management
 #settings.project.mode_task = True
-# Uncomment this to call project locations 'Communities'
-#settings.project.community = True
 # Uncomment this to use Activities for projects
 #settings.project.activities = True
+# Uncomment this to use Activity Types for Activities/Projects
+#settings.project.activity_types = True
 # Uncomment this to use Codes for projects
 #settings.project.codes = True
-# Uncomment this to use Milestones in project/task.
+# Uncomment this to call project locations 'Communities'
+#settings.project.community = True
+# Uncomment this to enable Hazards in 3W projects
+#settings.project.hazards = True
+# Uncomment this to enable Milestones in projects
 #settings.project.milestones = True
+# Uncomment this to link Activities to Projects
+#settings.project.projects = True
 # Uncomment this to disable Sectors in projects
 #settings.project.sectors = False
+# Uncomment this to enable Themes in 3W projects
+#settings.project.themes = True
 # Uncomment this to use Theme Percentages for projects
 #settings.project.theme_percentages = True
 # Uncomment this to use multiple Budgets per project
@@ -575,8 +618,11 @@ settings.L10n.decimal_separator = "."
 #settings.search.filter_manager = False
 # Old S3Search
 #settings.search.save_widget = False
-# Maximum number of search results for an Autocomplete Widget
-#settings.search.max_results = 200
+
+# if you want to have videos appearing in /default/video
+#settings.base.youtube_id = [dict(id = "introduction",
+#                                 title = T("Introduction"),
+#                                 video_id = "HR-FtR2XkBU"),]
 
 # Comment/uncomment modules here to disable/enable them
 # @ToDo: Have the system automatically enable migrate if a module is enabled

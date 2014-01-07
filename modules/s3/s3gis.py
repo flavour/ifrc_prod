@@ -82,7 +82,7 @@ from s3fields import s3_all_meta_field_names
 from s3rest import S3Method
 from s3track import S3Trackable
 from s3track import S3Trackable
-from s3utils import s3_debug, s3_fullname, s3_fullname_bulk, s3_has_foreign_key, s3_include_ext
+from s3utils import s3_debug, s3_fullname, s3_fullname_bulk, s3_has_foreign_key, s3_include_ext, s3_unicode
 
 DEBUG = False
 if DEBUG:
@@ -894,8 +894,6 @@ class GIS(object):
             the requested feature, using Materialized path for retrieving
             the children
 
-            @author: Aravind Venkatesan and Ajay Kumar Sreenivasan from NCSU
-
             This has been chosen over Modified Preorder Tree Traversal for
             greater efficiency:
             http://eden.sahanafoundation.org/wiki/HaitiGISToDo#HierarchicalTrees
@@ -907,7 +905,11 @@ class GIS(object):
         """
 
         db = current.db
-        table = db.gis_location
+        try:
+            table = db.gis_location
+        except:
+            # Being run from CLI for debugging
+            table = current.s3db.gis_location
         query = (table.deleted == False)
         if level:
             query &= (table.level == level)
@@ -1164,6 +1166,7 @@ class GIS(object):
         ltable = s3db.gis_layer_config
         fields = [ctable.id,
                   ctable.default_location_id,
+                  ctable.region_location_id,
                   ctable.geocoder,
                   ctable.lat_min,
                   ctable.lat_max,
@@ -1369,7 +1372,6 @@ class GIS(object):
             else:
                 return _levels
 
-        T = current.T
         COUNTRY = current.messages["COUNTRY"]
 
         if level == "L0":
@@ -1413,6 +1415,7 @@ class GIS(object):
                     levels[key] = key
             return levels
 
+        T = current.T
         row = rows.first()
         if level:
             try:
@@ -2025,6 +2028,7 @@ class GIS(object):
     @staticmethod
     def get_marker(controller=None,
                    function=None,
+                   filter=None,
                    ):
         """
             Returns a Marker dict
@@ -2051,6 +2055,8 @@ class GIS(object):
                     (ftable.layer_id == ltable.layer_id) & \
                     (ltable.symbology_id == symbology_id) & \
                     (ltable.marker_id == mtable.id)
+            if filter:
+                query &= (ftable.filter == filter)
             marker = db(query).select(mtable.image,
                                       mtable.height,
                                       mtable.width,
@@ -2088,14 +2094,14 @@ class GIS(object):
         db = current.db
         s3db = current.s3db
         request = current.request
-        vars = request.get_vars
+        get_vars = request.get_vars
         format = current.auth.permission.format
 
         ftable = s3db.gis_layer_feature
 
         layer = None
 
-        layer_id = vars.get("layer", None)
+        layer_id = get_vars.get("layer", None)
         if layer_id:
             # Feature Layer
             query = (ftable.id == layer_id)
@@ -2107,9 +2113,9 @@ class GIS(object):
                                      limitby=(0, 1)).first()
 
         else:
+            # e.g. KML, geoRSS or GPX export
             # e.g. Search results loaded as a Feature Resource layer
             # e.g. Volunteer Layer in Vulnerability module
-            # e.g. KML, geoRSS or GPX export
             controller = request.controller
             function = request.function
             query = (ftable.controller == controller) & \
@@ -2130,18 +2136,26 @@ class GIS(object):
             if layers:
                 layer = layers.first()
 
+        attr_fields = get_vars.get("attr", [])
+        if attr_fields:
+            attr_fields = attr_fields.split(",")
+        popup_fields = get_vars.get("popup", [])
+        if popup_fields:
+            popup_fields = popup_fields.split(",")
         if layer:
             popup_label = layer.popup_label
-            popup_fields = layer.popup_fields or []
-            attr_fields = layer.attr_fields or []
+            if not popup_fields:
+                popup_fields = layer.popup_fields or []
+            if not attr_fields:
+                attr_fields = layer.attr_fields or []
             trackable = layer.trackable
             polygons = layer.polygons
         else:
             popup_label = ""
             popup_fields = ["name"]
-            attr_fields = []
             trackable = False
             polygons = False
+        
 
         table = resource.table
         tablename = resource.tablename
@@ -2157,7 +2171,7 @@ class GIS(object):
                 # looked-up in bulk rather than as a separate lookup per record
                 if popup_fields:
                     tips = {}
-                    label_off = vars.get("label_off", None)
+                    label_off = get_vars.get("label_off", None)
                     if popup_label and not label_off:
                         _tooltip = "(%s)" % current.T(popup_label)
                     else:
@@ -2202,6 +2216,7 @@ class GIS(object):
                         for fieldname in popup_cols:
                             represent = row[fieldname]
                             if represent and represent != NONE:
+                                represent = s3_unicode(represent)
                                 # Skip empty fields
                                 if first:
                                     tooltip = "%s %s" % (represent, tooltip)
@@ -2228,7 +2243,7 @@ class GIS(object):
                 #    _debug("Attributes/Tooltip lookup of layer %s completed in %s seconds" % \
                 #            (layer_name, duration))
 
-            _markers = vars.get("markers", None)
+            _markers = get_vars.get("markers", None)
             if _markers:
                 # Add a per-feature Marker
                 marker_fn = s3db.get_config(tablename, "marker_fn")
@@ -2587,7 +2602,7 @@ class GIS(object):
             for point in points:
                 File.write("\t%s\t%s\n" % (point[0], point[1]))
             File.write("END\n")
-            ++count
+            count += 1
         File.write("END\n")
         File.close()
 
@@ -2619,12 +2634,15 @@ class GIS(object):
         if countries:
             ttable = s3db.gis_location_tag
             cquery = (table.level == "L0") & \
+                     (table.end_date == None) & \
                      (ttable.location_id == ifield) & \
                      (ttable.tag == "ISO2") & \
                      (ttable.value.belongs(countries))
         else:
             # All countries
-            cquery = (table.level == "L0")
+            cquery = (table.level == "L0") & \
+                     (table.end_date == None) & \
+                     (table.deleted != True)
 
         if current.deployment_settings.get_gis_spatialdb():
             spatial = True
@@ -2705,13 +2723,17 @@ class GIS(object):
                 File.close()
 
         q1 = (table.level == "L1") & \
-             (table.deleted != True)
+             (table.deleted != True) & \
+             (table.end_date == None)
         q2 = (table.level == "L2") & \
-             (table.deleted != True)
+             (table.deleted != True) & \
+             (table.end_date == None)
         q3 = (table.level == "L3") & \
-             (table.deleted != True)
+             (table.deleted != True) & \
+             (table.end_date == None)
         q4 = (table.level == "L4") & \
-             (table.deleted != True)
+             (table.deleted != True) & \
+             (table.end_date == None)
 
         if "L1" in levels:
             if "L0" not in levels:
@@ -5139,20 +5161,19 @@ class GIS(object):
                     # No action required
                     return path
                 else:
-                    # Do the Bounds/Centroid/WKT
-                    feature.update(gis_feature_type="1")
-                    bounds_centroid_wkt(feature)
-                    return path
+                    # Do the Bounds/Centroid/WKT (below)
+                    vars = dict()
+
             elif inherited or lat is None or lon is None:
                 vars = dict(inherited=True,
                             lat=Lx_lat,
                             lon=Lx_lon,
                             )
                 db(table.id == id).update(**vars)
-                # Also do the Bounds/Centroid/WKT
-                vars.update(gis_feature_type="1")
-                feature.update(**vars)
-                bounds_centroid_wkt(feature)
+            else:
+                # Do the Bounds/Centroid/WKT (below)
+                vars = dict()
+
         elif inherited and lat == Lx_lat and lon == Lx_lon:
             vars = dict(path=_path,
                         L0=L0_name,
@@ -5163,11 +5184,7 @@ class GIS(object):
                         L5=L5_name,
                         )
             db(table.id == id).update(**vars)
-            if not wkt:
-                # Do the Bounds/Centroid/WKT
-                vars.update(gis_feature_type="1")
-                feature.update(**vars)
-                bounds_centroid_wkt(feature)
+
         elif inherited or lat is None or lon is None:
             vars = dict(path=_path,
                         L0=L0_name,
@@ -5181,19 +5198,24 @@ class GIS(object):
                         lon=Lx_lon
                         )
             db(table.id == id).update(**vars)
-            # Also do the Bounds/Centroid/WKT
-            vars.update(gis_feature_type="1")
-            feature.update(**vars)
-            bounds_centroid_wkt(feature)
         else:
-            db(table.id == id).update(path=_path,
-                                      inherited=False,
-                                      L0=L0_name,
-                                      L1=L1_name,
-                                      L2=L2_name,
-                                      L3=L3_name,
-                                      L4=L4_name,
-                                      L5=L5_name)
+            # We have a Lat & Lon
+            vars = dict(path=_path,
+                        inherited=False,
+                        L0=L0_name,
+                        L1=L1_name,
+                        L2=L2_name,
+                        L3=L3_name,
+                        L4=L4_name,
+                        L5=L5_name,
+                        )
+            db(table.id == id).update(**vars)
+
+        # Also do the Bounds/Centroid/WKT
+        vars.update(gis_feature_type="1")
+        feature.update(**vars)
+        bounds_centroid_wkt(feature)
+
         return _path
 
     # -------------------------------------------------------------------------
@@ -5556,6 +5578,8 @@ class GIS(object):
                  projection = None,
                  add_feature = False,
                  add_feature_active = False,
+                 add_line = False,
+                 add_line_active = False,
                  add_polygon = False,
                  add_polygon_active = False,
                  features = None,
@@ -5565,8 +5589,8 @@ class GIS(object):
                  catalogue_layers = False,
                  legend = False,
                  toolbar = False,
-                 nav = None,
                  area = False,
+                 nav = None,
                  save = False,
                  search = False,
                  mouse_position = None,
@@ -5649,8 +5673,8 @@ class GIS(object):
                                      Defaults to False: Just show the default Base layer
             @param legend: True: Show the GeoExt Legend panel, False: No Panel, "floating": New floating Legend Panel
             @param toolbar: Show the Icon Toolbar of Controls
-            @param nav: Show the Navigation controls on the Toolbar
             @param area: Show the Area tool on the Toolbar
+            @param nav: Show the Navigation controls on the Toolbar
             @param save: Show the Save tool on the Toolbar
             @param search: Show the Geonames search box
             @param mouse_position: Show the current coordinates in the bottom-right of the map. 3 Options: 'normal', 'mgrs', False (defaults to checking deployment_settings, which defaults to 'normal')
@@ -5691,6 +5715,8 @@ class GIS(object):
                    projection = projection,
                    add_feature = add_feature,
                    add_feature_active = add_feature_active,
+                   add_line = add_line,
+                   add_line_active = add_line_active,
                    add_polygon = add_polygon,
                    add_polygon_active = add_polygon_active,
                    features = features,
@@ -5700,8 +5726,8 @@ class GIS(object):
                    catalogue_layers = catalogue_layers,
                    legend = legend,
                    toolbar = toolbar,
-                   nav = nav,
                    area = area,
+                   nav = nav,
                    save = save,
                    search = search,
                    mouse_position = mouse_position,
@@ -5768,10 +5794,17 @@ class MAP(DIV):
     def _setup(self):
         """
             Setup the Map
-            - not done during init() to hve as Lazy as possible
+            - not done during init() to be as Lazy as possible
             - separated from xml() in order to be able to read options to put
               into scripts (callback or otherwise)
         """
+
+        # Default configuration
+        config = GIS.get_config()
+        if not config:
+            # No prepop - Bail
+            current.session.error = current.T("Map cannot display without prepop data!")
+            redirect(URL(c="default", f="index"))
 
         opts = self.opts
 
@@ -5785,12 +5818,10 @@ class MAP(DIV):
         auth = current.auth
         settings = current.deployment_settings
         MAP_ADMIN = auth.s3_has_role(current.session.s3.system_roles.MAP_ADMIN)
-        # Default configuration
-        config = GIS.get_config()
 
         # Support bookmarks (such as from the control)
         # - these over-ride the arguments
-        vars = request.get_vars
+        get_vars = request.get_vars
 
         # JS Globals
         globals = {}
@@ -5806,6 +5837,7 @@ class MAP(DIV):
                 "gis_cluster_multiple": T("There are multiple records at this location"),
                 "gis_loading": T("Loading"),
                 "gis_requires_login": T("Requires Login"),
+                "gis_too_many_features": T("There are too many features, please Zoom In"),
                 "gis_zoomin": T("Zoom In"),
                 }
 
@@ -5840,14 +5872,14 @@ class MAP(DIV):
             # No bounds or we've been passed bounds which aren't sane
             bbox = None
             # Use Lat/Lon/Zoom to center instead
-            if "lat" in vars and vars.lat:
-                lat = float(vars.lat)
+            if "lat" in get_vars and get_vars.lat:
+                lat = float(get_vars.lat)
             else:
                 lat = opts.get("lat", None)
             if lat is None or lat == "":
                 lat = config.lat
-            if "lon" in vars and vars.lon:
-                lon = float(vars.lon)
+            if "lon" in get_vars and get_vars.lon:
+                lon = float(get_vars.lon)
             else:
                 lon = opts.get("lon", None)
             if lon is None or lon == "":
@@ -5864,8 +5896,8 @@ class MAP(DIV):
             options["lat"] = lat
             options["lon"] = lon
 
-        if "zoom" in vars:
-            zoom = int(vars.zoom)
+        if "zoom" in get_vars:
+            zoom = int(get_vars.zoom)
         else:
             zoom = opts.get("zoom", None)
         if not zoom:
@@ -6083,6 +6115,13 @@ class MAP(DIV):
             else:
                 options["draw_feature"] = "inactive"
 
+        if opts.get("add_line", False):
+            i18n["gis_draw_line"] = T("Add Line")
+            if opts.get("add_line_active", False):
+                options["draw_line"] = "active"
+            else:
+                options["draw_line"] = "inactive"
+
         if opts.get("add_polygon", False):
             i18n["gis_draw_polygon"] = T("Add Polygon")
             if opts.get("add_polygon_active", False):
@@ -6204,7 +6243,7 @@ class MAP(DIV):
             layer_types = []
             db = current.db
             ltable = s3db.gis_layer_config
-            etable = s3db.gis_layer_entity
+            etable = db.gis_layer_entity
             query = (etable.id == ltable.layer_id) & \
                     (ltable.config_id == config["id"]) & \
                     (ltable.base == True) & \
@@ -6869,7 +6908,7 @@ class Layer(object):
             # All OK - add SubLayer
             record["visible"] = _config.visible or str(layer_id) in visible
             if base and _config.base:
-                # name can't conflict with OSM/WMS/ArcREST layers
+                # var name can't conflict with OSM/WMS/ArcREST layers
                 record["_base"] = True
                 base = False
             else:
@@ -6941,7 +6980,10 @@ class Layer(object):
             # Ensure all attributes available (even if Null)
             self.__dict__.update(record)
             del record
-            self.safe_name = re.sub('[\\"]', "", self.name)
+            if current.deployment_settings.get_L10n_translate_gis_layer():
+                self.safe_name = re.sub('[\\"]', "", s3_unicode(current.T(self.name)))
+            else:
+                self.safe_name = re.sub('[\\"]', "", self.name)
 
             if tablename not in ("gis_layer_arcrest",
                                  "gis_layer_coordinate",
@@ -7198,6 +7240,8 @@ class LayerFeature(Layer):
             # Attributes which are defaulted client-side if not set
             self.setup_folder_visibility_and_opacity(output)
             self.setup_clustering(output)
+            if not self.popup_fields:
+                output["no_popups"] = 1
             style = self.style
             if style:
                 style = json.loads(style)
@@ -8055,25 +8099,49 @@ class S3Map(S3Method):
             widget_id = "default_map"
 
         gis = current.gis
+        s3db = current.s3db
         tablename = self.tablename
+        
+        ftable = s3db.gis_layer_feature
 
-        marker_fn = current.s3db.get_config(tablename, "marker_fn")
+        def lookup_layer(prefix, name):
+            query = (ftable.controller == prefix) & \
+                    (ftable.function == name)
+            layers = current.db(query).select(ftable.layer_id,
+                                              ftable.style_default,
+                                              )
+            if len(layers) > 1:
+                layers.exclude(lambda row: row.style_default == False)
+            if len(layers) == 1:
+                layer_id = layers.first().layer_id
+            else:
+                layer_id = None
+            return layer_id
+
+        prefix = r.controller
+        name = r.function
+        layer_id = lookup_layer(prefix, name)
+        if not layer_id:
+            # Try the tablename
+            prefix, name = tablename.split("_", 1)
+            layer_id = lookup_layer(prefix, name)
+
+        marker_fn = s3db.get_config(tablename, "marker_fn")
         if marker_fn:
             # Per-feature markers added in get_location_data()
             marker = None
         else:
             # Single Marker for the layer
-            request = self.request
-            marker = gis.get_marker(request.controller,
-                                    request.function)
+            marker = gis.get_marker(prefix, name)
 
         url = URL(extension="geojson", args=None)
 
         # @ToDo: Support maps with multiple layers (Dashboards)
-        #layer_id = "search_results_%s" % widget_id
-        layer_id = "search_results"
+        #id = "search_results_%s" % widget_id
+        id = "search_results"
         feature_resources = [{"name"      : current.T("Search Results"),
-                              "id"        : layer_id,
+                              "id"        : id,
+                              "layer_id"  : layer_id,
                               "tablename" : tablename,
                               "url"       : url,
                               # We activate in callback after ensuring URL is updated for current filter status

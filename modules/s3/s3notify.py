@@ -212,7 +212,7 @@ class S3Notifications(object):
         # Send the request
         _debug("Requesting %s" % page_url)
         req = urllib2.Request(page_url, data=data)
-        req.add_header('Content-Type', "application/json")
+        req.add_header("Content-Type", "application/json")
         success = False
         try:
             response = json.loads(urllib2.urlopen(req).read())
@@ -422,7 +422,7 @@ class S3Notifications(object):
                 sent = send(pe_id,
                             subject=s3_truncate(subject, 78),
                             message=message,
-                            pr_message_method=method,
+                            contact_method=method,
                             system_generated=True)
             except:
                 exc_info = sys.exc_info()[:2]

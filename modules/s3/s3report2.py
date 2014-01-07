@@ -32,6 +32,7 @@
 """
 
 import re
+import urllib
 
 try:
     import json # try stdlib (Python 2.6)
@@ -92,12 +93,9 @@ class S3Report2(S3Method):
         maxcols = 10
 
         # Extract the relevant GET vars
+        report_vars = ("rows", "cols", "fact", "aggregate", "totals")
         get_vars = dict((k, v) for k, v in r.get_vars.iteritems()
-                        if k in ("rows",
-                                 "cols",
-                                 "fact",
-                                 "aggregate",
-                                 "totals"))
+                        if k in report_vars)
 
         # Fall back to report options defaults
         report_options = get_config("report_options", {})
@@ -145,17 +143,12 @@ class S3Report2(S3Method):
 
         # Render as JSON-serializable dict
         if pivottable is not None:
-            pivotdata = pivottable.json(maxrows=maxrows,
-                                        maxcols=maxcols,
-                                        url=r.url(method="",
-                                                  representation="",
-                                                  vars={}))
+            pivotdata = pivottable.json(maxrows=maxrows, maxcols=maxcols)
         else:
             pivotdata = None
 
         if r.representation in ("html", "iframe"):
 
-            response = current.response
             tablename = resource.tablename
             
             output["title"] = self.crud_string(tablename, "title_report")
@@ -189,25 +182,29 @@ class S3Report2(S3Method):
             # Generate the report form
             ajax_vars = Storage(r.get_vars)
             ajax_vars.update(get_vars)
-            ajaxurl = r.url(representation="json", vars=ajax_vars)
-
+            filter_url = url=r.url(method="",
+                                   representation="",
+                                   vars=ajax_vars.fromkeys((k for k in ajax_vars
+                                                            if k not in report_vars)))
+            ajaxurl = attr.get("ajaxurl", r.url(method="report2",
+                                                representation="json",
+                                                vars=ajax_vars))
+                                                
             output["form"] = S3ReportForm(resource) \
                                     .html(pivotdata,
                                           get_vars = get_vars,
                                           filter_widgets = filter_widgets,
                                           ajaxurl = ajaxurl,
+                                          filter_url = filter_url,
                                           widget_id = widget_id)
 
             # View
-            response.view = self._view(r, "report2.html")
+            current.response.view = self._view(r, "report2.html")
 
         elif r.representation == "json":
 
             output = json.dumps(pivotdata)
 
-        elif r.representation == "aadata":
-            r.error(501, r.ERROR.BAD_FORMAT)
-            
         else:
             r.error(501, r.ERROR.BAD_FORMAT)
             
@@ -235,12 +232,9 @@ class S3Report2(S3Method):
         maxcols = 20
 
         # Extract the relevant GET vars
+        report_vars = ("rows", "cols", "fact", "aggregate", "totals")
         get_vars = dict((k, v) for k, v in r.get_vars.iteritems()
-                        if k in ("rows",
-                                 "cols",
-                                 "fact",
-                                 "aggregate",
-                                 "totals"))
+                        if k in report_vars)
 
         # Fall back to report options defaults
         report_options = get_config("report_options", {})
@@ -291,11 +285,7 @@ class S3Report2(S3Method):
 
         # Render as JSON-serializable dict
         if pivottable is not None:
-            pivotdata = pivottable.json(maxrows=maxrows,
-                                        maxcols=maxcols,
-                                        url=r.url(method="",
-                                                  representation="",
-                                                  vars={}))
+            pivotdata = pivottable.json(maxrows=maxrows, maxcols=maxcols)
         else:
             pivotdata = None
 
@@ -304,21 +294,29 @@ class S3Report2(S3Method):
             # Generate the report form
             ajax_vars = Storage(r.get_vars)
             ajax_vars.update(get_vars)
-            ajaxurl = r.url(method="report2",
-                            representation="json",
-                            vars=ajax_vars)
-
+            filter_form = attr.get("filter_form", None)
+            filter_tab = attr.get("filter_tab", None)
+            filter_url = url=r.url(method="",
+                                   representation="",
+                                   vars=ajax_vars.fromkeys((k for k in ajax_vars
+                                                            if k not in report_vars)))
+            ajaxurl = attr.get("ajaxurl", r.url(method="report2",
+                                                representation="json",
+                                                vars=ajax_vars))
             output = S3ReportForm(resource).html(pivotdata,
                                                  get_vars = get_vars,
                                                  filter_widgets = None,
                                                  ajaxurl = ajaxurl,
+                                                 filter_url = filter_url,
+                                                 filter_form = filter_form,
+                                                 filter_tab = filter_tab,
                                                  widget_id = widget_id)
 
         else:
             r.error(501, r.ERROR.BAD_FORMAT)
 
         return output
-        
+
 # =============================================================================
 class S3ReportForm(object):
     """ Helper class to render a report form """
@@ -333,6 +331,9 @@ class S3ReportForm(object):
              filter_widgets=None,
              get_vars=None,
              ajaxurl=None,
+             filter_url=None,
+             filter_form=None,
+             filter_tab=None,
              widget_id=None):
         """
             Render the form for the report 
@@ -342,6 +343,7 @@ class S3ReportForm(object):
         """
 
         T = current.T
+        appname = current.request.application
 
         # Report options
         report_options = self.report_options(get_vars = get_vars,
@@ -353,13 +355,12 @@ class S3ReportForm(object):
         else:
             labels = None
         hidden = {"pivotdata": json.dumps(pivotdata)}
-            
+
         empty = T("No report specified.")
         hide = T("Hide Table")
         show = T("Show Table")
-        
-        throbber = "/%s/static/img/indicator.gif" % current.request.application
 
+        throbber = "/%s/static/img/indicator.gif" % appname
 
         # Filter options
         if filter_widgets is not None:
@@ -446,6 +447,11 @@ class S3ReportForm(object):
             "renderChart": True,
             "collapseChart": True,
             "defaultChart": None,
+            
+            "exploreChart": True,
+            "filterURL": filter_url,
+            "filterTab": filter_tab,
+            "filterForm": filter_form,
 
             "autoSubmit": settings.get_ui_report_auto_submit(),
         }
@@ -467,15 +473,31 @@ class S3ReportForm(object):
             elif table_opt == "collapse":
                 opts["collapseTable"] = True
 
-        # jQuery-ready script
-        script = """
-$("#%(widget_id)s").pivottable(%(opts)s);""" % {
-            "widget_id": widget_id,
-            "opts": json.dumps(opts)
-         }
-         
-        current.response.s3.jquery_ready.append(script)
-               
+        # Scripts
+        s3 = current.response.s3
+        scripts = s3.scripts
+        if s3.debug:
+            script = "/%s/static/scripts/S3/s3.jquery.ui.pivottable.js" % appname
+            if script not in scripts:
+                scripts.append(script)
+            script = "/%s/static/scripts/flot/jquery.flot.js" % appname
+            if script not in scripts:
+                scripts.append(script)
+            script = "/%s/static/scripts/flot/jquery.flot.pie.js" % appname
+            if script not in scripts:
+                scripts.append(script)
+        else:
+            script = "/%s/static/scripts/S3/s3.pivotTables.min.js" % appname
+            if script not in scripts:
+                scripts.append(script)
+
+        script = '''$("#%(widget_id)s").pivottable(%(opts)s)''' % \
+                                                dict(widget_id = widget_id,
+                                                     opts = json.dumps(opts),
+                                                     )
+
+        s3.jquery_ready.append(script)
+
         return form
 
     # -------------------------------------------------------------------------
@@ -658,43 +680,35 @@ $("#%(widget_id)s").pivottable(%(opts)s);""" % {
         if not methods:
             methods = all_methods
 
-        # Resolve layers
+        # Resolve layer options
+        T = current.T
+        RECORDS = T("Records")
+        mname = S3PivotTable._get_method_label
         prefix = resource.prefix_selector
-        opts = []
+        
+        layer_opts = []
         for layer in layers:
 
-            # Extract layer option
+            # Parse option
             if type(layer) is tuple:
-                if isinstance(layer[0], lazyT):
-                    opt = [layer]
-                else:
-                    opt = list(layer)
+                label, s = layer
             else:
-                opt = [layer]
-
-            # Get field label and selector
-            s = opt[0]
-            if isinstance(s, tuple):
-                label, selector = s
+                label, s = None, layer
+            match = layer_pattern.match(s)
+            if match is not None:
+                s, m = match.group(2), match.group(1)
             else:
-                label, selector = None, s
-
-            # Function-style layer
-            m = layer_pattern.match(selector)
-            if m is not None:
-                selector, method = m.group(2), m.group(1)
-                opt = [selector, method] + list(opt[1:])
+                m = None
                 
             # Resolve the selector
-            selector = prefix(selector)
+            selector = prefix(s)
             rfield = resource.resolve_selector(selector)
             if not rfield.field and not rfield.virtual:
                 continue
-            if label is not None:
+            if m is None and label:
                 rfield.label = label
 
-            # Autodetect methods?
-            if len(opt) == 1:
+            if m is None:
                 # Only field given -> auto-detect aggregation methods
                 is_amount = None
                 ftype = rfield.ftype
@@ -722,29 +736,15 @@ $("#%(widget_id)s").pivottable(%(opts)s);""" % {
                     mopts = ["sum", "min", "max", "avg"]
                 else:
                     mopts = ["count", "list"]
-                opts.extend([(rfield, selector, m)
-                             for m in mopts if m in methods])
+                for method in mopts:
+                    if method in methods:
+                        mlabel = mname(method)
+                        flabel = rfield.label if rfield.label != "Id" else RECORDS
+                        label = T("%s (%s)") % (flabel, mlabel)
+                        layer_opts.append(("%s(%s)" % (method, selector), label))
             else:
                 # Explicit method specified
-                opt.insert(0, rfield)
-                opts.append(opt)
-
-        # Construct default labels
-        T = current.T
-        RECORDS = T("Records")
-        layer_opts = []
-        mname = S3PivotTable._get_method_label
-        for opt in opts:
-            rfield, selector, method = opt[:3]
-            if method not in methods:
-                continue
-            if len(opt) == 4:
-                layer_label = opt[3]
-            else:
-                mlabel = mname(method)
-                flabel = rfield.label if rfield.label != "Id" else RECORDS
-                layer_label = T("%s (%s)") % (flabel, mlabel)
-            layer_opts.append(("%s(%s)" % (method, selector), layer_label))
+                layer_opts.append(("%s(%s)" % (m, selector), label))
 
         # Get current value
         if get_vars and "fact" in get_vars:
@@ -752,11 +752,11 @@ $("#%(widget_id)s").pivottable(%(opts)s);""" % {
         else:
             layer = ""
         if layer:
-            m = layer_pattern.match(layer)
-            if m is None:
+            match = layer_pattern.match(layer)
+            if match is None:
                 layer = ""
             else:
-                selector, method = m.group(2), m.group(1)
+                selector, method = match.group(2), match.group(1)
                 selector = prefix(selector)
                 layer = "%s(%s)" % (method, selector)
 
@@ -772,7 +772,7 @@ $("#%(widget_id)s").pivottable(%(opts)s);""" % {
         else:
             # Render Selector
             dummy_field = Storage(name="fact",
-                                requires=IS_IN_SET(layer_opts))
+                                  requires=IS_IN_SET(layer_opts))
             widget = OptionsWidget.widget(dummy_field,
                                           layer,
                                           _id=widget_id,

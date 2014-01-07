@@ -29,6 +29,7 @@
 
 __all__ = ["S3DocumentLibrary",
            "doc_image_represent",
+           "doc_render_document",
           ]
 
 import os
@@ -42,6 +43,7 @@ class S3DocumentLibrary(S3Model):
 
     names = ["doc_entity",
              "doc_document",
+             "doc_document_id",
              "doc_image",
              ]
 
@@ -70,17 +72,24 @@ class S3DocumentLibrary(S3Model):
         super_key = self.super_key
         super_link = self.super_link
 
+        if settings.get_org_autocomplete():
+            org_widget = S3OrganisationAutocompleteWidget(default_from_profile=True)
+        else:
+            org_widget = None
+
         # ---------------------------------------------------------------------
         # Document-referencing entities
         #
         entity_types = Storage(asset_asset=T("Asset"),
                                cms_post=T("Post"),
+                               deploy_mission=T("Mission"),
                                irs_ireport=T("Incident Report"),
                                project_project=T("Project"),
                                project_activity=T("Project Activity"),
                                project_framework=T("Project Framework"),
                                project_task=T("Task"),
                                hms_hospital=T("Hospital"),
+                               hrm_human_resource=T("Human Resource"),
                                org_office=T("Office"),
                                org_facility=T("Facility"),
                                cr_shelter=T("Shelter"),
@@ -108,7 +117,8 @@ class S3DocumentLibrary(S3Model):
                              self.stats_source_superlink,
                              # Component not instance
                              super_link("doc_id", doc_entity),
-                             super_link("site_id", "org_site"), # @ToDo: Remove since Site Instances are doc entities?
+                             # @ToDo: Remove since Site Instances are doc entities?
+                             super_link("site_id", "org_site"),
                              Field("file", "upload",
                                    # upload folder needs to be visible to the download() function as well as the upload
                                    uploadfolder = os.path.join(folder,
@@ -132,16 +142,26 @@ class S3DocumentLibrary(S3Model):
                                    writable = False,
                                    ),
                              person_id(
+                                # Enable when-required
+                                readable = False,
+                                writable = False,
                                 label=T("Author"),
                                 comment=person_comment(T("Author"),
                                                        T("The Author of this Document (optional)"))
                                 ),
                              organisation_id(
-                                widget = S3OrganisationAutocompleteWidget(default_from_profile=True)
+                                # Enable when-required
+                                readable = False,
+                                writable = False,
+                                widget = org_widget,
                                 ),
                              s3_date(label = T("Date Published")),
                              # @ToDo: Move location to link table
-                             location_id(),
+                             location_id(
+                                # Enable when-required
+                                readable = False,
+                                writable = False,
+                                ),
                              s3_comments(),
                              Field("checksum",
                                    readable = False,
@@ -182,12 +202,28 @@ class S3DocumentLibrary(S3Model):
             ondelete = None
 
         configure(tablename,
+                  context = {"organisation": "organisation_id",
+                             "person": "person_id",
+                             "site": "site_id",
+                             },
+                  deduplicate = self.document_duplicate,
+                  list_layout = doc_render_document,
+                  onaccept = onaccept,
+                  ondelete = ondelete,
+                  onvalidation = self.document_onvalidation,
                   super_entity = "stats_source",
-                  deduplicate=self.document_duplicate,
-                  onvalidation=self.document_onvalidation,
-                  onaccept=onaccept,
-                  ondelete=ondelete,
                   )
+
+        # Reusable field
+        represent = S3Represent(lookup=tablename)
+        document_id = S3ReusableField("document_id", table,
+                                      requires = IS_ONE_OF(db,
+                                                           "doc_document.id",
+                                                           represent),
+                                      represent = represent,
+                                      label = T("Document"),
+                                      ondelete = "CASCADE",
+                                     )
 
         # ---------------------------------------------------------------------
         # Images
@@ -233,9 +269,7 @@ class S3DocumentLibrary(S3Model):
                                    represent = lambda opt: \
                                     doc_image_type_opts.get(opt, UNKNOWN_OPT)),
                              person_id(label=T("Author")),
-                             organisation_id(
-                                widget = S3OrganisationAutocompleteWidget(default_from_profile=True)
-                                ),
+                             organisation_id(widget = org_widget),
                              s3_date(label = T("Date Taken")),
                              # @ToDo: Move location to link table
                              location_id(),
@@ -267,20 +301,23 @@ class S3DocumentLibrary(S3Model):
 
         # Resource Configuration
         configure(tablename,
-                  deduplicate=self.document_duplicate,
-                  onvalidation=lambda form: \
-                            self.document_onvalidation(form, document=False))
+                  deduplicate = self.document_duplicate,
+                  onvalidation = lambda form: \
+                            self.document_onvalidation(form, document=False)
+                  )
 
         # ---------------------------------------------------------------------
         # Pass model-global names to response.s3
         #
-        return Storage()
+        return dict(doc_document_id=document_id)
 
     # -------------------------------------------------------------------------
     def defaults(self):
         """ Safe defaults if the module is disabled """
-
-        return Storage()
+        
+        document_id = S3ReusableField("document_id", "integer",
+                                      readable=False, writable=False)
+        return dict(doc_document_id=document_id)
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -413,15 +450,15 @@ class S3DocumentLibrary(S3Model):
     @staticmethod
     def document_onaccept(form):        
         
-        vars = form.vars
-        doc = vars.file
+        form_vars = form.vars
+        doc = form_vars.file
        
         table = current.db.doc_document
 
         document = json.dumps(dict(filename=doc,
-                                  name=table.file.retrieve(doc)[0],
-                                  id=vars.id,
-                                  ))
+                                   name=table.file.retrieve(doc)[0],
+                                   id=form_vars.id,
+                                   ))
 
         current.s3task.async("document_create_index",
                              args = [document])
@@ -439,8 +476,8 @@ class S3DocumentLibrary(S3Model):
                                                limitby=(0, 1)).first()
 
         document = json.dumps(dict(filename=record.file,
-                                  id=row.id,
-                                 ))
+                                   id=row.id,
+                                   ))
         
         current.s3task.async("document_delete_index",
                              args = [document])   
@@ -488,5 +525,104 @@ def doc_checksum(docstr):
     converted = hashlib.sha1(docstr).hexdigest()
     return converted
 
+# =============================================================================
+def doc_render_document(list_id, item_id, resource, rfields, record):
+    """
+        Custom dataList item renderer for Documents, e.g. on the HRM Profile
+
+        @param list_id: the HTML ID of the list
+        @param item_id: the HTML ID of the item
+        @param resource: the S3Resource to render
+        @param rfields: the S3ResourceFields to render
+        @param record: the record as dict
+    """
+
+    record_id = record["doc_document.id"]
+    item_class = "thumbnail"
+
+    raw = record._row
+    title = record["doc_document.name"]
+    file = raw["doc_document.file"] or ""
+    url = raw["doc_document.url"] or ""
+    date = record["doc_document.date"]
+    comments = raw["doc_document.comments"] or ""
+
+    if file:
+        try:
+            doc_name = current.s3db.doc_document.file.retrieve(file)[0]
+        except (IOError, TypeError):
+            doc_name = current.messages["NONE"]
+        doc_url = URL(c="default", f="download",
+                      args=[file])
+        body = P(I(_class="icon-paperclip"),
+                 " ",
+                 SPAN(A(doc_name,
+                        _href=doc_url,
+                        )
+                      ),
+                 " ",
+                 _class="card_1_line",
+                 )
+    elif url:
+        body = P(I(_class="icon-globe"),
+                 " ",
+                 SPAN(A(url,
+                        _href=url,
+                        )),
+                 " ",
+                 _class="card_1_line",
+                 )
+    else:
+        # Shouldn't happen!
+        body = P(_class="card_1_line")
+
+    # Edit Bar
+    permit = current.auth.s3_has_permission
+    table = current.s3db.doc_document
+    if permit("update", table, record_id=record_id):
+        edit_btn = A(I(" ", _class="icon icon-edit"),
+                     _href=URL(c="doc", f="document",
+                               args=[record_id, "update.popup"],
+                               vars={"refresh": list_id,
+                                     "record": record_id}),
+                     _class="s3_modal",
+                     _title=current.T("Edit Document"),
+                     )
+    else:
+        edit_btn = ""
+    if permit("delete", table, record_id=record_id):
+        delete_btn = A(I(" ", _class="icon icon-trash"),
+                       _class="dl-item-delete",
+                       )
+    else:
+        delete_btn = ""
+    edit_bar = DIV(edit_btn,
+                   delete_btn,
+                   _class="edit-bar fright",
+                   )
+
+    # Render the item
+    item = DIV(DIV(I(_class="icon"),
+                   SPAN(" %s" % title,
+                        _class="card-title"),
+                   edit_bar,
+                   _class="card-header",
+                   ),
+               DIV(DIV(DIV(body,
+                           P(SPAN(comments),
+                             " ",
+                             _class="card_manylines",
+                             ),
+                           _class="media",
+                           ),
+                       _class="media-body",
+                       ),
+                   _class="media",
+                   ),
+               _class=item_class,
+               _id=item_id,
+               )
+
+    return item
 
 # END =========================================================================

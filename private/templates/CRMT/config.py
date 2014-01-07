@@ -109,82 +109,31 @@ settings.base.theme = "CRMT"
 settings.ui.formstyle_row = "bootstrap"
 settings.ui.formstyle = "bootstrap"
 settings.ui.hide_report_options = False
-#settings.gis.map_height = 600
-#settings.gis.map_width = 854
-
-settings.base.youtube_id = "HR-FtR2XkBU"
-# -----------------------------------------------------------------------------
-# L10n (Localization) settings
-settings.L10n.languages = OrderedDict([
-    ("en", "English"),
-])
-# Default Language
-settings.L10n.default_language = "en"
-# Number formats (defaults to ISO 31-0)
-# Decimal separator for numbers (defaults to ,)
-settings.L10n.decimal_separator = "."
-# Thousands separator for numbers (defaults to space)
-settings.L10n.thousands_separator = ","
-
-# Restrict the Location Selector to just certain countries
-# NB This can also be over-ridden for specific contexts later
-# e.g. Activities filtered to those of parent Project
-settings.gis.countries = ["US"]
-
-# Uncomment to pass Addresses imported from CSV to a Geocoder to try and automate Lat/Lon
-settings.gis.geocode_imported_addresses = "google"
-
-# Uncomment to Hide the Toolbar from the main Map
-settings.gis.toolbar = False
-# Hide unnecessary Toolbar items
-#settings.gis.nav_controls = False
-# Uncomment to use CMS to provide Metadata on Map Layers
-settings.gis.layer_metadata = True
-# Uncomment to hide Layer Properties tool
-settings.gis.layer_properties = False
-# Uncomment to hide the Base Layers folder in the LayerTree
-settings.gis.layer_tree_base = False
-# Uncomment to hide the Overlays folder in the LayerTree
-settings.gis.layer_tree_overlays = False
-# Uncomment to not expand the folders in the LayerTree by default
-settings.gis.layer_tree_expanded = False
-# Uncomment to have custom folders in the LayerTree use Radio Buttons
-settings.gis.layer_tree_radio = True
-settings.gis.layers_label = "Map Data"
-# Uncomment to display the Map Legend as a floating DIV
-settings.gis.legend = "float"
-# Mouse Position: 'normal', 'mgrs' or None
-settings.gis.mouse_position = None
-# Uncomment to hide the Overview map (doesn't work with Google Maps)
-settings.gis.overview = False
-# Uncomment to hide the permalink control (we have our own saved maps functionality)
-settings.gis.permalink = False
-# Uncomment to rename Overlays in Layer Tree
-#settings.gis.label_overlays = "Community Data"
+settings.ui.update_label = "Update" 
+settings.ui.export_formats = ["xls", "xml"]
 
 # Set Map to fill the container
 settings.gis.map_width = 1170
 
-# Don't simplify Polygons as much to retain their original shape
-settings.gis.simplify_tolerance = 0.0001
-
-# Add Person Widget
-# Uncomment to hide fields in S3AddPersonWidget[2]
-settings.pr.request_dob = False
-settings.pr.request_gender = False
-# Uncomment to show field in S3AddPersonWidget
-settings.pr.request_home_phone = True
-
-# -----------------------------------------------------------------------------
-# Finance settings
-settings.fin.currencies = {
-    "USD" : T("United States Dollars"),
-}
-
-settings.search.filter_manager = True
-settings.search.filter_manager_allow_delete = False
-settings.search.filter_manager_save = "Save"
-settings.search.filter_manager_update = "Update"
+settings.base.youtube_id = [dict(id = "introduction",
+                                 title = T("Introduction"),
+                                 video_id = "HR-FtR2XkBU" ),
+                            dict(id = "expanding-your-coalition",
+                                 title = T("Expanding Your Coalition"),
+                                 video_id = "HR-FtR2XkBU" ),
+                            dict(id = "mapping-vulnerable-groups",
+                                 title = T("Mapping Vulnerable Groups"),
+                                 video_id = "HR-FtR2XkBU" ),
+                            dict(id = "mapping-hazards",
+                                 title = T("Mapping Hazards"),
+                                 video_id = "HR-FtR2XkBU" ),
+                            dict(id = "managing-trainings",
+                                 title = T("Managing Trainings"),
+                                 video_id = "HR-FtR2XkBU" ),
+                            dict(id = "tracking-outreach",
+                                 title = T("Tracking Outreach"),
+                                 video_id = "HR-FtR2XkBU" ),
+                            ]
 
 # -----------------------------------------------------------------------------
 # Menu
@@ -235,6 +184,7 @@ current.response.menu = [
 
 for item in current.response.menu:
     item["url"] = URL(item["c"], item["f"])
+
 # -----------------------------------------------------------------------------
 # Summary Pages
 settings.ui.summary = [{"common": True,
@@ -255,9 +205,11 @@ settings.ui.summary = [{"common": True,
                         },
                        ]
 
-settings.ui.filter_auto_submit = 750
-settings.ui.report_auto_submit = 750
-                       
+settings.search.filter_manager = True
+settings.search.filter_manager_allow_delete = False
+settings.search.filter_manager_save = "Save"
+settings.search.filter_manager_update = "Update"
+
 # -----------------------------------------------------------------------------
 # Filter forms - style for Summary pages
 def filter_formstyle(row_id, label, widget, comment, hidden=False):
@@ -265,11 +217,80 @@ def filter_formstyle(row_id, label, widget, comment, hidden=False):
                _id=row_id,
                _class="horiz_filter_form")
 
+# -----------------------------------------------------------------------------
+# L10n (Localization) settings
+settings.L10n.languages = OrderedDict([
+    ("en", "English"),
+    ("es", "Español"),
+])
+# Default Language
+settings.L10n.default_language = "en"
+# Number formats (defaults to ISO 31-0)
+# Decimal separator for numbers (defaults to ,)
+settings.L10n.decimal_separator = "."
+# Thousands separator for numbers (defaults to space)
+settings.L10n.thousands_separator = ","
+
+# Restrict the Location Selector to just certain countries
+# NB This can also be over-ridden for specific contexts later
+# e.g. Activities filtered to those of parent Project
+settings.gis.countries = ["US"]
+
+# Uncomment to pass Addresses imported from CSV to a Geocoder to try and automate Lat/Lon
+settings.gis.geocode_imported_addresses = "google"
+
+# Uncomment to Hide the Toolbar from the main Map
+settings.gis.toolbar = False
+# Hide unnecessary Toolbar items
+#settings.gis.nav_controls = False
+# Uncomment to use CMS to provide Metadata on Map Layers
+settings.gis.layer_metadata = True
+# Uncomment to hide Layer Properties tool
+settings.gis.layer_properties = False
+# Uncomment to hide the Base Layers folder in the LayerTree
+settings.gis.layer_tree_base = False
+# Uncomment to hide the Overlays folder in the LayerTree
+settings.gis.layer_tree_overlays = False
+# Uncomment to not expand the folders in the LayerTree by default
+settings.gis.layer_tree_expanded = False
+# Uncomment to have custom folders in the LayerTree use Radio Buttons
+settings.gis.layer_tree_radio = True
+settings.gis.layers_label = "Map Data"
+# Uncomment to display the Map Legend as a floating DIV
+settings.gis.legend = "float"
+# Mouse Position: 'normal', 'mgrs' or None
+settings.gis.mouse_position = None
+# Uncomment to hide the Overview map (doesn't work with Google Maps)
+settings.gis.overview = False
+# Uncomment to hide the permalink control (we have our own saved maps functionality)
+settings.gis.permalink = False
+# Uncomment to disable the ability to add PoIs to the main map
+settings.gis.pois = False
+# Uncomment to rename Overlays in Layer Tree
+#settings.gis.label_overlays = "Community Data"
+
+# Don't simplify Polygons as much to retain their original shape
+settings.gis.simplify_tolerance = 0.0001
+
+# Add Person Widget
+# Uncomment to hide fields in S3AddPersonWidget[2]
+settings.pr.request_dob = False
+settings.pr.request_gender = False
+# Uncomment to show field in S3AddPersonWidget
+settings.pr.request_home_phone = True
+
+# -----------------------------------------------------------------------------
+# Finance settings
+settings.fin.currencies = {
+    "USD" : T("United States Dollars"),
+}
+
 # =============================================================================
 # Module Settings
 
 # -----------------------------------------------------------------------------
 # Human Resource Management
+#
 # Uncomment to allow Staff & Volunteers to be registered without an email address
 settings.hrm.email_required = False
 # Uncomment to show the Organisation name in HR represents
@@ -283,13 +304,17 @@ settings.hrm.use_skills = False
 # Uncomment to disable the use of HR Teams
 settings.hrm.teams = False
 
-# Organisations
-# Disable the use of Organisation Branches
-settings.org.branches = False
+# -----------------------------------------------------------------------------
+# Organisation Registry
+#
+# Enable the use of Organisation Groups
+settings.org.groups = "Coalition"
+# Set the label for Sites
+settings.org.site_label = "Place"
 
 # -----------------------------------------------------------------------------
 # Contacts
-# -----------------------------------------------------------------------------
+#
 def user_coalition(row):
     """
         The Coalition of the user
@@ -349,39 +374,37 @@ def customize_pr_person(**attr):
                            "first_name",
                            #"middle_name",
                            "last_name",
-                           (T("Job Title"), "human_resource.job_title_id"),
-                           (T("Office"), "human_resource.site_id"),
+                           #(T("Job Title"), "human_resource.job_title_id"),
+                           (T("Place"), "human_resource.site_id"),
                            ]
             is_logged_in = current.auth.is_logged_in()
             if is_logged_in:
                 # Don't include Email/Phone for unauthenticated users
-                MOBILE = settings.get_ui_label_mobile_phone()
-                EMAIL = T("Email")
-
-                list_fields += [(MOBILE, "phone.value"),
-                                (EMAIL, "email.value"),
+                list_fields += [(settings.get_ui_label_mobile_phone(), "phone.value"),
+                                (T("Email"), "email.value"),
                                 ]
             s3db.configure(tablename,
                            list_fields = list_fields,
                            )
 
         if r.interactive:
-            # CRUD Strings
-            ADD_CONTACT = T("Add New Contact")
-            s3.crud_strings[tablename] = Storage(
-                title_create = T("Add Contact"),
-                title_display = T("Contact Details"),
-                title_list = T("Contact Directory"),
-                title_update = T("Edit Contact Details"),
-                title_search = T("Search Contacts"),
-                subtitle_create = ADD_CONTACT,
-                label_list_button = T("List Contacts"),
-                label_create_button = ADD_CONTACT,
-                label_delete_button = T("Delete Contact"),
-                msg_record_created = T("Contact added"),
-                msg_record_modified = T("Contact details updated"),
-                msg_record_deleted = T("Contact deleted"),
-                msg_list_empty = T("No Contacts currently registered"))
+            if current.request.controller != "default":
+                # CRUD Strings
+                ADD_CONTACT = T("Add New Contact")
+                s3.crud_strings[tablename] = Storage(
+                    title_create = T("Add Contact"),
+                    title_display = T("Contact Details"),
+                    title_list = T("Contact Directory"),
+                    title_update = T("Update Contact Details"),
+                    title_search = T("Search Contacts"),
+                    subtitle_create = ADD_CONTACT,
+                    label_list_button = T("List Contacts"),
+                    label_create_button = ADD_CONTACT,
+                    label_delete_button = T("Delete Contact"),
+                    msg_record_created = T("Contact added"),
+                    msg_record_modified = T("Contact details updated"),
+                    msg_record_deleted = T("Contact deleted"),
+                    msg_list_empty = T("No Contacts currently registered"))
 
             # Custom Form (Read/Create/Update)
             from s3.s3fields import S3Represent
@@ -405,9 +428,9 @@ def customize_pr_person(**attr):
                                                 orderby = "org_site.name")
                 site_field.comment = S3AddResourceLink(c="org", f="office",
                                                        vars={"child": "site_id"},
-                                                       label=T("Add New Office"),
-                                                       title=T("Office"),
-                                                       tooltip=T("If you don't see the Office in the list, you can add a new one by clicking link 'Add New Office'."))
+                                                       label=T("Add New Place"),
+                                                       title=T("Place"),
+                                                       tooltip=T("If you don't see the Place in the list, you can add a new one by clicking link 'Add New Place'."))
 
             # Hide Labels when just 1 column in inline form
             s3db.pr_contact.value.label = ""
@@ -421,7 +444,7 @@ def customize_pr_person(**attr):
             image_field.widget = None
 
             hr_fields = ["organisation_id",
-                         "job_title_id",
+                         #"job_title_id",
                          "site_id",
                          ]
             #if widgets:
@@ -471,32 +494,25 @@ def customize_pr_person(**attr):
                         fields = ["image"],
                         filterby = dict(field = "profile",
                                         options=[True]
-                                        )
-                    ),
-                ]
-
-            # Don't include Email/Phone for unauthenticated users
-            if is_logged_in:
-                s3_sql_custom_fields.insert(4,
-                                            S3SQLInlineComponent(
-                                            "contact",
-                                            name = "phone",
-                                            label = MOBILE,
-                                            multiple = False,
-                                            fields = ["value"],
-                                            filterby = dict(field = "contact_method",
-                                                            options = "SMS")),
-                                            )
-                s3_sql_custom_fields.insert(4,
-                                            S3SQLInlineComponent(
-                                            "contact",
-                                            name = "email",
-                                            label = EMAIL,
-                                            multiple = False,
-                                            fields = ["value"],
-                                            filterby = dict(field = "contact_method",
-                                                            options = "EMAIL")),
-                                            )
+                                        ),
+                        ),
+                    S3SQLInlineComponent("contact",
+                        name = "phone",
+                        label = settings.get_ui_label_mobile_phone(),
+                        multiple = False,
+                        fields = ["value"],
+                        filterby = dict(field = "contact_method",
+                                        options = "SMS"),
+                        ),
+                    S3SQLInlineComponent("contact",
+                        name = "email",
+                        label = T("Email"),
+                        multiple = False,
+                        fields = ["value"],
+                        filterby = dict(field = "contact_method",
+                                        options = "EMAIL"),
+                        )
+                    ]
 
             crud_form = S3SQLCustomForm(*s3_sql_custom_fields)
 
@@ -516,7 +532,7 @@ def customize_pr_person(**attr):
             # Disabled as breaks submission of inline_component
             #i18n = []
             #iappend = i18n.append
-            #iappend('''i18n.office="%s"''' % T("Office"))
+            #iappend('''i18n.office="%s"''' % T("Place"))
             #iappend('''i18n.organisation="%s"''' % T("Organization"))
             #iappend('''i18n.job_title="%s"''' % T("Job Title"))
             #i18n = '''\n'''.join(i18n)
@@ -548,7 +564,7 @@ def customize_pr_person(**attr):
             #s3_accessible_query = auth.s3_accessible_query
             #table = s3db.pr_person
             #if has_permission("update", table):
-            #    action = dict(label=str(T("Edit")),
+            #    action = dict(label=str(T("Update")),
             #                  _class="action-btn",
             #                  url=URL(c="pr", f="person",
             #                          args=["[id]", "update"]),
@@ -598,7 +614,7 @@ settings.ui.customize_pr_person = customize_pr_person
 
 # -----------------------------------------------------------------------------
 # Activities
-# -----------------------------------------------------------------------------
+#
 def customize_project_activity(**attr):
     """
         Customize project_activity controller
@@ -607,18 +623,22 @@ def customize_project_activity(**attr):
     s3db = current.s3db
     request = current.request
     if "summary" in request.args:
-        coalition = request.get_vars.get("activity_group.group_id__belongs", None)
-        if not coalition:
-            # Default the Coalition Filter
-            auth = current.auth
-            org_group_id = auth.is_logged_in() and auth.user.org_group_id
-            if org_group_id:
-                request.get_vars["activity_group.group_id__belongs"] = str(org_group_id)
-            else:
-                # Filter to all Coalitions
-                gtable = s3db.org_group
-                rows = current.db(gtable.deleted == False).select(gtable.id)
-                request.get_vars["activity_group.group_id__belongs"] = ",".join([str(row.id) for row in rows])
+        get_vars = request.get_vars
+        w = get_vars.get("w", None)
+        if not w:
+            # This is an interactive request
+            coalition = get_vars.get("activity_group.group_id__belongs", None)
+            if not coalition:
+                # Default the Coalition Filter
+                auth = current.auth
+                org_group_id = auth.is_logged_in() and auth.user.org_group_id
+                if org_group_id:
+                    get_vars["activity_group.group_id__belongs"] = str(org_group_id)
+                else:
+                    # Filter to all Coalitions
+                    gtable = s3db.org_group
+                    rows = current.db(gtable.deleted == False).select(gtable.id)
+                    get_vars["activity_group.group_id__belongs"] = ",".join([str(row.id) for row in rows])
 
     # Custom PreP
     s3 = current.response.s3
@@ -637,10 +657,11 @@ def customize_project_activity(**attr):
             # Modify list_fields
             list_fields = ["date",
                            "name",
-                           "activity_type_id",
+                           "activity_activity_type.activity_type_id",
                            "activity_group.group_id",
                            "location_id",
                            "person_id",
+                           (T("Number of People"), "beneficiary.value"),
                            "comments",
                            ]
 
@@ -648,26 +669,23 @@ def customize_project_activity(**attr):
                            list_fields = list_fields,
                            )
 
-        elif method == "report2":
-            s3db.project_activity_group.group_id.label = T("Coalition")
-
-        elif r.interactive or representation == "json" or representation == "plain":
+        if r.interactive or representation == "json" or representation == "plain":
             # CRUD Strings / Represent
+            s3.crud_strings[tablename].title_update = T("Update Activities")
+            table.date.label = T("Date")
             table.location_id.label = T("Address")
             table.location_id.represent = s3db.gis_LocationRepresent(address_only=True)
-            s3db.project_activity_group.group_id.label = T("Coalition")
 
             if method in ("summary", "report2"):
                 from s3.s3filter import S3OptionsFilter, S3DateFilter
                 filter_widgets = [S3OptionsFilter("activity_group.group_id",
-                                                  label=T("Coalition"),
                                                   represent="%(name)s",
                                                   widget="multiselect",
                                                   header=True,
                                                   ),
-                                  S3OptionsFilter("activity_type_id",
-                                                  label=T("Activity Type"),
-                                                  represent="%(name)s",
+                                  S3OptionsFilter("activity_activity_type.activity_type_id",
+                                                  # Doesn't allow Translation
+                                                  #represent="%(name)s",
                                                   widget="multiselect",
                                                   header=True,
                                                   ),
@@ -679,17 +697,18 @@ def customize_project_activity(**attr):
                                   ]
 
                 # @ToDo: Month/Year Lazy virtual fields (like in PM tool)
-                report_fields = [#"name",
-                                 "activity_type_id",
+                report_fields = ["activity_activity_type.activity_type_id",
                                  "activity_group.group_id",
                                  "location_id$L3",
                                  ]
 
                 report_options = Storage(
                     rows=report_fields,
-                    cols=report_fields,
-                    fact=[("count(name)", T("Number of Activities"))],
-                    defaults=Storage(rows="activity.activity_type_id",
+                    cols=[],
+                    fact=[(T("Number of Activities"), "count(name)"),
+                          (T("Number of People"), "sum(beneficiary.value)"),
+                          ],
+                    defaults=Storage(rows="activity_activity_type.activity_type_id",
                                      #cols="activity_group.group_id",
                                      fact="count(name)",
                                      totals=True,
@@ -714,20 +733,20 @@ def customize_project_activity(**attr):
                     # Custom Widgets/Validators
                     widgets = True
                     from s3.s3validators import IS_ADD_PERSON_WIDGET2, IS_LOCATION_SELECTOR2
-                    from s3.s3widgets import S3AddPersonWidget2, S3LocationSelectorWidget2
-                else:
-                    widgets = False
-
-                if widgets:
+                    from s3.s3widgets import S3AddPersonWidget2, S3LocationSelectorWidget2, S3SelectChosenWidget
                     field = table.location_id
                     field.label = "" # Gets replaced by widget
-                    field.requires = IS_LOCATION_SELECTOR2(levels=["L3"])
-                    field.widget = S3LocationSelectorWidget2(levels=["L3"],
+                    field.requires = IS_LOCATION_SELECTOR2(levels=("L3",))
+                    field.widget = S3LocationSelectorWidget2(levels=("L3",),
                                                              hide_lx=False,
                                                              reverse_lx=True,
                                                              show_address=True,
                                                              show_postcode=True,
                                                              )
+                    s3db.project_activity_organisation.organisation_id.widget = S3SelectChosenWidget()
+                else:
+                    widgets = False
+
                 field = table.person_id
                 field.comment = None
                 if widgets:
@@ -736,13 +755,27 @@ def customize_project_activity(**attr):
                 
                 # Hide Labels when just 1 column in inline form
                 s3db.doc_document.file.label = ""
+                s3db.project_activity_activity_type.activity_type_id.label = ""
                 s3db.project_activity_group.group_id.label = ""
-    
+                s3db.project_beneficiary.value.label = ""
+
                 # Custom Crud Form
+                bttable = s3db.project_beneficiary_type
+                total = current.db(bttable.name == "Total").select(bttable.parameter_id,
+                                                                   limitby=(0, 1)).first()
+                if total:
+                    parameter_id = total.parameter_id
+                else:
+                    parameter_id = None
                 crud_form = S3SQLCustomForm(
                     "date",
                     "name",
-                    "activity_type_id",
+                    S3SQLInlineComponent(
+                        "activity_activity_type",
+                        label = T("Activity Type"),
+                        fields = ["activity_type_id"],
+                        multiple = False,
+                    ),
                     S3SQLInlineComponent(
                         "activity_group",
                         label = T("Coalition"),
@@ -755,6 +788,16 @@ def customize_project_activity(**attr):
                         "activity_organisation",
                         label = T("Participating Organizations"),
                         fields = ["organisation_id"],
+                    ),
+                    S3SQLInlineComponent(
+                        "beneficiary",
+                        label = T("Number of People Reached"),
+                        link = False,
+                        multiple = False,
+                        fields = ["value"],
+                        filterby = dict(field = "parameter_id",
+                                        options = parameter_id
+                                        ),
                     ),
                     S3SQLInlineComponent(
                         "document",
@@ -774,8 +817,6 @@ def customize_project_activity(**attr):
         return True
     s3.prep = custom_prep
 
-    attr["hide_filter"] = False
-
     # Remove rheader
     attr["rheader"] = None
 
@@ -783,9 +824,23 @@ def customize_project_activity(**attr):
 
 settings.ui.customize_project_activity = customize_project_activity
 
+def customize_project_activity_type(**attr):
+    """
+        Customize project_activity_type controller
+    """
+    from s3.s3forms import S3SQLCustomForm
+    current.s3db.configure("project_activity_type",
+                           crud_form = S3SQLCustomForm("name",
+                                                       "comments"),
+                           )
+
+    return attr
+
+settings.ui.customize_project_activity_type = customize_project_activity_type
+
 # -----------------------------------------------------------------------------
 # Organisations
-# -----------------------------------------------------------------------------
+#
 def org_facility_types(row):
     """
         The Types of the Facility
@@ -838,7 +893,7 @@ def customize_org_organisation(**attr):
             # Modify list_fields
             list_fields = ["id",
                            "name",
-                           (T("Coalitions"), "group_membership.group_id"),
+                           (T("Coalition Member"), "group_membership.group_id"),
                            (T("Sectors"), "sector_organisation.sector_id"),
                            (T("Services"), "service_organisation.service_id"),
                            "comments",
@@ -848,16 +903,22 @@ def customize_org_organisation(**attr):
                            list_fields = list_fields,
                            )
 
-        elif method == "report2":
-            s3db.org_group_membership.group_id.label = T("Coalition")
-
         if (r.interactive or r.representation=="json") and not r.component:
             # CRUD Strings / Represent
+            s3.crud_strings[tablename].title_update = T("Update Organization")
+            table.logo.readable = table.logo.writable = False 
 
             if method in ("summary", "report2"):
-                from s3.s3filter import S3OptionsFilter
-                filter_widgets = [S3OptionsFilter("group_membership.group_id",
-                                                  label=T("Coalition"),
+                from s3.s3filter import S3OptionsFilter, S3TextFilter
+                filter_widgets = [S3TextFilter(["name",
+                                                "group_membership.group_id",
+                                                "sector_organisation.sector_id",
+                                                "service_organisation.service_id",
+                                                "comments"
+                                                ],
+                                                label = T("Search"),
+                                               ),
+                                  S3OptionsFilter("group_membership.group_id",
                                                   represent="%(name)s",
                                                   widget="multiselect",
                                                   header=True,
@@ -879,16 +940,17 @@ def customize_org_organisation(**attr):
                 s3.crud_strings.org_organisation.title_report = T("Organization Matrix")
 
                 # Custom Report Fields
-                report_fields = [#"name",
-                                 (T("Coalitions"), "group_membership.group_id"),
-                                 (T("Sectors"), "sector_organisation.sector_id"),
-                                 (T("Services"), "service_organisation.service_id"),
+                report_fields = [# Only 1 Axis so use singular name
+                                 #"name",
+                                 (T("Coalition Member"), "group_membership.group_id"),
+                                 (T("Sector"), "sector_organisation.sector_id"),
+                                 (T("Service"), "service_organisation.service_id"),
                                  ]
 
                 report_options = Storage(
                     rows = report_fields,
-                    cols = report_fields,
-                    fact = [("count(name)", T("Number of Organizations"))],
+                    cols = [],
+                    fact = [(T("Number of Organizations"), "count(name)")],
                     defaults = Storage(rows = "sector_organisation.sector_id",
                                        #cols = "service_organisation.service_id",
                                        fact = "count(name)",
@@ -936,7 +998,7 @@ def customize_org_organisation(**attr):
                 hrtable.site_id.label = T("Place")
 
                 hr_fields = ["person_id",
-                             "job_title_id",
+                             #"job_title_id",
                              #"email",
                              #"phone",
                              ]
@@ -967,7 +1029,7 @@ def customize_org_organisation(**attr):
                     "logo",
                     S3SQLInlineComponentMultiSelectWidget(
                         "group",
-                        label = T("Coalitions"),
+                        label = T("Coalition Member"),
                         field = "group_id",
                     ),
                     S3SQLInlineComponentMultiSelectWidget(
@@ -981,11 +1043,6 @@ def customize_org_organisation(**attr):
                         field = "service_id",
                     ),
                     S3SQLInlineComponent(
-                        "human_resource",
-                        label = T("Organization's Contacts"),
-                        fields = hr_fields,
-                    ),
-                    S3SQLInlineComponent(
                         "resource",
                         label = T("Organization's Resources"),
                         fields = ["parameter_id", 
@@ -995,7 +1052,43 @@ def customize_org_organisation(**attr):
                     ),
                     "comments",
                 ]
-                if method != "create":
+                if method not in ("create", "update"):
+                    hrtable = s3db.hrm_human_resource
+                    hrtable.person_id.widget = None
+                    hrtable.site_id.label = T("Place")
+
+                    hr_fields = ["person_id",
+                                 "site_id"
+                                 #"job_title_id",
+                                 #"email",
+                                 #"phone",
+                                 ]
+                    #if method not in ["create", "update"]:
+                    #    hr_fields.insert(1, "site_id")
+                    #    if method == "update":
+                    #        # Filter the options for site_id in the organisation contacts
+                    #        # inline component to just the sites of this organisation
+                    #        from s3.s3validators import IS_ONE_OF
+                    #        auth = current.auth
+                    #        realms = auth.permission.permitted_realms("hrm_human_resource",
+                    #                                                  method="create")
+                    #        instance_types = auth.org_site_types
+                    #        hrtable.site_id.requires = IS_ONE_OF(current.db,
+                    #                                             "org_site.site_id",
+                    #                                             label=s3db.org_site_represent,
+                    #                                             orderby="org_site.name",
+                    #                                             filterby="organisation_id",
+                    #                                             filter_opts=[r.id],
+                    #                                             instance_types=instance_types,
+                    #                                             realms=realms,
+                    #                                             not_filterby="obsolete",
+                    #                                             not_filter_opts=[True])
+
+                    form_fields.insert(6, S3SQLInlineComponent(
+                        "human_resource",
+                        label = T("Organization's Contacts"),
+                        fields = hr_fields,
+                    ))
                     form_fields.insert(6, S3SQLInlineComponent(
                         "facility",
                         label = T("Organization's Places"),
@@ -1006,7 +1099,7 @@ def customize_org_organisation(**attr):
                                   ],
                         # Fields needed to load for Virtual Fields
                         extra_fields = ["site_id"],
-                        virtual_fields = [(T("Facility Type"), "facility_types"),
+                        virtual_fields = [(T("Type"), "facility_types"),
                                           ],
                     ))
 
@@ -1026,38 +1119,9 @@ def customize_org_organisation(**attr):
 
 settings.ui.customize_org_organisation = customize_org_organisation
 
-# -----------------------------------------------------------------------------
-# Coalitions (org_group)
-# -----------------------------------------------------------------------------
-def customize_org_group(**attr):
-    """
-        Customize org_group controller
-    """
-
-    tablename = "org_group"
-    # CRUD Strings
-    current.response.s3.crud_strings[tablename] = Storage(
-        title_create = T("Add Coalition"),
-        title_display = T("Coalition Details"),
-        title_list = T("Coalitions"),
-        title_update = T("Edit Coalition"),
-        title_search = T("Search Coalitions"),
-        subtitle_create = T("Add New Coalition"),
-        label_list_button = T("List Coalitions"),
-        label_create_button = T("Add Coalition"),
-        label_delete_button = T("Remove Coalition"),
-        msg_record_created = T("Coalition added"),
-        msg_record_modified = T("Coalition updated"),
-        msg_record_deleted = T("Coalition removed"),
-        msg_list_empty = T("No Coalitions currently recorded"))
-
-    return attr
-
-settings.ui.customize_org_group = customize_org_group
-
 #-----------------------------------------------------------------------------
 # Places (org_facility)
-#-----------------------------------------------------------------------------
+#
 def facility_onaccept(form):
     """
         Custom onaccept for Imports:
@@ -1130,18 +1194,22 @@ def customize_org_facility(**attr):
     s3db = current.s3db
     request = current.request
     if "summary" in request.args:
-        coalition = request.get_vars.get("site_org_group.group_id__belongs", None)
-        if not coalition:
-            # Default the Coalition Filter
-            auth = current.auth
-            org_group_id = auth.is_logged_in() and auth.user.org_group_id
-            if org_group_id:
-                request.get_vars["site_org_group.group_id__belongs"] = str(org_group_id)
-            else:
-                # Filter to all Coalitions
-                gtable = s3db.org_group
-                rows = current.db(gtable.deleted == False).select(gtable.id)
-                request.get_vars["site_org_group.group_id__belongs"] = ",".join([str(row.id) for row in rows])
+        get_vars = request.get_vars
+        w = get_vars.get("w", None)
+        if not w:
+            # This is an interactive request
+            coalition = get_vars.get("site_org_group.group_id__belongs", None)
+            if not coalition:
+                # Default the Coalition Filter
+                auth = current.auth
+                org_group_id = auth.is_logged_in() and auth.user.org_group_id
+                if org_group_id:
+                    get_vars["site_org_group.group_id__belongs"] = str(org_group_id)
+                else:
+                    # Filter to all Coalitions
+                    gtable = s3db.org_group
+                    rows = current.db(gtable.deleted == False).select(gtable.id)
+                    get_vars["site_org_group.group_id__belongs"] = ",".join([str(row.id) for row in rows])
 
     # Custom PreP
     s3 = current.response.s3
@@ -1159,10 +1227,13 @@ def customize_org_facility(**attr):
         if method == "summary" or representation == "aadata":
             # Modify list_fields
             list_fields = ["name",
-                           (T("Type of Place"),"facility_type.name"),
+                           (T("Type of Place"), "facility_type.name"),
                            "organisation_id",
                            "site_org_group.group_id",
                            "location_id",
+                           "contact",
+                           "phone1",
+                           "email",
                            "comments",
                            ]
 
@@ -1170,20 +1241,17 @@ def customize_org_facility(**attr):
                            list_fields=list_fields,
                            )
 
-        elif method == "report2":
-            s3db.org_site_org_group.group_id.label = T("Coalition")
-
         if r.interactive or representation == "json":
             # CRUD Strings / Represent
+            table.phone1.label = T("Phone")
             table.location_id.label = T("Address")
             table.location_id.represent = s3db.gis_LocationRepresent(address_only=True)
-            s3db.org_site_org_group.group_id.label = T("Coalition")
 
             s3.crud_strings[tablename] = Storage(
                 title_create = T("Add Place"),
                 title_display = T("Place Details"),
                 title_list = T("Places"),
-                title_update = T("Edit Place"),
+                title_update = T("Update Place"),
                 title_search = T("Search Places"),
                 subtitle_create = T("Add New Place"),
                 label_list_button = T("List Places"),
@@ -1195,29 +1263,39 @@ def customize_org_facility(**attr):
                 msg_list_empty = T("No Places currently recorded"))
 
             if method in ("summary", "report2"):
-                from s3.s3filter import S3OptionsFilter
-                filter_widgets = [S3OptionsFilter("site_org_group.group_id",
-                                                  label=T("Coalition"),
-                                                  represent="%(name)s",
-                                                  widget="multiselect",
-                                                  header=True,
+                from s3.s3filter import S3OptionsFilter, S3TextFilter
+                filter_widgets = [S3TextFilter(["name",
+                                                "site_org_group.group_id",
+                                                "site_facility_type.facility_type_id",
+                                                "organisation_id",
+                                                "location_id",
+                                                "contact",
+                                                "phone1",
+                                                "email",
+                                                "comments"
+                                                ],
+                                                label = T("Search"),
+                                               ),
+                                  S3OptionsFilter("site_org_group.group_id",
+                                                  header = True,
+                                                  represent = "%(name)s",
+                                                  widget = "multiselect",
                                                   ),
                                   S3OptionsFilter("site_facility_type.facility_type_id",
-                                                  label=T("Type of Place"),
-                                                  represent="%(name)s",
-                                                  widget="multiselect",
-                                                  header=True,
+                                                  header = True,
+                                                  label = T("Type of Place"),
+                                                  represent = "%(name)s",
+                                                  widget = "multiselect",
                                                   ),
                                   S3OptionsFilter("organisation_id",
-                                                  label=T("Organization"),
-                                                  represent="%(name)s",
-                                                  widget="multiselect",
-                                                  header=True,
+                                                  header = True,
+                                                  represent = "%(name)s",
+                                                  widget = "multiselect",
                                                   ),
                                   ]
 
                 report_fields = [#"name",
-                                 (T("Type of Place"),"site_facility_type.facility_type_id"),
+                                 (T("Type of Place"), "site_facility_type.facility_type_id"),
                                  "site_org_group.group_id",
                                  "location_id$L3",
                                  "organisation_id",
@@ -1225,8 +1303,8 @@ def customize_org_facility(**attr):
 
                 report_options = Storage(
                     rows=report_fields,
-                    cols=report_fields,
-                    fact=[("count(name)", T("Number of Places"))],
+                    cols=[],
+                    fact=[(T("Number of Places"), "count(name)")],
                     defaults=Storage(rows="site_facility_type.facility_type_id",
                                      #cols="site_org_group.group_id",
                                      fact="count(name)",
@@ -1251,22 +1329,28 @@ def customize_org_facility(**attr):
                     # Custom Widgets/Validators
                     widgets = True
                     from s3.s3validators import IS_LOCATION_SELECTOR2
-                    from s3.s3widgets import S3LocationSelectorWidget2
+                    from s3.s3widgets import S3LocationSelectorWidget2, S3SelectChosenWidget
                 else:
                     widgets = False
 
                 if widgets:
-                    field = s3db.org_facility.location_id
+                    field = table.location_id
                     field.label = "" # Gets replaced by widget
-                    field.requires = IS_LOCATION_SELECTOR2(levels=["L3"])
-                    field.widget = S3LocationSelectorWidget2(levels=["L3"],
+                    field.requires = IS_LOCATION_SELECTOR2(levels=("L3",))
+                    field.widget = S3LocationSelectorWidget2(levels=("L3",),
                                                              hide_lx=False,
                                                              reverse_lx=True,
                                                              show_address=True,
                                                              show_postcode=True,
                                                              )
+                    #field.widget = None
+                    #field = s3db.hrm_human_resource.person_id
+                    #field.comment = None
+                    #field.requires = IS_ADD_PERSON_WIDGET2()
+                    #field.widget = S3AddPersonWidget2(controller="pr")
 
-                    s3db.hrm_human_resource.person_id.widget = None
+                    table.organisation_id.widget = S3SelectChosenWidget()
+                    #s3db.hrm_human_resource.person_id.widget = None
 
                 # Hide Labels when just 1 column in inline form
                 s3db.doc_document.file.label = ""
@@ -1288,15 +1372,19 @@ def customize_org_facility(**attr):
                         multiple = False,
                     ),
                     "location_id",
-                    S3SQLInlineComponent(
-                        "human_resource",
-                        label = T("Place's Contacts"),
-                        fields = ["person_id",
-                                  "job_title_id",
-                                  #"email",
-                                  #"phone",
-                                  ],
-                    ),
+                    #S3SQLInlineComponent(
+                    #    "human_resource",
+                    #    label = T("Place's Contacts"),
+                    #    fields = ["person_id",
+                    #              #"job_title_id",
+                    #              #"email",
+                    #              #"phone",
+                    #              ],
+                    #),
+                    # Can't have Components of Components Inline, so just use simple fields
+                    "contact",
+                    "phone1",
+                    "email",
                     S3SQLInlineComponent(
                         "document",
                         name = "file",
@@ -1317,7 +1405,6 @@ def customize_org_facility(**attr):
             table.location_id.label = T("Address")
             table.location_id.represent = s3db.gis_LocationRepresent(address_only=True)
             table.organisation_id.comment = ""
-            s3db.org_site_org_group.group_id.label = T("Coalition")
             s3.crud_strings[tablename].title_display = T("Place Details")
             s3db.configure(tablename,
                            popup_url="",
@@ -1329,8 +1416,6 @@ def customize_org_facility(**attr):
     # Override Custom Map Popup in default PostP
     s3.postp = None
 
-    attr["hide_filter"] = False
-
     # Remove rheader
     attr["rheader"] = None
 
@@ -1338,9 +1423,9 @@ def customize_org_facility(**attr):
 
 settings.ui.customize_org_facility = customize_org_facility
 
-#-----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
 # People
-#-----------------------------------------------------------------------------
+#
 def customize_stats_people(**attr):
     """
         Customize stats_people controller
@@ -1349,18 +1434,22 @@ def customize_stats_people(**attr):
     s3db = current.s3db
     request = current.request
     if "summary" in request.args:
-        coalition = request.get_vars.get("people_group.group_id__belongs", None)
-        if not coalition:
-            # Default the Coalition Filter
-            auth = current.auth
-            org_group_id = auth.is_logged_in() and auth.user.org_group_id
-            if org_group_id:
-                request.get_vars["people_group.group_id__belongs"] = str(org_group_id)
-            else:
-                # Filter to all Coalitions
-                gtable = s3db.org_group
-                rows = current.db(gtable.deleted == False).select(gtable.id)
-                request.get_vars["people_group.group_id__belongs"] = ",".join([str(row.id) for row in rows])
+        get_vars = request.get_vars
+        w = get_vars.get("w", None)
+        if not w:
+            # This is an interactive request
+            coalition = get_vars.get("people_group.group_id__belongs", None)
+            if not coalition:
+                # Default the Coalition Filter
+                auth = current.auth
+                org_group_id = auth.is_logged_in() and auth.user.org_group_id
+                if org_group_id:
+                    get_vars["people_group.group_id__belongs"] = str(org_group_id)
+                else:
+                    # Filter to all Coalitions
+                    gtable = s3db.org_group
+                    rows = current.db(gtable.deleted == False).select(gtable.id)
+                    get_vars["people_group.group_id__belongs"] = ",".join([str(row.id) for row in rows])
 
     # Custom PreP
     s3 = current.response.s3
@@ -1374,15 +1463,15 @@ def customize_stats_people(**attr):
         table = s3db[tablename]
 
         # Disable name
-        table.name.readable = False
-        table.name.writable = False
+        table.name.label = T("Description") 
+        #table.name.writable = False
 
         method = r.method
         representation = r.representation
         if method == "summary" or representation == "aadata":
             # Modify list_fields
             list_fields = ["id",
-                           #"name",
+                           "name",
                            "parameter_id",
                            "value",
                            "people_group.group_id",
@@ -1395,11 +1484,6 @@ def customize_stats_people(**attr):
                            list_fields = list_fields,
                            )
 
-            s3db.stats_people_group.group_id.label = T("Coalition")
-
-        elif method == "report2":
-            s3db.stats_people_group.group_id.label = T("Coalition")
-
         if r.interactive or representation == "json": #or representation == "plain"
             # CRUD Strings / Represent
             #table.location_id.label = T("Address")
@@ -1409,7 +1493,7 @@ def customize_stats_people(**attr):
                 title_create = T("Add People"),
                 title_display = T("People Details"),
                 title_list = T("People"),
-                title_update = T("Edit People"),
+                title_update = T("Update People"),
                 title_search = T("Search People"),
                 subtitle_create = T("Add New People"),
                 label_list_button = T("List People"),
@@ -1421,9 +1505,18 @@ def customize_stats_people(**attr):
                 msg_list_empty = T("No People currently recorded"))
             
             if method in ("summary", "report2"):
-                from s3.s3filter import S3OptionsFilter
-                filter_widgets = [S3OptionsFilter("people_group.group_id",
-                                                  label=T("Coalition"),
+                from s3.s3filter import S3OptionsFilter, S3TextFilter
+                filter_widgets = [S3TextFilter(["name",
+                                                "people_group.group_id",
+                                                "parameter_id",
+                                                "organisation_id",
+                                                "location_id",
+                                                "person_id",
+                                                "comments"
+                                                ],
+                                                label = T("Search"),
+                                               ),
+                                  S3OptionsFilter("people_group.group_id",
                                                   represent="%(name)s",
                                                   widget="multiselect",
                                                   header=True,
@@ -1444,9 +1537,13 @@ def customize_stats_people(**attr):
 
                 report_options = Storage(
                     rows=report_fields,
-                    cols=report_fields,
-                    fact=[("sum(value)", T("Number of People"))],
-                    defaults=Storage(rows="people.parameter_id",
+                    cols=[],
+                    fact=[(T("Groups of People"), "count(id)"),
+                          (T("Number of People"), "sum(value)"),
+                          ],
+                    defaults=Storage(# Only 1 Parameter currently!
+                                     #rows="people.parameter_id",
+                                     rows="people_group.group_id",
                                      #cols="people_group.group_id",
                                      fact="sum(value)",
                                      totals=True,
@@ -1479,8 +1576,8 @@ def customize_stats_people(**attr):
                 if widgets:
                     field = table.location_id
                     field.label = "" # Gets replaced by widget
-                    field.requires = IS_LOCATION_SELECTOR2(levels=["L3"])
-                    field.widget = S3LocationSelectorWidget2(levels=["L3"],
+                    field.requires = IS_LOCATION_SELECTOR2(levels=("L3",))
+                    field.widget = S3LocationSelectorWidget2(levels=("L3",),
                                                              hide_lx=False,
                                                              reverse_lx=True,
                                                              show_postcode=True,
@@ -1548,9 +1645,9 @@ def customize_stats_people(**attr):
 
 settings.ui.customize_stats_people = customize_stats_people
 
-#-----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
 # Evacuation Routes
-#-----------------------------------------------------------------------------
+#
 def customize_vulnerability_evac_route(**attr):
     """
         Customize vulnerability_evac_route controller
@@ -1559,18 +1656,22 @@ def customize_vulnerability_evac_route(**attr):
     s3db = current.s3db
     request = current.request
     if "summary" in request.args:
-        coalition = request.get_vars.get("evac_route_group.group_id__belongs", None)
-        if not coalition:
-            # Default the Coalition Filter
-            auth = current.auth
-            org_group_id = auth.is_logged_in() and auth.user.org_group_id
-            if org_group_id:
-                request.get_vars["evac_route_group.group_id__belongs"] = str(org_group_id)
-            else:
-                # Filter to all Coalitions
-                gtable = s3db.org_group
-                rows = current.db(gtable.deleted == False).select(gtable.id)
-                request.get_vars["evac_route_group.group_id__belongs"] = ",".join([str(row.id) for row in rows])
+        get_vars = request.get_vars
+        w = get_vars.get("w", None)
+        if not w:
+            # This is an interactive request
+            coalition = get_vars.get("evac_route_group.group_id__belongs", None)
+            if not coalition:
+                # Default the Coalition Filter
+                auth = current.auth
+                org_group_id = auth.is_logged_in() and auth.user.org_group_id
+                if org_group_id:
+                    get_vars["evac_route_group.group_id__belongs"] = str(org_group_id)
+                else:
+                    # Filter to all Coalitions
+                    gtable = s3db.org_group
+                    rows = current.db(gtable.deleted == False).select(gtable.id)
+                    get_vars["evac_route_group.group_id__belongs"] = ",".join([str(row.id) for row in rows])
 
     # Custom PreP
     s3 = current.response.s3
@@ -1589,9 +1690,9 @@ def customize_vulnerability_evac_route(**attr):
             # Modify list_fields
             list_fields = ["id",
                            "name",
-                           (T("Hazard Type"),"hazard_id"),
+                           #(T("Hazard Type"), "hazard_id"),
                            "evac_route_group.group_id",
-                           "location_id",
+                           #"location_id",
                            "comments",
                            ]
 
@@ -1599,43 +1700,46 @@ def customize_vulnerability_evac_route(**attr):
                            list_fields = list_fields,
                            )
 
-        elif method == "report2":
-            s3db.vulnerability_evac_route_group.group_id.label = T("Coalition")
-
         if r.interactive or representation == "json" or representation == "plain":
             # CRUD Strings / Represent
-            table.location_id.label = T("Address")
-            table.location_id.represent = s3db.gis_LocationRepresent(address_only=True)
-            s3db.vulnerability_evac_route_group.group_id.label = T("Coalition")
+            s3.crud_strings[tablename].title_update = T("Update Evacuation Route")
+
+            table.location_id.readable = False
 
             if method in ("summary", "report2"):
-                from s3.s3filter import S3OptionsFilter
-                filter_widgets = [S3OptionsFilter("evac_route_group.group_id",
-                                                  label=T("Coalition"),
+                from s3.s3filter import S3OptionsFilter, S3TextFilter
+                filter_widgets = [S3TextFilter(["name",
+                                                "evac_route_group.group_id",
+                                                "location_id",
+                                                "comments"
+                                                ],
+                                                label = T("Search"),
+                                               ),
+                                  S3OptionsFilter("evac_route_group.group_id",
                                                   represent="%(name)s",
                                                   widget="multiselect",
                                                   header=True,
                                                   ),
-                                  S3OptionsFilter("hazard_id",
-                                                  label=T("Hazard Type"),
-                                                  represent="%(name)s",
-                                                  widget="multiselect",
-                                                  header=True,
-                                                  ),
+                                  #S3OptionsFilter("hazard_id",
+                                  #                label=T("Hazard Type"),
+                                  #                represent="%(name)s",
+                                  #                widget="multiselect",
+                                  #                header=True,
+                                  #                ),
                                   ]
 
                 report_fields = [#"name",
-                                 (T("Hazard Type"),"hazard_id"),
+                                 #(T("Hazard Type"),"hazard_id"),
                                  "evac_route_group.group_id",
                                  "location_id$L3",
                                  ]
 
                 report_options = Storage(
                     rows=report_fields,
-                    cols=report_fields,
-                    fact=[("count(name)", T("Number of Evacuation Routes"))],
-                    defaults=Storage(rows="evac_route.hazard_id",
-                                     #cols="evac_route_group.group_id",
+                    cols=[],
+                    fact=[(T("Number of Evacuation Routes"), "count(name)")],
+                    defaults=Storage(rows="evac_route_group.group_id",
+                                     #cols="evac_route.hazard_id",
                                      fact="count(name)",
                                      totals=True,
                                      chart = "barchart:rows",
@@ -1659,17 +1763,17 @@ def customize_vulnerability_evac_route(**attr):
                     # Custom Widgets/Validators
                     from s3.s3validators import IS_LOCATION_SELECTOR2
                     from s3.s3widgets import S3LocationSelectorWidget2
-                    from s3layouts import S3AddResourceLink
+                    #from s3layouts import S3AddResourceLink
 
                     table.location_id.label = "" # Gets replaced by widget
-                    table.location_id.requires = IS_LOCATION_SELECTOR2(levels=["L3"])
-                    table.location_id.widget = S3LocationSelectorWidget2(levels=["L3"],
-                                                                         polygons=True,
+                    table.location_id.requires = IS_LOCATION_SELECTOR2(levels=("L3",))
+                    table.location_id.widget = S3LocationSelectorWidget2(levels=("L3",),
+                                                                         lines=True,
                                                                          )
 
-                    table.hazard_id.comment = S3AddResourceLink(c="vulnerability",
-                                                                f="hazard",
-                                                                title=T("Add Hazard Type")),
+                    #table.hazard_id.comment = S3AddResourceLink(c="vulnerability",
+                    #                                            f="hazard",
+                    #                                            title=T("Add Hazard Type")),
 
                 # Hide Labels when just 1 column in inline form
                 s3db.doc_document.file.label = ""
@@ -1678,7 +1782,7 @@ def customize_vulnerability_evac_route(**attr):
                 # Custom Crud Form
                 crud_form = S3SQLCustomForm(
                     "name",
-                    "hazard_id",
+                    #"hazard_id",
                     S3SQLInlineComponent(
                         "evac_route_group",
                         label = T("Coalition"),
@@ -1710,9 +1814,9 @@ def customize_vulnerability_evac_route(**attr):
 
 settings.ui.customize_vulnerability_evac_route = customize_vulnerability_evac_route
 
-#-----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
 # Risks
-#-----------------------------------------------------------------------------
+#
 def customize_vulnerability_risk(**attr):
     """
         Customize vulnerability_risk controller
@@ -1721,18 +1825,22 @@ def customize_vulnerability_risk(**attr):
     s3db = current.s3db
     request = current.request
     if "summary" in request.args:
-        coalition = request.get_vars.get("risk_group.group_id__belongs", None)
-        if not coalition:
-            # Default the Coalition Filter
-            auth = current.auth
-            org_group_id = auth.is_logged_in() and auth.user.org_group_id
-            if org_group_id:
-                request.get_vars["risk_group.group_id__belongs"] = str(org_group_id)
-            else:
-                # Filter to all Coalitions
-                gtable = s3db.org_group
-                rows = current.db(gtable.deleted == False).select(gtable.id)
-                request.get_vars["risk_group.group_id__belongs"] = ",".join([str(row.id) for row in rows])
+        get_vars = request.get_vars
+        w = get_vars.get("w", None)
+        if not w:
+            # This is an interactive request
+            coalition = get_vars.get("risk_group.group_id__belongs", None)
+            if not coalition:
+                # Default the Coalition Filter
+                auth = current.auth
+                org_group_id = auth.is_logged_in() and auth.user.org_group_id
+                if org_group_id:
+                    get_vars["risk_group.group_id__belongs"] = str(org_group_id)
+                else:
+                    # Filter to all Coalitions
+                    gtable = s3db.org_group
+                    rows = current.db(gtable.deleted == False).select(gtable.id)
+                    get_vars["risk_group.group_id__belongs"] = ",".join([str(row.id) for row in rows])
 
     # Custom PreP
     s3 = current.response.s3
@@ -1751,7 +1859,7 @@ def customize_vulnerability_risk(**attr):
             # Modify list_fields
             list_fields = ["id",
                            "name",
-                           (T("Hazard Type"),"hazard_id"),
+                           #(T("Hazard Type"), "hazard_id"),
                            "risk_group.group_id",
                            "location_id",
                            "comments",
@@ -1761,20 +1869,17 @@ def customize_vulnerability_risk(**attr):
                            list_fields = list_fields,
                            )
 
-        elif method == "report2":
-            s3db.vulnerability_risk_group.group_id.label = T("Coalition")
-
         if r.interactive or representation == "json" or representation == "plain":
             # CRUD Strings / Represent
+            table.name.label = T("Description")
             table.location_id.label = T("Address")
             table.location_id.represent = s3db.gis_LocationRepresent(address_only=True)
-            s3db.vulnerability_risk_group.group_id.label = T("Coalition")
 
             s3.crud_strings[tablename] = Storage(
                 title_create = T("Add Hazard"),
                 title_display = T("Hazard Details"),
                 title_list = T("Hazards"),
-                title_update = T("Edit Hazard"),
+                title_update = T("Update Hazard"),
                 title_search = T("Search Hazards"),
                 subtitle_create = T("Add New Hazard"),
                 label_list_button = T("List Hazards"),
@@ -1792,33 +1897,39 @@ def customize_vulnerability_risk(**attr):
                 #group_filter = (S3FieldSelector("group.id") != None)
                 #r.resource.add_filter(group_filter)
 
-                from s3.s3filter import S3OptionsFilter
-                filter_widgets = [S3OptionsFilter("risk_group.group_id",
-                                                  label=T("Coalition"),
+                from s3.s3filter import S3OptionsFilter, S3TextFilter
+                filter_widgets = [S3TextFilter(["name",
+                                                "risk_group.group_id",
+                                                "location_id",
+                                                "comments"
+                                                ],
+                                                label = T("Search"),
+                                               ),
+                                  S3OptionsFilter("risk_group.group_id",
                                                   represent="%(name)s",
                                                   widget="multiselect",
                                                   header=True,
                                                   ),
-                                  S3OptionsFilter("hazard_id",
-                                                  label=T("Hazard Type"),
-                                                  represent="%(name)s",
-                                                  widget="multiselect",
-                                                  header=True,
-                                                  ),
+                                  #S3OptionsFilter("hazard_id",
+                                  #                label=T("Hazard Type"),
+                                  #                represent="%(name)s",
+                                  #                widget="multiselect",
+                                  #                header=True,
+                                  #                ),
                                   ]
 
                 report_fields = [#"name",
-                                 (T("Hazard Type"),"hazard_id"),
+                                 #(T("Hazard Type"),"hazard_id"),
                                  "risk_group.group_id",
                                  "location_id$L3",
                                  ]
 
                 report_options = Storage(
                     rows=report_fields,
-                    cols=report_fields,
-                    fact=[("count(name)", T("Number of Risks"))],
-                    defaults=Storage(rows="risk.hazard_id",
-                                     #cols="risk_group.group_id",
+                    cols=[],
+                    fact=[(T("Number of Risks"), "count(name)")],
+                    defaults=Storage(rows="risk_group.group_id",
+                                     #cols="risk.hazard_id",
                                      fact="count(name)",
                                      totals=True,
                                      chart = "barchart:rows",
@@ -1845,8 +1956,8 @@ def customize_vulnerability_risk(**attr):
 
                     field = table.location_id
                     field.label = "" # Gets replaced by widget
-                    field.requires = IS_LOCATION_SELECTOR2(levels=["L3"])
-                    field.widget = S3LocationSelectorWidget2(levels=["L3"],
+                    field.requires = IS_LOCATION_SELECTOR2(levels=("L3",))
+                    field.widget = S3LocationSelectorWidget2(levels=("L3",),
                                                              hide_lx=False,
                                                              reverse_lx=True,
                                                              polygons=True,
@@ -1861,7 +1972,7 @@ def customize_vulnerability_risk(**attr):
                 # Custom Crud Form
                 crud_form = S3SQLCustomForm(
                     "name",
-                    "hazard_id",
+                    #"hazard_id",
                     S3SQLInlineComponent(
                         "risk_group",
                         label = T("Coalition"),
@@ -1883,7 +1994,7 @@ def customize_vulnerability_risk(**attr):
                 s3db.configure(tablename,
                                crud_form = crud_form,
                                )
-    
+
         # Not needed now that Risk data is moved to WMS
         #elif r.representation== "geojson":
         #    layer = current.request.get_vars.get("layer", None)
@@ -1903,9 +2014,9 @@ def customize_vulnerability_risk(**attr):
 
 settings.ui.customize_vulnerability_risk = customize_vulnerability_risk
 
-#-----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
 # Saved Maps
-#-----------------------------------------------------------------------------
+#
 def customize_gis_config(**attr):
     """
         Customize gis_config controller
@@ -1960,29 +2071,20 @@ def customize_gis_config(**attr):
 
 settings.ui.customize_gis_config = customize_gis_config
 
-#-----------------------------------------------------------------------------
-# Site Activity Log
 # -----------------------------------------------------------------------------
-def render_log(listid, resource, rfields, record, **attr):
+# Site Activity Log
+#
+def render_log(list_id, item_id, resource, rfields, record):
     """
-        Custom dataList item renderer for 'Site Activity Logs' on the Home page
+        Custom dataList item renderer for 'Site Activity Logs' on
+        the Home page.
 
-        @param listid: the HTML ID for this list
+        @param list_id: the HTML ID of the list
+        @param item_id: the HTML ID of the item
         @param resource: the S3Resource to render
         @param rfields: the S3ResourceFields to render
         @param record: the record as dict
-        @param attr: additional HTML attributes for the item
     """
-
-    pkey = "s3_audit.id"
-
-    # Construct the item ID
-    if pkey in record:
-        record_id = record[pkey]
-        item_id = "%s-%s" % (listid, record_id)
-    else:
-        # template
-        item_id = "%s-[id]" % listid
 
     #item_class = "thumbnail"
     item_class = ""
@@ -2028,7 +2130,7 @@ def render_log(listid, resource, rfields, record, **attr):
             label = row.name or ""
         else:
             label = ""
-        c, f = tablename.split("_")
+        c, f = tablename.split("_", 1)
         url = URL(c=c, f=f, args=[record_id, "read"])
         if tablename == "org_facility":
             if method == "create":

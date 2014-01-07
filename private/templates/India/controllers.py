@@ -39,7 +39,7 @@ class index(S3CustomController):
         # Latest 4 Events and Alerts
         s3db = current.s3db
         layout = s3.render_posts
-        listid = "news_datalist"
+        list_id = "news_datalist"
         limit = 4
         list_fields = ["series_id",
                        "location_id",
@@ -57,13 +57,13 @@ class index(S3CustomController):
         resource.add_filter(resource.table.date >= current.request.now)
         # Order with next Event first
         orderby = "date"
-        output["events"] = latest_records(resource, layout, listid, limit, list_fields, orderby)
+        output["events"] = latest_records(resource, layout, list_id, limit, list_fields, orderby)
 
         resource = s3db.resource("cms_post")
         resource.add_filter(S3FieldSelector("series_id$name") == "Incident")
         # Order with most recent Incident first
         orderby = "date desc"
-        output["alerts"] = latest_records(resource, layout, listid, limit, list_fields, orderby)
+        output["alerts"] = latest_records(resource, layout, list_id, limit, list_fields, orderby)
 
         self._view(THEME, "index.html")
         return output
@@ -156,21 +156,19 @@ def _newsfeed():
                                       label=T("Filter by Type"),
                                       represent="%(name)s",
                                       widget="multiselect",
-                                      cols=3,
                                       hidden=True,
                                       ),
                       S3LocationFilter("location_id",
                                        label=T("Filter by Location"),
                                        levels=["L1", "L2", "L3"],
                                        widget="multiselect",
-                                       cols=3,
                                        hidden=True,
                                        ),
                       S3OptionsFilter("created_by$organisation_id",
                                       label=T("Filter by Organization"),
-                                      represent="%(name)s",
+                                      # Can't use this for integers, use field.represent instead
+                                      #represent="%(name)s",
                                       widget="multiselect",
-                                      cols=3,
                                       hidden=True,
                                       ),
                       S3DateFilter("created_on",
@@ -199,15 +197,16 @@ def _newsfeed():
 
     s3.dl_pagelength = 6  # 5 forces an AJAX call
 
-    if "datalist_dl_post" in request.args:
+    old_args = request.args
+    if "datalist_dl_post" in old_args:
         # DataList pagination or Ajax-deletion request
         request.args = ["datalist_f"]
         ajax = "list"
-    elif "datalist_dl_filter" in request.args:
+    elif "datalist_dl_filter" in old_args:
         # FilterForm options update request
         request.args = ["filter"]
         ajax = "filter"
-    elif "validate.json" in request.args:
+    elif "validate.json" in old_args:
         # Inline component validation request
         request.args = []
         ajax = True
@@ -235,6 +234,8 @@ def _newsfeed():
                                                            args="datalist_dl_filter",
                                                            vars={}))
 
+    request.args = old_args
+
     if ajax == "list":
         # Don't override view if this is an Ajax-deletion request
         if not "delete" in request.get_vars:
@@ -249,7 +250,7 @@ def _newsfeed():
             response.view = open(view, "rb")
         except IOError:
             from gluon.http import HTTP
-            raise HTTP("404", "Unable to open Custom View: %s" % view)
+            raise HTTP(404, "Unable to open Custom View: %s" % view)
 
         scripts = []
         sappend = scripts.append
@@ -264,7 +265,7 @@ def _newsfeed():
         # Latest 5 Disasters
         # resource = s3db.resource("event_event")
         # layout = render_events
-        # listid = "event_datalist"
+        # list_id = "event_datalist"
         # limit = 5
         # orderby = "zero_hour desc"
         # list_fields = ["name",
@@ -272,12 +273,12 @@ def _newsfeed():
                        # "zero_hour",
                        # "closed",
                        # ]
-        # output["disasters"] = latest_records(resource, layout, listid, limit, list_fields, orderby)
+        # output["disasters"] = latest_records(resource, layout, list_id, limit, list_fields, orderby)
 
     return output
 
 # =============================================================================
-def latest_records(resource, layout, listid, limit, list_fields, orderby):
+def latest_records(resource, layout, list_id, limit, list_fields, orderby):
     """
         Display a dataList of the latest records for a resource
     """
@@ -286,7 +287,7 @@ def latest_records(resource, layout, listid, limit, list_fields, orderby):
     datalist, numrows, ids = resource.datalist(fields=list_fields,
                                                start=None,
                                                limit=limit,
-                                               listid=listid,
+                                               list_id=list_id,
                                                orderby=orderby,
                                                layout=layout)
     if numrows == 0:
@@ -308,8 +309,7 @@ def latest_records(resource, layout, listid, limit, list_fields, orderby):
         data = msg
     else:
         # Render the list
-        dl = datalist.html()
-        data = dl
+        data = datalist.html()
 
     return data
 
@@ -336,27 +336,18 @@ def filter_formstyle(row_id, label, widget, comment, hidden=False):
         return DIV(widget, _id=row_id, _class=_class)
 
 # -----------------------------------------------------------------------------
-def render_events(listid, resource, rfields, record, **attr):
+def render_events(list_id, item_id, resource, rfields, record):
     """
         Custom dataList item renderer for 'Disasters' on the News Feed page
 
-        @param listid: the HTML ID for this list
+        @param list_id: the HTML ID of the list
+        @param item_id: the HTML ID of the item
         @param resource: the S3Resource to render
         @param rfields: the S3ResourceFields to render
         @param record: the record as dict
-        @param attr: additional HTML attributes for the item
     """
 
-    pkey = "event_event.id"
-
-    # Construct the item ID
-    if pkey in record:
-        record_id = record[pkey]
-        item_id = "%s-%s" % (listid, record_id)
-    else:
-        # template
-        item_id = "%s-[id]" % listid
-
+    record_id = record["event_event.id"]
     item_class = "thumbnail"
 
     raw = record._row
@@ -376,7 +367,7 @@ def render_events(listid, resource, rfields, record, **attr):
             edit_btn = A(I(" ", _class="icon icon-edit"),
                          _href=URL(c="event", f="event",
                                    args=[record_id, "update.popup"],
-                                   vars={"refresh": listid,
+                                   vars={"refresh": list_id,
                                          "record": record_id}),
                          _class="s3_modal",
                          _title=current.response.s3.crud_strings.event_event.title_update,
@@ -397,8 +388,8 @@ def render_events(listid, resource, rfields, record, **attr):
     # Render the item
     item = DIV(DIV(A(IMG(_class="media-object",
                          _src=URL(c="static",
-                                  f="themes",
-                                  args=["DRMP", "img", "%s.png" % event_type]),
+                                  f="img",
+                                  args=["event", "%s.png" % event_type]),
                          ),
                      _class="pull-left",
                      _href="#",
@@ -423,30 +414,22 @@ def render_events(listid, resource, rfields, record, **attr):
     return item
 
 # -----------------------------------------------------------------------------
-def render_cms_events(listid, resource, rfields, record, **attr):
+def render_cms_events(list_id, item_id, resource, rfields, record):
     """
         Custom dataList item renderer for 'Events' on the Home page
 
-        @param listid: the HTML ID for this list
+        @param list_id: the HTML ID of the list
+        @param item_id: the HTML ID of the item
         @param resource: the S3Resource to render
         @param rfields: the S3ResourceFields to render
         @param record: the record as dict
-        @param attr: additional HTML attributes for the item
     """
 
-    T = current.T
-    pkey = "cms_post.id"
-
-    # Construct the item ID
-    if pkey in record:
-        record_id = record[pkey]
-        item_id = "%s-%s" % (listid, record_id)
-    else:
-        # template
-        item_id = "%s-[id]" % listid
-
+    record_id = record["cms_post.id"]
     item_class = "thumbnail"
 
+    T = current.T
+    
     raw = record._row
     series = "Event"
     date = record["cms_post.date"]
@@ -462,7 +445,7 @@ def render_cms_events(listid, resource, rfields, record, **attr):
     # @ToDo: Optimise by not doing DB lookups (especially duplicate) within render, but doing these in the bulk query
     avatar = s3_avatar_represent(author_id,
                                  _class="media-object",
-                                 _style="width:50px;padding:5px;padding-top:0px;")
+                                 _style="width:50px;padding:5px;padding-top:0;")
     db = current.db
     ltable = current.s3db.pr_person_user
     ptable = db.pr_person
@@ -490,7 +473,7 @@ def render_cms_events(listid, resource, rfields, record, **attr):
         edit_btn = A(I(" ", _class="icon icon-edit"),
                      _href=URL(c="cms", f="post",
                                args=[record_id, "update.popup"],
-                               vars={"refresh": listid,
+                               vars={"refresh": list_id,
                                      "record": record_id}),
                      _class="s3_modal",
                      _title=T("Edit Event"),
@@ -757,7 +740,7 @@ class subscriptions(S3CustomController):
         form.append(fieldset)
 
         # Script (to extract filters on submit and toggle options visibility)
-        script = """
+        script = '''
 $('#notification-options').click(function() {
   $(this).siblings().toggle();
   $(this).children().toggle();
@@ -768,7 +751,7 @@ $('#subscription-form').submit(function() {
   $('input[name="subscription-filters"]')
   .val(JSON.stringify(S3.search.getCurrentFilters($(this))));
 });
-"""
+'''
         response = current.response
         response.s3.jquery_ready.append(script)
 
@@ -996,27 +979,4 @@ $('#subscription-form').submit(function() {
         subscription["filter_id"] = filter_id
         return subscription
         
-# =============================================================================
-class contact():
-    """
-        Custom page
-    """
-
-    def __call__(self):
-
-        view = path.join(current.request.folder, "private", "templates",
-                         THEME, "views", "contact.html")
-        try:
-            # Pass view as file not str to work in compiled mode
-            current.response.view = open(view, "rb")
-        except IOError:
-            from gluon.http import HTTP
-            raise HTTP("404", "Unable to open Custom View: %s" % view)
-
-        title = current.T("Contact Us")
-
-        return dict(title = title,
-                    )
-
-
 # END =========================================================================

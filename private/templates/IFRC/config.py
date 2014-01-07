@@ -88,7 +88,6 @@ def ifrc_realm_entity(table, row):
                             pr_note = PID,
                             hrm_human_resource = SID,
                             inv_recv = SID,
-                            inv_recv_item = "req_id",
                             inv_send = SID,
                             inv_track_item = "track_org_id",
                             inv_adj_item = "adj_id",
@@ -206,6 +205,10 @@ settings.L10n.thousands_separator = ","
 settings.L10n.date_format = T("%d-%b-%y")
 # Make last name in person/user records mandatory
 settings.L10n.mandatory_lastname = True
+# Uncomment this to Translate Layer Names
+settings.L10n.translate_gis_layer = True
+# Translate Location Names
+settings.L10n.translate_gis_location = True
 
 # -----------------------------------------------------------------------------
 # Finance settings
@@ -232,11 +235,18 @@ settings.search.filter_manager = False
 # Old S3Search
 settings.search.save_widget = False
 
+# -----------------------------------------------------------------------------
+# Messaging
+# Parser
+settings.msg.parser = "IFRC"
+
 # =============================================================================
 # Module Settings
 
 # -----------------------------------------------------------------------------
 # Organisation Management
+# Enable the use of Organisation Branches
+settings.org.branches = True
 # Set the length of the auto-generated org/site code the default is 10
 settings.org.site_code_len = 3
 # Set the label for Sites
@@ -249,6 +259,7 @@ settings.org.dependent_fields = \
      "pr_person_details.company"                 : ["Philippine Red Cross"],
      "pr_person_details.affiliations"            : ["Philippine Red Cross"],
      "vol_details.active"                        : ["Timor-Leste Red Cross Society (Cruz Vermelha de Timor-Leste)"],
+     "vol_details.availability"                  : ["Viet Nam Red Cross"],
      "vol_volunteer_cluster.vol_cluster_type_id"     : ["Philippine Red Cross"],
      "vol_volunteer_cluster.vol_cluster_id"          : ["Philippine Red Cross"],
      "vol_volunteer_cluster.vol_cluster_position_id" : ["Philippine Red Cross"],
@@ -270,8 +281,11 @@ settings.hrm.use_credentials = False
 settings.hrm.use_education = True
 # Custom label for Organisations in HR module
 settings.hrm.organisation_label = "National Society / Branch"
+# Uncomment to consolidate tabs into a single CV
+settings.hrm.cv_tab = True
 
 # RDRT
+settings.deploy.hr_label = "Member"
 # Enable the use of Organisation Regions
 settings.org.regions = True
 # Uncomment to allow hierarchical categories of Skills, which each need their own set of competency levels.
@@ -303,7 +317,7 @@ def ns_only(f, required=True, branches=True, updateable=True):
         not_filterby = None
         not_filter_opts = []
     else:
-        btable = db.org_organisation_branch
+        btable = current.s3db.org_organisation_branch
         rows = db(btable.deleted != True).select(btable.branch_id)
         branches = [row.branch_id for row in rows]
         not_filterby = "id"
@@ -312,9 +326,9 @@ def ns_only(f, required=True, branches=True, updateable=True):
     from s3.s3validators import IS_ONE_OF
     requires = IS_ONE_OF(db, "org_organisation.id",
                          current.s3db.org_OrganisationRepresent(),
-                         filterby="organisation_type_id",
-                         filter_opts=[type_id],
-                         not_filterby=not_filterby,
+                         filterby = "organisation_type_id",
+                         filter_opts = [type_id],
+                         not_filterby = not_filterby,
                          not_filter_opts=not_filter_opts,
                          updateable = updateable,
                          orderby = "org_organisation.name",
@@ -385,6 +399,300 @@ def customize_auth_user(**attr):
 settings.ui.customize_auth_user = customize_auth_user
 
 # -----------------------------------------------------------------------------
+def customize_deploy_alert(**attr):
+    """
+        Customize deploy_alert controller
+    """
+
+    current.s3db.deploy_alert_recipient.human_resource_id.label = T("Member")
+
+    return attr
+
+settings.ui.customize_deploy_alert = customize_deploy_alert
+
+# -----------------------------------------------------------------------------
+def customize_deploy_application(**attr):
+    """
+        Customize deploy_application controller
+    """
+
+    current.s3db.deploy_application.human_resource_id.label = T("Member")
+
+    return attr
+
+settings.ui.customize_deploy_application = customize_deploy_application
+
+# -----------------------------------------------------------------------------
+def _customize_assignment_fields(**attr):
+
+    MEMBER = T("Member")
+    from gluon.html import DIV
+    hr_comment =  \
+        DIV(_class="tooltip",
+            _title="%s|%s" % (MEMBER,
+                              T("Enter some characters to bring up "
+                                "a list of possible matches")))
+
+    from s3.s3validators import IS_ONE_OF
+    atable = current.s3db.deploy_assignment
+    atable.human_resource_id.label = MEMBER
+    atable.human_resource_id.comment = hr_comment
+    field = atable.job_title_id
+    field.comment = None
+    field.label = T("Sector")
+    field.requires = IS_ONE_OF(current.db, "hrm_job_title.id",
+                               field.represent,
+                               filterby = "type",
+                               filter_opts = (4,),
+                               )
+    return
+
+# -----------------------------------------------------------------------------
+def customize_deploy_assignment(**attr):
+    """
+        Customize deploy_assignment controller
+    """
+
+    s3db = current.s3db
+    table = s3db.deploy_assignment
+
+    # Labels
+    table.job_title_id.label = T("RDRT Type")
+    table.start_date.label = T("Deployment Date")
+    #table.end_date.label = T("EOM")
+
+    # List fields
+    list_fields = [(T("Mission"), "mission_id$name"),
+                   (T("Appeal Code"), "mission_id$code"),
+                   (T("Country"), "mission_id$location_id"),
+                   (T("Disaster Type"), "mission_id$event_type_id"),
+                   # @todo: replace by date of first alert?
+                   (T("Date"), "mission_id$created_on"),
+                   "job_title_id",
+                   (T("Member"), "human_resource_id$person_id"),
+                   (T("Deploying NS"), "human_resource_id$organisation_id"),
+                   "start_date",
+                   "end_date",
+                   "appraisal.rating",
+                   # @todo: Comments of the mission (=>XLS only)
+                  ]
+
+    # Report options
+    report_fact = [(T("Number of Deployments"), "count(human_resource_id)"),
+                   (T("Average Rating"), "avg(appraisal.rating)"),
+                   ]
+    report_axis = [(T("Appeal Code"), "mission_id$code"),
+                   (T("Country"), "mission_id$location_id"),
+                   (T("Disaster Type"), "mission_id$event_type_id"),
+                   (T("RDRT Type"), "job_title_id"),
+                   (T("Deploying NS"), "human_resource_id$organisation_id"),
+                  ]
+    report_options = Storage(
+        rows=report_axis,
+        cols=report_axis,
+        fact=report_fact,
+        defaults=Storage(rows="mission_id$location_id",
+                         cols="mission_id$event_type_id",
+                         fact="count(human_resource_id)",
+                         totals=True
+                         )
+        )
+            
+    s3db.configure("deploy_assignment",
+                   list_fields = list_fields,
+                   report_options = report_options,
+                   )
+    
+    
+    # CRUD Strings
+    current.response.s3.crud_strings["deploy_assignment"] = Storage(
+        title_create = T("New Deployment"),
+        title_display = T("Deployment Details"),
+        title_list = T("Deployments"),
+        title_update = T("Edit Deployment Details"),
+        title_search = T("Search Deployments"),
+        title_upload = T("Import Deployments"),
+        subtitle_create = T("Add New Deployment"),
+        label_list_button = T("List Deployments"),
+        label_create_button = T("Add Deployment"),
+        label_delete_button = T("Delete Deployment"),
+        msg_record_created = T("Deployment added"),
+        msg_record_modified = T("Deployment Details updated"),
+        msg_record_deleted = T("Deployment deleted"),
+        msg_list_empty = T("No Deployments currently registered"))
+
+    _customize_assignment_fields()
+    
+    # Restrict Location to just Countries
+    from s3.s3fields import S3Represent
+    field = s3db.deploy_mission.location_id
+    field.represent = S3Represent(lookup="gis_location", translate=True)
+    
+    return attr
+
+settings.ui.customize_deploy_assignment = customize_deploy_assignment
+
+# -----------------------------------------------------------------------------
+def customize_deploy_mission(**attr):
+    """
+        Customize deploy_mission controller
+    """
+
+    db = current.db
+    s3db = current.s3db
+    s3 = current.response.s3
+    MEMBER = T("Member")
+    from gluon.html import DIV
+    hr_comment =  \
+        DIV(_class="tooltip",
+            _title="%s|%s" % (MEMBER,
+                              T("Enter some characters to bring up "
+                                "a list of possible matches")))
+
+    table = s3db.deploy_mission
+    table.code.label = T("Appeal Code")
+    table.event_type_id.label = T("Disaster Type")
+    table.organisation_id.readable = table.organisation_id.writable = False
+
+    # Restrict Location to just Countries
+    from s3.s3fields import S3Represent
+    from s3.s3widgets import S3SelectChosenWidget
+    field = table.location_id
+    field.label = current.messages.COUNTRY
+    field.requires = s3db.gis_country_requires
+    field.widget = S3SelectChosenWidget()
+    field.represent = S3Represent(lookup="gis_location", translate=True)
+
+    rtable = s3db.deploy_response
+    rtable.human_resource_id.label = MEMBER
+    rtable.human_resource_id.comment = hr_comment
+
+    _customize_assignment_fields()
+
+    # Report options
+    report_fact = [(T("Number of Missions"), "count(id)"),
+                   (T("Number of Countries"), "count(location_id)"),
+                   (T("Number of Disaster Types"), "count(event_type_id)"),
+                   (T("Number of Responses"), "sum(response_count)"),
+                   (T("Number of Deployments"), "sum(hrquantity)"),
+                  ]
+    report_axis = ["code",
+                   "location_id",
+                   "event_type_id",
+                   "status",
+                  ]
+    report_options = Storage(
+        rows=report_axis,
+        cols=report_axis,
+        fact=report_fact,
+        defaults=Storage(rows="location_id",
+                         cols="event_type_id",
+                         fact="sum(hrquantity)",
+                         totals=True
+                        )
+        )
+
+    s3db.configure("deploy_mission",
+                   report_options=report_options)
+
+    # CRUD Strings
+    s3.crud_strings["deploy_assignment"] = Storage(
+        title_create = T("New Deployment"),
+        title_display = T("Deployment Details"),
+        title_list = T("Deployments"),
+        title_update = T("Edit Deployment Details"),
+        title_search = T("Search Deployments"),
+        title_upload = T("Import Deployments"),
+        subtitle_create = T("Add New Deployment"),
+        label_list_button = T("List Deployments"),
+        label_create_button = T("Add Deployment"),
+        label_delete_button = T("Delete Deployment"),
+        msg_record_created = T("Deployment added"),
+        msg_record_modified = T("Deployment Details updated"),
+        msg_record_deleted = T("Deployment deleted"),
+        msg_list_empty = T("No Deployments currently registered"))
+
+    # Custom prep
+    standard_prep = s3.prep
+    def custom_prep(r):
+        # Call standard prep
+        if callable(standard_prep):
+            result = standard_prep(r)
+        else:
+            result = True
+
+        if not r.component and r.method == "create":
+            # Org is always IFRC
+            otable = s3db.org_organisation
+            query = (otable.name == "International Federation of Red Cross and Red Crescent Societies")
+            organisation = db(query).select(otable.id,
+                                            limitby = (0, 1),
+                                            ).first()
+            if organisation:
+                r.table.organisation_id.default = organisation.id
+
+        return result
+    s3.prep = custom_prep
+
+    return attr
+
+settings.ui.customize_deploy_mission = customize_deploy_mission
+
+# -----------------------------------------------------------------------------
+def poi_marker_fn(record):
+    """
+        Function to decide which Marker to use for PoI KML export
+    """
+
+    db = current.db
+    table = db.gis_poi_type
+    type = db(table.id == record.poi_type_id).select(table.name,
+                                                     limitby=(0, 1)
+                                                     ).first()
+    if type:
+        marker = type.name.lower().replace(" ", "_")\
+                                  .replace("_cccm", "_CCCM")\
+                                  .replace("_nfi_", "_NFI_")\
+                                  .replace("_ngo_", "_NGO_")\
+                                  .replace("_wash", "_WASH")
+        marker = "OCHA/%s_40px.png" % marker
+    else:
+        # Fallback
+        marker = "marker_red.png"
+
+    return Storage(image=marker)
+
+# -----------------------------------------------------------------------------
+def customize_gis_poi(**attr):
+    """
+        Customize gis_poi controller
+    """
+
+    s3 = current.response.s3
+
+    # Custom prep
+    standard_prep = s3.prep
+    def custom_prep(r):
+        # Call standard prep
+        if callable(standard_prep):
+            result = standard_prep(r)
+        else:
+            result = True
+
+        if r.representation == "kml":
+            # Custom Marker function
+            current.s3db.configure("gis_poi",
+                                   marker_fn = poi_marker_fn,
+                                   )
+
+        return result
+    s3.prep = custom_prep
+
+    return attr
+
+settings.ui.customize_gis_poi = customize_gis_poi
+
+# -----------------------------------------------------------------------------
 def customize_hrm_certificate(**attr):
     """
         Customize hrm_certificate controller
@@ -417,6 +725,32 @@ def customize_hrm_course(**attr):
 settings.ui.customize_hrm_course = customize_hrm_course
 
 # -----------------------------------------------------------------------------
+def customize_hrm_credential(**attr):
+    """
+        Customize hrm_credential controller
+    """
+
+    # Currently just used by RDRT
+    table = current.s3db.hrm_credential
+    field = table.job_title_id
+    field.comment = None
+    field.label = T("Sector")
+    from s3.s3validators import IS_ONE_OF
+    field.requires = IS_ONE_OF(current.db, "hrm_job_title.id",
+                               field.represent,
+                               filterby = "type",
+                               filter_opts = (4,),
+                               )
+    table.organisation_id.readable = table.organisation_id.writable = False
+    table.performance_rating.readable = table.performance_rating.writable = False
+    table.start_date.readable = table.start_date.writable = False
+    table.end_date.readable = table.end_date.writable = False
+
+    return attr
+
+settings.ui.customize_hrm_credential = customize_hrm_credential
+
+# -----------------------------------------------------------------------------
 def customize_hrm_department(**attr):
     """
         Customize hrm_department controller
@@ -444,6 +778,22 @@ def customize_hrm_human_resource(**attr):
             branches=True,
             )
 
+    s3 = current.response.s3
+
+    # Custom postp
+    standard_postp = s3.postp
+    def custom_postp(r, output):
+        # Call standard postp
+        if callable(standard_postp):
+            output = standard_postp(r, output)
+
+        if r.controller == "deploy" and \
+           isinstance(output, dict) and "title" in output:
+            output["title"] = T("RDRT Members")
+
+        return output
+    s3.postp = custom_postp
+
     return attr
 
 settings.ui.customize_hrm_human_resource = customize_hrm_human_resource
@@ -454,11 +804,55 @@ def customize_hrm_job_title(**attr):
         Customize hrm_job_title controller
     """
 
-    # Organisation needs to be an NS/Branch
-    ns_only(current.s3db.hrm_job_title.organisation_id,
-            required=False,
-            branches=False,
-            )
+    s3 = current.response.s3
+    table = current.s3db.hrm_job_title
+    controller = current.request.controller
+    if controller == "deploy":
+        # Filter to just deployables
+        s3.filter = (table.type == 4)
+    else:
+        # Organisation needs to be an NS/Branch
+        ns_only(table.organisation_id,
+                required=False,
+                branches=False,
+                )
+    
+    # Custom prep
+    standard_prep = s3.prep
+    def custom_prep(r):
+        # Call standard prep
+        if callable(standard_prep):
+            result = standard_prep(r)
+        else:
+            result = True
+
+        if controller == "deploy":
+            field = table.type
+            field.default = 4
+            field.readable = field.writable = False
+            table.organisation_id.readable = False
+            table.organisation_id.writable = False
+
+            SECTOR = T("Sector")
+            ADD_SECTOR = T("Add New Sector")
+            help = T("If you don't see the Sector in the list, you can add a new one by clicking link 'Add New Sector'.")
+            s3.crud_strings["hrm_job_title"] = Storage(
+                title_create=T("Add Sector"),
+                title_display=T("Sector Details"),
+                title_list=T("Sectors"),
+                title_update=T("Edit Sector"),
+                title_search=T("Search Sectors"),
+                subtitle_create=ADD_SECTOR,
+                label_list_button=T("List Sectors"),
+                label_create_button=ADD_SECTOR,
+                label_delete_button=T("Delete Sector"),
+                msg_record_created=T("Sector added"),
+                msg_record_modified=T("Sector updated"),
+                msg_record_deleted=T("Sector deleted"),
+                msg_list_empty=T("No Sectors currently registered"))
+
+        return result
+    s3.prep = custom_prep
 
     return attr
 
@@ -475,6 +869,10 @@ def customize_hrm_programme(**attr):
             required=False,
             branches=False,
             )
+
+    # @ToDo: Special cases for Viet Nam Red Cross
+    # def vn_age_group(age):
+    # settings.pr.age_group = vn_age_group
 
     return attr
 
@@ -619,6 +1017,182 @@ def customize_org_organisation(**attr):
 settings.ui.customize_org_organisation = customize_org_organisation
 
 # -----------------------------------------------------------------------------
+def customize_pr_contact(**attr):
+    """
+        Customize pr_contact controller
+    """
+
+    # Special cases for Viet Nam Red Cross
+    db = current.db
+    s3db = current.s3db
+    otable = s3db.org_organisation
+    vnrc = db(otable.name == "Viet Nam Red Cross").select(otable.id,
+                                                          limitby=(0, 1)
+                                                          ).first().id
+    if current.auth.user.organisation_id == vnrc:
+        # Hard to translate in Vietnamese
+        s3db.pr_contact.value.label = ""
+
+    return attr
+
+settings.ui.customize_pr_contact = customize_pr_contact
+
+# -----------------------------------------------------------------------------
+def customize_pr_group(**attr):
+    """
+        Customize pr_group controller
+    """
+
+    # Organisation needs to be an NS/Branch
+    ns_only(current.s3db.org_organisation_team.organisation_id,
+            required=False,
+            branches=True,
+            )
+
+    return attr
+
+settings.ui.customize_pr_group = customize_pr_group
+
+# -----------------------------------------------------------------------------
+def customize_pr_person(**attr):
+    """
+        Customize pr_person controller
+    """
+
+    # Special cases for Viet Nam Red Cross
+    db = current.db
+    s3db = current.s3db
+    otable = s3db.org_organisation
+    vnrc = db(otable.name == "Viet Nam Red Cross").select(otable.id,
+                                                          limitby=(0, 1)
+                                                          ).first().id
+    if current.auth.user.organisation_id == vnrc:
+        vnrc = True
+        settings.hrm.use_skills = True
+        settings.hrm.vol_experience = "both"
+        try:
+            settings.modules.pop("asset")
+        except:
+            # Must be already removed
+            pass
+    else:
+        vnrc = False
+
+    if current.request.controller == "deploy":
+        # Replace default title in imports:
+        attr["retitle"] = lambda r: {"title": T("Import Members")} \
+                            if r.method == "import" else None
+
+    s3 = current.response.s3
+
+    # Custom prep
+    standard_prep = s3.prep
+    def custom_prep(r):
+        # Call standard prep
+        if callable(standard_prep):
+            result = standard_prep(r)
+        else:
+            result = True
+
+        if r.component_name == "appraisal":
+            atable = r.component.table
+            atable.organisation_id.readable = atable.organisation_id.writable = False
+            # Organisation needs to be an NS
+            #ns_only(atable.organisation_id,
+            #        required=True,
+            #        branches=False,
+            #        )
+            field = atable.supervisor_id
+            field.readable = field.writable = False
+            field = atable.job_title_id
+            field.comment = None
+            field.label = T("Sector")
+            from s3.s3validators import IS_ONE_OF
+            field.requires = IS_ONE_OF(db, "hrm_job_title.id",
+                                       field.represent,
+                                       filterby = "type",
+                                       filter_opts = (4,),
+                                       )
+
+        if vnrc:
+            if r.component_name == "address":
+                settings.gis.building_name = False
+                settings.gis.latlon_selector = False
+                settings.gis.map_selector = False
+                settings.gis.postcode_selector = False
+
+            elif r.component_name == "identity":
+                table = s3db.pr_identity
+                table.description.readable = False
+                table.description.writable = False
+                pr_id_type_opts = {1: T("Passport"),
+                                   2: T("National ID Card"),
+                                   }
+                from gluon.validators import IS_IN_SET
+                table.type.requires = IS_IN_SET(pr_id_type_opts,
+                                                zero=None)
+
+            elif r.method == "cv" or r.component_name == "experience":
+                table = s3db.hrm_experience
+                # Use simple free-text variants
+                table.organisation.readable = True
+                table.organisation.writable = True
+                table.job_title.readable = True
+                table.job_title.writable = True
+                table.comments.label = T("Main Duties")
+                crud_form = S3SQLCustomForm("organisation",
+                                            "job_title",
+                                            "comments",
+                                            "start_date",
+                                            "end_date",
+                                            )
+                s3db.configure("hrm_experience",
+                               crud_form = crud_form,
+                               list_fields = ["id",
+                                              "organisation",
+                                              "job_title",
+                                              "comments",
+                                              "start_date",
+                                              "end_date",
+                                              ],
+                               )
+
+        return result
+    s3.prep = custom_prep
+
+    return attr
+
+settings.ui.customize_pr_person = customize_pr_person
+
+# -----------------------------------------------------------------------------
+def customize_req_commit(**attr):
+    """
+        Customize req_commit controller
+    """
+
+    # Request is mandatory
+    field = current.s3db.req_commit.req_id
+    field.requires = field.requires.other
+
+    return attr
+
+settings.ui.customize_req_commit = customize_req_commit
+
+# -----------------------------------------------------------------------------
+def customize_req_req(**attr):
+    """
+        Customize req_req controller
+    """
+
+    # Request is mandatory
+    field = current.s3db.req_commit.req_id
+    field.requires = field.requires.other
+
+    return attr
+
+settings.ui.customize_req_req = customize_req_req
+
+# -----------------------------------------------------------------------------
 def customize_survey_series(**attr):
     """
         Customize survey_series controller
@@ -644,10 +1218,14 @@ settings.project.mode_drr = True
 settings.project.codes = True
 # Uncomment this to call project locations 'Communities'
 settings.project.community = True
+# Uncomment this to enable Hazards in 3W projects
+settings.project.hazards = True
 # Uncomment this to use multiple Budgets per project
 settings.project.multiple_budgets = True
 # Uncomment this to use multiple Organisations per project
 settings.project.multiple_organisations = True
+# Uncomment this to enable Themes in 3W projects
+settings.project.themes = True
 # Uncomment this to customise
 # Links to Filtered Components for Donors & Partners
 settings.project.organisation_roles = {

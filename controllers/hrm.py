@@ -60,8 +60,7 @@ def staff():
                        # Remove the Add button
                        insertable=False
                        )
-        list_fields = ["id",
-                       (T("Contract End Date"), "end_date"),
+        list_fields = [(T("Contract End Date"), "end_date"),
                        "person_id",
                        "job_title_id",
                        "organisation_id",
@@ -70,8 +69,7 @@ def staff():
                        #"site_contact",
                        ]
     else:
-        list_fields = ["id",
-                       "person_id",
+        list_fields = ["person_id",
                        "job_title_id",
                        "organisation_id",
                        "department_id",
@@ -113,6 +111,11 @@ def staff():
                                                                   T("The facility where this position is based."),
                                                                   #T("Enter some characters to bring up a list of possible matches")
                                                                   )))
+                #table.site_id.comment = S3AddResourceLink(c="org", f="facility",
+                #                                          vars = dict(child="site_id",
+                #                                                      parent="req"),
+                #                                          title=T("Add New Site"),
+                #                                          )
                 table.status.writable = table.status.readable = False
 
             elif r.method == "delete":
@@ -131,6 +134,20 @@ def staff():
                 redirect(URL(f="person",
                              args="import",
                              vars={"group": "staff"}))
+
+        elif r.representation == "xls":
+            # Split person_id into first/middle/last to make it match Import sheets
+            list_fields = s3db.get_config(tablename,
+                                          "list_fields")
+            list_fields.remove("person_id")
+            list_fields = ["person_id$first_name",
+                           "person_id$middle_name",
+                           "person_id$last_name",
+                           ] + list_fields
+
+            s3db.configure(tablename,
+                           list_fields = list_fields)
+
         return True
     s3.prep = prep
 
@@ -262,7 +279,7 @@ def profile():
 # -----------------------------------------------------------------------------
 def person_search():
     """
-        Person REST controller
+        Human Resource REST controller
         - limited to just search_ac for use in Autocompletes
         - allows differential access permissions
     """
@@ -309,7 +326,19 @@ def group_membership():
                 (htable.type == 1) & \
                 (htable.person_id == table.person_id)
 
+    def prep(r):
+        if r.method in ("create", "create.popup", "update", "update.popup"):
+            # Coming from Profile page?
+            person_id = current.request.get_vars.get("~.person_id", None)
+            if person_id:
+                field = table.person_id
+                field.default = person_id
+                field.readable = field.writable = False
+        return True
+    s3.prep = prep
+
     output = s3_rest_controller("pr", "group_membership",
+                                hide_filter=False,
                                 csv_template="group_membership",
                                 csv_stylesheet=("hrm", "group_membership.xsl"),
                                 )
@@ -465,9 +494,7 @@ def certificate_skill():
 def training():
     """ Training Controller - used for Searching for Participants """
 
-    table = s3db.hrm_human_resource
-    s3.filter = ((table.type == 1) & \
-                 (s3db.hrm_training.person_id == table.person_id))
+    s3.filter = s3base.S3FieldSelector("person_id$human_resource.type") == 1
     return s3db.hrm_training_controller()
 
 # -----------------------------------------------------------------------------
@@ -477,24 +504,26 @@ def training_event():
     return s3db.hrm_training_event_controller()
 
 # -----------------------------------------------------------------------------
+def credential():
+    """ Credentials Controller """
+
+    s3.filter = s3base.S3FieldSelector("person_id$human_resource.type") == 1
+    return s3db.hrm_credential_controller()
+
+# -----------------------------------------------------------------------------
 def experience():
     """ Experience Controller """
 
-    mode = session.s3.hrm.mode
-    if mode is not None:
-        session.error = T("Access denied")
-        redirect(URL(f="index"))
-
-    output = s3_rest_controller()
-    return output
+    s3.filter = s3base.S3FieldSelector("person_id$human_resource.type") == 1
+    return s3db.hrm_experience_controller()
 
 # -----------------------------------------------------------------------------
 def competency():
-    """ RESTful CRUD controller used to allow searching for people by Skill"""
+    """
+        RESTful CRUD controller used to allow searching for people by Skill
+    """
 
-    table = s3db.hrm_human_resource
-    s3.filter = ((table.type == 1) & \
-                 (s3db.hrm_competency.person_id == table.person_id))
+    s3.filter = s3base.S3FieldSelector("person_id$human_resource.type") == 1
     return s3db.hrm_competency_controller()
 
 # =============================================================================

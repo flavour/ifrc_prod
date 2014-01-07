@@ -25,7 +25,8 @@ def download():
 
     # Load the Model
     tablename = filename.split(".", 1)[0]
-    table = s3db[tablename]
+    if "_" in tablename:
+        table = s3db.table(tablename)
 
     return response.download(request, db)
 
@@ -108,6 +109,7 @@ def index():
         table = s3db.cms_post
         ltable = s3db.cms_post_module
         query = (ltable.module == module) & \
+                ((ltable.resource == None) | (ltable.resource == "index")) & \
                 (ltable.post_id == table.id) & \
                 (table.deleted != True)
         item = db(query).select(table.body,
@@ -201,8 +203,7 @@ def index():
     if AUTHENTICATED in roles and \
        has_permission("read", table):
         org_items = organisation()
-        datatable_ajax_source = "/%s/default/organisation.aadata" % \
-                                appname
+        datatable_ajax_source = "/%s/default/organisation.aadata" % appname
         s3.actions = None
         response.view = "default/index.html"
         permission = auth.permission
@@ -210,14 +211,15 @@ def index():
         permission.function = "site"
         permitted_facilities = auth.permitted_facilities(redirect_on_error=False)
         if permitted_facilities:
-            facilities = s3db.org_SiteRepresent().bulk(permitted_facilities)
+            facilities = s3db.org_SiteRepresent().bulk(permitted_facilities,
+                                                       include_blank=False)
             facility_list = [(fac, facilities[fac]) for fac in facilities]
             facility_list = sorted(facility_list, key=lambda fac: fac[1])
             facility_opts = [OPTION(fac[1], _value=fac[0])
                              for fac in facility_list]
             manage_facility_box = DIV(H3(T("Manage Your Facilities")),
                                       SELECT(_id = "manage_facility_select",
-                                             _style = "max-width:400px;",
+                                             _style = "max-width:400px",
                                              *facility_opts
                                              ),
                                       A(T("Go"),
@@ -232,8 +234,11 @@ def index():
                                       )
             s3.jquery_ready.append(
 '''$('#manage_facility_select').change(function(){
- $('#manage_facility_btn').attr('href',S3.Ap.concat('/default/site/',$('#manage_facility_select').val()))
-})''')
+ $('#manage_facility_btn').attr('href',S3.Ap.concat('/default/site/',$('#manage_facility_select').val()))})
+$('#manage_facility_btn').click(function(){
+if ( ($('#manage_facility_btn').attr('href').toString())===S3.Ap.concat('/default/site/None') )
+{$("#manage_facility_box").append("<div class='alert alert-error'>%s</div>")
+return false}})''' % (T("Please Select a Facility")))
         else:
             manage_facility_box = ""
 
@@ -582,13 +587,15 @@ def person():
     """
 
     # Set to current user
-    user_person_id  = str(s3_logged_in_person())
+    user_person_id = str(s3_logged_in_person())
 
     # When request.args = [], set it as user_person_id.
     # When it is not an ajax request and the first argument is not user_person_id, set it.
     # If it is an json request, leave the arguments unmodified.
-    if not request.args or (request.args[0] != user_person_id
-                            and request.args[-1] != "options.s3json"):
+    if not request.args or (request.args[0] != user_person_id and \
+                            request.args[-1] != "options.s3json" and \
+                            request.args[-1] != "validate.json"
+                            ):
         request.args = [user_person_id]
 
     set_method = s3db.set_method
@@ -633,26 +640,29 @@ def person():
     #    s3db.add_component("asset_asset",
     #                       pr_person="assigned_to_id")
 
-    # Configure person table for personal mode
-    tablename = "pr_person"
-    table = s3db[tablename]
-
-    s3.crud_strings[tablename].update(
-        title_display = T("Personal Profile"),
-        title_update = T("Personal Profile"))
-
-    # Organisation-dependent Fields
-    set_org_dependent_field = settings.set_org_dependent_field
-    set_org_dependent_field("pr_person_details", "father_name")
-    set_org_dependent_field("pr_person_details", "mother_name")
-    set_org_dependent_field("pr_person_details", "affiliations")
-    set_org_dependent_field("pr_person_details", "company")
-
     # CRUD pre-process
     def prep(r):
-        if r.method == "options":
+        if r.method in ("options", "validate"):
             return True        
         if r.interactive and r.method != "import":
+            # Load default model to override CRUD Strings
+            tablename = "pr_person"
+            table = s3db[tablename]
+
+            # Users can not delete their own person record
+            r.resource.configure(deletable=False)
+
+            s3.crud_strings[tablename].update(
+                title_display = T("Personal Profile"),
+                title_update = T("Personal Profile"))
+
+            # Organisation-dependent Fields
+            set_org_dependent_field = settings.set_org_dependent_field
+            set_org_dependent_field("pr_person_details", "father_name")
+            set_org_dependent_field("pr_person_details", "mother_name")
+            set_org_dependent_field("pr_person_details", "affiliations")
+            set_org_dependent_field("pr_person_details", "company")
+
             if r.component:
                 if r.component_name == "physical_description":
                     # Hide all but those details that we want
@@ -723,7 +733,6 @@ def person():
                                    list_fields = list_fields,
                                    )
             else:
-                table = r.table
                 table.pe_label.readable = False
                 table.pe_label.writable = False
                 table.missing.readable = False
@@ -1095,6 +1104,7 @@ def tos():
 # -----------------------------------------------------------------------------
 def video():
     """ Custom View """
+
     if settings.get_template() != "default":
         # Try a Custom View
         view = os.path.join(request.folder, "private", "templates",
@@ -1107,6 +1117,7 @@ def video():
                 from gluon.http import HTTP
                 raise HTTP("404", "Unable to open Custom View: %s" % view)
 
+    response.title = T("Video Tutorials")
     return dict()
 
 # -----------------------------------------------------------------------------
@@ -1146,33 +1157,40 @@ def contact():
         output = s3_rest_controller(prefix, resourcename)
         return output
 
-    else:
-        template = settings.get_template()
-        if template != "default":
-            # Try a Custom Page
-            controller = "applications.%s.private.templates.%s.controllers" % \
-                                (appname, template)
+    template = settings.get_template()
+    if template != "default":
+        # Try a Custom Page
+        controller = "applications.%s.private.templates.%s.controllers" % \
+                            (appname, template)
+        try:
+            exec("import %s as custom" % controller) in globals(), locals()
+        except ImportError, e:
+            # No Custom Page available, try a custom view
+            pass
+        else:
+            if "contact" in custom.__dict__:
+                output = custom.contact()()
+                return output
+
+        # Try a Custom View
+        view = os.path.join(request.folder, "private", "templates",
+                            template, "views", "contact.html")
+        if os.path.exists(view):
             try:
-                exec("import %s as custom" % controller) in globals(), locals()
-            except ImportError, e:
-                # No Custom Page available, try a custom view
-                pass
-            else:
-                if "contact" in custom.__dict__:
-                    output = custom.contact()()
-                    return output
+                # Pass view as file not str to work in compiled mode
+                response.view = open(view, "rb")
+            except IOError:
+                from gluon.http import HTTP
+                raise HTTP("404", "Unable to open Custom View: %s" % view)
 
-            view = os.path.join(request.folder, "private", "templates",
-                                template, "views", "contact.html")
-            if os.path.exists(view):
-                try:
-                    # Pass view as file not str to work in compiled mode
-                    response.view = open(view, "rb")
-                except IOError:
-                    from gluon.http import HTTP
-                    raise HTTP("404", "Unable to open Custom View: %s" % view)
+            response.title = T("Contact us")
+            return dict()
 
-                response.title = T("Contact us")
+    if settings.has_module("cms"):
+        # Use CMS
+        return s3db.cms_index("default", "contact", page_name=T("Contact Us"))
+
+    # Just use default HTML View
     return dict()
 
 # -----------------------------------------------------------------------------

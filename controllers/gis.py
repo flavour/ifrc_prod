@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 
 """
     GIS Controllers
@@ -17,8 +18,8 @@ def index():
     response.title = module_name
 
     # Read user request
-    vars = request.get_vars
-    config = vars.get("config", None)
+    get_vars = request.get_vars
+    config = get_vars.get("config", None)
     if config:
         try:
             config = int(config)
@@ -26,9 +27,9 @@ def index():
             pass
         else:
             gis.set_config(config)
-    height = vars.get("height", None)
-    width = vars.get("width", None)
-    toolbar = vars.get("toolbar", None)
+    height = get_vars.get("height", None)
+    width = get_vars.get("width", None)
+    toolbar = get_vars.get("toolbar", None)
     if toolbar is None:
         toolbar = settings.get_gis_toolbar()
     elif toolbar == "0":
@@ -36,11 +37,11 @@ def index():
     else:
         toolbar = True
 
-    collapsed = vars.get("collapsed", False)
+    collapsed = get_vars.get("collapsed", False)
     if collapsed:
         collapsed = True
 
-    iframe = vars.get("iframe", False)
+    iframe = get_vars.get("iframe", False)
     if iframe:
         response.view = "gis/iframe.html"
     else:
@@ -116,7 +117,8 @@ def define_map(height = None,
 
     if config.wmsbrowser_url:
         wms_browser = {"name" : config.wmsbrowser_name,
-                       "url" : config.wmsbrowser_url}
+                       "url" : config.wmsbrowser_url,
+                       }
     else:
         wms_browser = None
 
@@ -127,19 +129,73 @@ def define_map(height = None,
     else:
         print_tool = {}
 
+    # Do we allow creation of PoIs from the main Map?
+    pois = settings.get_gis_pois() and \
+           auth.s3_has_permission("create", s3db.gis_poi)
+    if pois:
+        if s3.debug:
+            script = "/%s/static/scripts/S3/s3.gis.pois.js" % appname
+        else:
+            script = "/%s/static/scripts/S3/s3.gis.pois.min.js" % appname
+        s3.scripts.append(script)
+        # @ToDo: Allow multiple PoI layers
+        ftable = s3db.gis_layer_feature
+        layer = db(ftable.name == "PoIs").select(ftable.layer_id,
+                                                 limitby=(0, 1)
+                                                 ).first()
+        if layer:
+            script = '''S3.gis.pois_layer=%s''' % layer.layer_id
+            s3.js_global.append(script)
+
+    # @ToDo: Generalise with feature/tablename?
+    poi = request.get_vars.get("poi", None)
+    if poi:
+        ptable = s3db.gis_poi
+        gtable = db.gis_location
+        query = (ptable.id == poi) & \
+                (ptable.location_id == gtable.id)
+        record = db(query).select(gtable.lat,
+                                  gtable.lon,
+                                  limitby=(0, 1)
+                                  ).first()
+        if record:
+            lat = record.lat
+            lon = record.lon
+            filter_url = "~.id=%s" % poi
+            feature_resources = [dict(name = T("PoI"),
+                                      id = "PoI",
+                                      layer_id = layer.layer_id,
+                                      filter = filter_url,
+                                      active = True,
+                                      ),
+                                 ]
+        else:
+            lat = None
+            lon = None
+            feature_resources = None
+    else:
+        # get_vars checks happen inside s3gis.py
+        lat = None
+        lon = None
+        feature_resources = None
+
     map = gis.show_map(height = height,
                        width = width,
-                       window = window,
-                       wms_browser = wms_browser,
+                       lat = lat,
+                       lon = lon,
+                       add_feature = pois,
+                       feature_resources = feature_resources,
                        toolbar = toolbar,
-                       collapsed = collapsed,
-                       closable = closable,
-                       maximizable = maximizable,
+                       wms_browser = wms_browser,
                        legend = legend,
                        save = True,
                        search = search,
                        catalogue_layers = True,
                        print_tool = print_tool,
+                       window = window,
+                       closable = closable,
+                       maximizable = maximizable,
+                       collapsed = collapsed,
                        )
 
     return map
@@ -212,60 +268,68 @@ def location():
         if r.interactive and not r.component:
             location_hierarchy = gis.get_location_hierarchy()
             from s3.s3filter import S3TextFilter, S3OptionsFilter#, S3LocationFilter
+            search_fields = ["name",
+                             "comments",
+                             "L0",
+                             "L1",
+                             "L2",
+                             "L3",
+                             "L4",
+                             "L5",
+                             "tag.value",
+                             ]
+            if settings.get_L10n_translate_gis_location():
+                search_fields.append("name.name_l10n")
             filter_widgets = [
-                S3TextFilter(["name",
-                              "comments",
-                              "L0",
-                              "L1",
-                              "L2",
-                              "L3",
-                              "L4",
-                              "L5",
-                              "tag.value",
-                              ],
+                S3TextFilter(search_fields,
                              label = T("Search"),
                              comment = T("To search for a location, enter the name. You may use % as wildcard. Press 'Search' without input to list all locations."),
                              _class = "filter-search",
                              ),
                 S3OptionsFilter("level",
                                 label=T("Level"),
-                                cols=3,
                                 options=location_hierarchy,
-                                hidden=True,
+                                widget="multiselect",
+                                #hidden=True,
                                 ),
                 # @ToDo: Hierarchical filter working on id
                 #S3LocationFilter("id",
-                #                 label=T("Location"),
-                #                 levels=["L0", "L1", "L2", "L3", "L4", "L5"],
-                #                 widget="multiselect",
-                #                 cols=3,
-                #                 hidden=True,
-                #                 ),
+                #                label=T("Location"),
+                #                levels=["L0", "L1", "L2", "L3"],
+                #                widget="multiselect",
+                #                #hidden=True,
+                #                ),
                 S3OptionsFilter("L0",
                                 label=COUNTRY,
                                 #widget="multiselect",
                                 cols=5,
                                 hidden=True,
                                 ),
-                S3OptionsFilter("L1",
-                                label=location_hierarchy["L1"],
-                                #widget="multiselect",
-                                cols=5,
-                                hidden=True,
-                                ),
-                S3OptionsFilter("L2",
-                                label=location_hierarchy["L2"],
-                                #widget="multiselect",
-                                cols=5,
-                                hidden=True,
-                                ),
-                S3OptionsFilter("L3",
-                                label=location_hierarchy["L3"],
-                                #widget="multiselect",
-                                cols=5,
-                                hidden=True,
-                                ),
                 ]
+            L1 = location_hierarchy.get("L1", None)
+            if L1:
+                filter_widgets.append(S3OptionsFilter("L1",
+                                                      label=L1,
+                                                      #widget="multiselect",
+                                                      cols=5,
+                                                      hidden=True,
+                                                      ))
+            L2 = location_hierarchy.get("L2", None)
+            if L2:
+                filter_widgets.append(S3OptionsFilter("L2",
+                                                      label=L2,
+                                                      #widget="multiselect",
+                                                      cols=5,
+                                                      hidden=True,
+                                                      ))
+            L3 = location_hierarchy.get("L3", None)
+            if L3:
+                filter_widgets.append(S3OptionsFilter("L3",
+                                                      label=L3,
+                                                      #widget="multiselect",
+                                                      cols=5,
+                                                      hidden=True,
+                                                      ))
 
             s3db.configure(tablename,
                            filter_widgets=filter_widgets,
@@ -453,6 +517,7 @@ def ldata():
 
     table = s3db.gis_location
     query = (table.deleted == False) & \
+            (table.end_date == None) & \
             ((table.parent == id) | \
              (table.id == id))
     fields = [table.id,
@@ -2795,6 +2860,94 @@ def feature_query():
     output = r()
 
     return output
+
+# =============================================================================
+def poi_type():
+    """
+        RESTful CRUD controller for PoI Types
+    """
+
+    return s3_rest_controller()
+
+# -----------------------------------------------------------------------------
+def poi():
+    """
+        RESTful CRUD controller for PoIs
+    """
+
+    def prep(r):
+        if r.http == "GET":
+            if r.method in ("create", "create.popup"):
+                field = r.table.location_id
+                field.label = ""
+                # Lat/Lon from Feature?
+                get_vars = request.get_vars
+                lat = get_vars.get("lat", None)
+                if lat is not None:
+                    lon = get_vars.get("lon", None)
+                    if lon is not None:
+                        form_vars = Storage(lat=float(lat),
+                                            lon=float(lon),
+                                            )
+                        form = Storage(vars=form_vars)
+                        s3db.gis_location_onvalidation(form)
+                        id = s3db.gis_location.insert(**form_vars)
+                        field.default = id
+
+            elif r.method in ("update", "update.popup"):
+                table = r.table
+                table.location_id.label = ""
+                table.created_by.readable = True
+                table.created_on.readable = True
+                table.created_on.represent = lambda d: \
+                    s3base.S3DateTime.date_represent(d)
+
+            elif r.representation == "plain":
+                # Map Popup
+                table = r.table
+                table.created_by.readable = True
+                table.created_on.readable = True
+                table.created_on.represent = lambda d: \
+                    s3base.S3DateTime.date_represent(d)
+                # @ToDo: Allow multiple PoI layers
+                ftable = s3db.gis_layer_feature
+                layer = db(ftable.name == "PoIs").select(ftable.layer_id,
+                                                         limitby=(0, 1)
+                                                         ).first()
+                if layer:
+                    popup_edit_url = r.url(method="update",
+                                           representation="popup",
+                                           vars={'refresh_layer':layer.layer_id},
+                                           )
+                else:
+                    popup_edit_url = r.url(method="update",
+                                           representation="popup",
+                                           )
+                    
+                s3db.configure("gis_poi",
+                               popup_edit_url = popup_edit_url,
+                               )
+
+        return True
+    s3.prep = prep
+
+    def postp(r, output):
+        if r.interactive:
+            # Normal Action Buttons
+            s3_action_buttons(r, deletable=False)
+            # Custom Action Buttons
+            s3.actions += [dict(label=str(T("Show on Map")),
+                                _class="action-btn",
+                                url=URL(f = "index",
+                                        vars = {"poi": "[id]"},
+                                        )),
+                           ]
+        return output
+    s3.postp = postp
+
+    dt_bulk_actions = [(T("Delete"), "delete")]
+
+    return s3_rest_controller(dtargs=dict(dt_bulk_actions=dt_bulk_actions))
 
 # =============================================================================
 def display_feature():

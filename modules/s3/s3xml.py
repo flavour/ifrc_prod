@@ -1004,15 +1004,17 @@ class S3XML(S3Codec):
                                 # so use local URLs to keep filesize down
                                 download_url = "/%s/static/img/markers" % \
                                     request.application
+                                attr[ATTRIBUTE.marker_url] = "%s/%s" % (download_url,
+                                                                        m["image"])
+                                attr[ATTRIBUTE.marker_height] = str(m["height"])
+                                attr[ATTRIBUTE.marker_width] = str(m["width"])
                             else:
                                 # Assume being used outside the Sahana Mapping client
                                 # so use public URLs
                                 download_url = "%s/%s/static/img/markers" % \
                                     (settings.get_base_public_url(), request.application)
-                            attr[ATTRIBUTE.marker_url] = "%s/%s" % (download_url,
+                                attr[ATTRIBUTE.marker] = "%s/%s" % (download_url,
                                                                     m["image"])
-                            attr[ATTRIBUTE.marker_height] = str(m["height"])
-                            attr[ATTRIBUTE.marker_width] = str(m["width"])
 
             if LatLon or polygon:
                 # Build the URL for the onClick Popup contents => only for
@@ -1048,7 +1050,7 @@ class S3XML(S3Codec):
 
                 if attributes and tablename in attributes:
                     _attr = ""
-                    attrs = attributes[tablename][id]
+                    attrs = attributes[tablename].get(id, [])
                     for a in attrs:
                         if _attr:
                             _attr = "%s,[%s]=[%s]" % (_attr, a, attrs[a])
@@ -1095,7 +1097,7 @@ class S3XML(S3Codec):
         ALIAS = ATTRIBUTE["alias"]
         FIELD = ATTRIBUTE["field"]
         VALUE = ATTRIBUTE["value"]
-        URL = ATTRIBUTE["url"]
+        FILEURL = ATTRIBUTE["url"]
 
         tablename = table._tablename
         deleted = False
@@ -1207,12 +1209,32 @@ class S3XML(S3Codec):
 
             elif fieldtype == "upload":
                 if v:
-                    fileurl = "%s/%s" % (download_url, v)
-                    filename = dbfield.retrieve_file_properties(v)["filename"]
+                    fileurl = None
+
+                    # Retrieve the file properties
+                    if dbfield.custom_retrieve_file_properties:
+                        prop = dbfield.custom_retrieve_file_properties(v)
+                    else:
+                        prop = dbfield.retrieve_file_properties(v)
+                    filename = prop["filename"]
+
+                    # File in static (e.g. GIS marker image)?
+                    folder = prop["path"]
+                    if folder:
+                        path = os.path.relpath(folder, current.request.folder) \
+                                      .split(os.sep)
+                        if path[0] == "static" and len(path) > 1:
+                            path.append(filename)
+                            fileurl = URL(c=path[0], f=path[1], args=path[2:])
+
+                    # If not static - construct default download URL
+                    if fileurl is None:
+                        fileurl = "%s/%s" % (download_url, v)
+                        
                     data = SubElement(elem, DATA)
                     attr = data.attrib
                     attr[FIELD] = f
-                    attr[URL] = fileurl
+                    attr[FILEURL] = fileurl
                     attr[ATTRIBUTE.filename] = filename
 
             elif fieldtype == "password":
@@ -1239,7 +1261,7 @@ class S3XML(S3Codec):
                     data.text = text
 
         if url and not deleted:
-            attrib[URL] = url
+            attrib[FILEURL] = url
 
         if postprocess:
             postprocess(elem, record)
@@ -1601,9 +1623,9 @@ class S3XML(S3Codec):
                 except:
                     pass
 
+        TAG = cls.TAG
         if options:
             ATTRIBUTE = cls.ATTRIBUTE
-            TAG = cls.TAG
             SubElement = etree.SubElement
             if parent is not None:
                 select = SubElement(parent, TAG.select)
@@ -2343,7 +2365,7 @@ class S3XML(S3Codec):
                         for key in extra_fields:
                             add_col(orow, key, None, extra_data[key])
                 record_idx += 1
-            
+
         return  etree.ElementTree(root)
         
     # -------------------------------------------------------------------------
@@ -2400,7 +2422,7 @@ class S3XML(S3Codec):
             # Make this a list of all encodings you need to support (as long as
             # they are supported by Python codecs), always starting with the most
             # likely.
-            encodings = ["utf-8", "iso-8859-1"]
+            encodings = ["utf-8-sig", "iso-8859-1"]
             e = encodings[0]
             for line in source:
                 if e:
