@@ -339,8 +339,12 @@ class S3SQLDefaultForm(S3SQLForm):
         # Cancel button
         if not readonly and s3.cancel:
             T = current.T
+            if settings.submit_button:
+                submit_label = T(settings.submit_button)
+            else:
+                submit_label = T("Save")
             submit_button = INPUT(_type="submit",
-                                  _value=T(settings.submit_button or "Save"))
+                                  _value=submit_label)
             if settings.submit_style:
                 submit_button.add_class(settings.submit_style)
             buttons = [submit_button,
@@ -818,7 +822,11 @@ class S3SQLCustomForm(S3SQLForm):
                 if a in noupdate:
                     f.writable = False
                 if labels is not None and f.name not in labels:
-                    labels[f.name] = "%s:" % f.label
+                    if f.required:
+                        flabels, h = s3_mark_required([f], mark_required=[f])
+                        labels[f.name] = flabels[f.name]
+                    else:
+                        labels[f.name] = "%s:" % f.label
 
         if readonly:
             # Strip all comments
@@ -861,8 +869,12 @@ class S3SQLCustomForm(S3SQLForm):
         # Cancel button
         if not readonly and s3.cancel:
             T = current.T
+            if settings.submit_button:
+                submit_label = T(settings.submit_button)
+            else:
+                submit_label = T("Save")
             submit_button = INPUT(_type="submit",
-                                  _value=T(settings.submit_button or "Save"))
+                                  _value=submit_label)
             if settings.submit_style:
                 submit_button.add_class(settings.submit_style)
             buttons = [submit_button,
@@ -1326,25 +1338,25 @@ class S3SQLFormElement(object):
             comment = field.comment
             
         f = Field(str(name),
-                  type=field.type,
-                  length=field.length,
+                  type = field.type,
+                  length = field.length,
 
-                  required=required,
-                  notnull=notnull,
-                  unique=field.unique,
+                  required = required,
+                  notnull = notnull,
+                  unique = field.unique,
 
-                  uploadfolder=field.uploadfolder,
+                  uploadfolder = field.uploadfolder,
                   autodelete = field.autodelete,
 
-                  widget=widget,
-                  label=field.label,
-                  comment=comment,
+                  widget = widget,
+                  label = field.label,
+                  comment = comment,
 
-                  writable=field.writable,
-                  readable=field.readable,
+                  writable = field.writable,
+                  readable = field.readable,
 
-                  default=field.default,
-                  update=field.update,
+                  default = field.default,
+                  update = field.update,
                   compute = field.compute,
 
                   represent = field.represent,
@@ -1592,7 +1604,9 @@ class S3SQLInlineComponent(S3SQLSubForm):
                       widget = self,
                       default = self.extract(resource, None),
                       represent = self.represent,
-                      requires = self.parse)
+                      requires = self.parse,
+                      required = options.get("required", False),
+                      )
 
         return (self, None, field)
 
@@ -1791,10 +1805,13 @@ class S3SQLInlineComponent(S3SQLSubForm):
 
         self.upload = Storage()
 
-        if self.options.multiple is False:
+        options = self.options
+        if options.multiple is False:
             multiple = False
         else:
             multiple = True
+
+        required = options.get("required", False)
 
         # Get the table
         resource = self.resource
@@ -1883,6 +1900,9 @@ class S3SQLInlineComponent(S3SQLSubForm):
         action_rows = []
 
         # Edit-row
+        _class = "edit-row inline-form hide"
+        if required and has_rows:
+            _class = "%s required" % _class
         edit_row = self._render_item(table, None, fields,
                                      editable=_editable,
                                      deletable=_deletable,
@@ -1890,7 +1910,7 @@ class S3SQLInlineComponent(S3SQLSubForm):
                                      multiple=multiple,
                                      index=0,
                                      _id="edit-row-%s" % formname,
-                                     _class="edit-row inline-form hide")
+                                     _class=_class)
         action_rows.append(edit_row)
 
         # Add-row
@@ -1903,6 +1923,8 @@ class S3SQLInlineComponent(S3SQLSubForm):
             _class = "add-row inline-form"
             if not multiple and has_rows:
                 _class = "%s hide" % _class
+            if required and not has_rows:
+                _class = "%s required" % _class
             has_rows = True
             add_row = self._render_item(table, None, fields,
                                         editable=True,
@@ -1955,13 +1977,13 @@ class S3SQLInlineComponent(S3SQLSubForm):
             widget = current.T("No entries currently available")
 
         if self.upload:
-            hidden = DIV(_class="hidden", _style="display:none;")
+            hidden = DIV(_class="hidden", _style="display:none")
             for k, v in self.upload.items():
                 hidden.append(INPUT(_type="text",
                                     _id=k,
                                     _name=k,
                                     _value=v,
-                                    _style="display:none;"))
+                                    _style="display:none"))
         else:
             hidden = ""
 
@@ -2385,6 +2407,7 @@ class S3SQLInlineComponent(S3SQLSubForm):
                         value = None
                     data[idxname] = value
             formfields.append(formfield)
+
         if not data:
             data = None
         elif pkey not in data:

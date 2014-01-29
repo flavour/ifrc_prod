@@ -27,7 +27,7 @@
     OTHER DEALINGS IN THE SOFTWARE.
 """
 
-__all__ = ["S3Model", "S3ModelExtensions"]
+__all__ = ["S3Model"]
 
 from gluon import *
 from gluon.dal import Table
@@ -1085,12 +1085,12 @@ class S3Model(object):
         supertable = get_config(table._tablename, "super_entity")
         if not supertable:
             return True
-        if not isinstance(supertable, (list, tuple)):
-            supertable = [supertable]
 
         uid = record.get("uuid", None)
         if uid:
             define_resource = current.s3db.resource
+            if not isinstance(supertable, (list, tuple)):
+                supertable = [supertable]
             for s in supertable:
                 if isinstance(s, str):
                     s = cls.table(s)

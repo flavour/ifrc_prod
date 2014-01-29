@@ -1117,6 +1117,9 @@ class S3OrganisationGroupModel(S3Model):
             label = "Group"
 
         configure(tablename,
+                  list_fields = ["name",
+                                 "comments",
+                                 ],
                   super_entity = ("doc_entity", "pr_pentity"),
                   )
 
@@ -1139,7 +1142,7 @@ class S3OrganisationGroupModel(S3Model):
                                      joinby="group_id"))
 
         add_component("pr_group",
-                      org_group=dict(name="group",
+                      org_group=dict(name="pr_group",
                                      joinby="org_group_id",
                                      key="group_id",
                                      link="org_group_team",
@@ -2071,14 +2074,14 @@ class S3SiteModel(S3Model):
         org_site_represent = org_SiteRepresent(show_link=True)
 
         site_id = self.super_link("site_id", "org_site",
-                                  #writable = True,
+                                  comment = comment,
+                                  #default = auth.user.site_id if auth.is_logged_in() else None,
+                                  label = org_site_label,
+                                  orderby = "org_site.name",
                                   #readable = True,
-                                  label=org_site_label,
-                                  default=auth.user.site_id if auth.is_logged_in() else None,
-                                  represent=org_site_represent,
-                                  orderby="org_site.name",
-                                  widget=widget,
-                                  comment=comment
+                                  represent = org_site_represent,
+                                  widget = widget,
+                                  #writable = True,
                                   )
 
         # Custom Method for S3SiteAutocompleteWidget
@@ -2163,18 +2166,19 @@ class S3SiteModel(S3Model):
                                     multiple=False))
 
         self.configure(tablename,
-                       onaccept=self.org_site_onaccept,
                        context = {"location": "location_id",
                                   "organisation": "organisation_id",
                                   "org_group": "organisation_id$group_membership.group_id",
                                   },
-                       list_fields=["id",
-                                    "code",
-                                    "instance_type",
-                                    "name",
-                                    "organisation_id",
-                                    "location_id",
-                                    ]
+                       list_fields = ["id",
+                                      "code",
+                                      "instance_type",
+                                      "name",
+                                      "organisation_id",
+                                      "location_id",
+                                      ],
+                       onaccept = self.org_site_onaccept,
+                       ondelete_cascade = self.org_site_ondelete_cascade,
                        )
 
         # Coalitions
@@ -2229,6 +2233,33 @@ class S3SiteModel(S3Model):
 
     # -------------------------------------------------------------------------
     @staticmethod
+    def org_site_ondelete_cascade(form):
+        """
+            Update linked HRs
+            @ToDo: handle all other linked resources
+        """
+
+        db = current.db
+        s3db = current.s3db
+        site_id = form.site_id
+
+        # Remove all link table entries
+        ltable = s3db.hrm_human_resource_site
+        db(ltable.site_id == site_id).delete()
+
+        # Update all HRs
+        htable = s3db.hrm_human_resource
+        query = (htable.site_id == site_id)
+        rows = db(query).select(htable.id)
+        db(query).update(site_id = None)
+
+        # Update HR Realm Entities
+        set_realm_entity = current.auth.set_realm_entity
+        for row in rows:
+            set_realm_entity(htable, row.id)
+
+    # -------------------------------------------------------------------------
+    @staticmethod
     def getCodeList(code, wildcard_posn=[]):
         """
             Called by org_site_onaccept
@@ -2246,7 +2277,7 @@ class S3SiteModel(S3Model):
         site_table = db.org_site
         query = site_table.code.like(temp_code)
         rows = db(query).select(site_table.id,
-                                        site_table.code)
+                                site_table.code)
         # Extract the rows in the database to provide a list of used codes
         codeList = []
         for record in rows:
@@ -2918,6 +2949,20 @@ class S3FacilityModel(S3Model):
                                     "comments",
                                     )
 
+        list_fields = ["name",
+                       "code",
+                       "site_facility_type.facility_type_id",
+                       "organisation_id",
+                       "location_id",
+                       "opening_times",
+                       "contact",
+                       "phone1",
+                       "phone2",
+                       "email",
+                       "website",
+                       "comments",
+                       ]
+
         configure(tablename,
                   context = {"location": "location_id",
                              "organisation": "organisation_id",
@@ -2927,6 +2972,7 @@ class S3FacilityModel(S3Model):
                   crud_form = crud_form,
                   deduplicate = self.org_facility_duplicate,
                   filter_widgets = filter_widgets,
+                  list_fields = list_fields,
                   onaccept = self.org_facility_onaccept,
                   realm_components = ["contact_emergency",
                                       "physical_description",
@@ -3386,7 +3432,8 @@ class S3OfficeModel(S3Model):
                              super_link("site_id", "org_site"),
                              Field("name", notnull=True,
                                    length=64, # Mayon Compatibility
-                                   label=T("Name")),
+                                   label=T("Name"),
+                                   ),
                              Field("code", length=10, # Mayon compatibility
                                    label=T("Code"),
                                    # Deployments that don't wants office codes can hide them
@@ -4149,7 +4196,7 @@ class org_SiteRepresent(S3Represent):
         c, f = instance_type.split("_", 1)
         return A(v, _href=URL(c=c, f=f, args=[id],
                               # remove the .aaData extension in paginated views
-                              #extension=""
+                              extension=""
                               ))
 
     # -------------------------------------------------------------------------
@@ -4425,7 +4472,7 @@ def org_rheader(r, tabs=[]):
     elif tablename == "org_group":
         tabs = [(T("Basic Details"), None),
                 (T("Member Organizations"), "membership"),
-                (T("Groups"), "group"),
+                (T("Groups"), "pr_group"),
                 (T("Attachments"), "document"),
                 ]
         rheader_tabs = s3_rheader_tabs(r, tabs)
@@ -4993,6 +5040,7 @@ def org_facility_controller():
             T = current.T
             output = TABLE()
             append = output.append
+            record = r.record
             # Edit button
             append(TR(TD(A(T("Edit"),
                            _target="_blank",
@@ -5001,35 +5049,36 @@ def org_facility_controller():
 
             # Name
             append(TR(TD(B("%s:" % T("Name"))),
-                      TD(r.record.name)))
+                      TD(record.name)))
+
+            site_id = record.site_id
 
             # Type(s)
             ttable = db.org_facility_type
             ltable = db.org_site_facility_type
-            query = (ltable.site_id == r.record.site_id) & \
+            query = (ltable.site_id == site_id) & \
                     (ltable.facility_type_id == ttable.id)
             rows = db(query).select(ttable.name)
             if rows:
                 append(TR(TD(B("%s:" % ltable.facility_type_id.label)),
                           TD(", ".join([row.name for row in rows]))))
 
+            ftable = r.table
             # Comments
-            if r.record.comments:
-                append(TR(TD(B("%s:" % r.table.comments.label)),
-                          TD(r.record.comments)))
+            if record.comments:
+                append(TR(TD(B("%s:" % ftable.comments.label)),
+                          TD(ftable.comments.represent(record.comments))))
 
             # Organisation (better with just name rather than Represent)
             # @ToDo: Make this configurable - some users will only see
             #        their staff so this is a meaningless field for them
             table = db.org_organisation
-            org = db(table.id == r.record.organisation_id).select(table.name,
-                                                                  limitby=(0, 1)
-                                                                  ).first()
+            org = db(table.id == record.organisation_id).select(table.name,
+                                                                limitby=(0, 1)
+                                                                ).first()
             if org:
-                append(TR(TD(B("%s:" % r.table.organisation_id.label)),
+                append(TR(TD(B("%s:" % ftable.organisation_id.label)),
                           TD(org.name)))
-
-            site_id = r.record.site_id
 
             if current.deployment_settings.has_module("req"):
                 # Open High/Medium priority Requests
@@ -5066,33 +5115,33 @@ def org_facility_controller():
                           TD(location.addr_street)))
 
             # Opening Times
-            opens = r.record.opening_times
+            opens = record.opening_times
             if opens:
-                append(TR(TD(B("%s:" % r.table.opening_times.label)),
+                append(TR(TD(B("%s:" % ftable.opening_times.label)),
                           TD(opens)))
 
             # Phone number
-            contact = r.record.contact
+            contact = record.contact
             if contact:
-                append(TR(TD(B("%s:" % r.table.contact.label)),
+                append(TR(TD(B("%s:" % ftable.contact.label)),
                           TD(contact)))
 
             # Phone number
-            phone1 = r.record.phone1
+            phone1 = record.phone1
             if phone1:
-                append(TR(TD(B("%s:" % r.table.phone1.label)),
+                append(TR(TD(B("%s:" % ftable.phone1.label)),
                           TD(phone1)))
 
             # Email address (as hyperlink)
-            email = r.record.email
+            email = record.email
             if email:
-                append(TR(TD(B("%s:" % r.table.email.label)),
+                append(TR(TD(B("%s:" % ftable.email.label)),
                           TD(A(email, _href="mailto:%s" % email))))
 
             # Website (as hyperlink)
-            website = r.record.website
+            website = record.website
             if website:
-                append(TR(TD(B("%s:" % r.table.website.label)),
+                append(TR(TD(B("%s:" % ftable.website.label)),
                           TD(A(website, _href=website))))
 
         return output
