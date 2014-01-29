@@ -356,6 +356,7 @@ class S3Config(Storage):
     def get_auth_record_approval(self):
         """ Use record approval (False by default) """
         return self.auth.get("record_approval", False)
+
     def get_auth_record_approval_required_for(self):
         """ Which tables record approval is required for """
         return self.auth.get("record_approval_required_for", [])
@@ -380,7 +381,7 @@ class S3Config(Storage):
 
     def get_auth_role_modules(self):
         """
-            Which modules are includes in the Role Manager
+            Which modules are included in the Role Manager
             - to assign discrete permissions to via UI
         """
         T = current.T
@@ -399,7 +400,6 @@ class S3Config(Storage):
         """
             Access levels for the Role Manager UI
         """
-        T = current.T
         return self.auth.get("access_levels", OrderedDict([
             ("reader", "Reader"),
             ("data_entry", "Data Entry"),
@@ -598,7 +598,9 @@ class S3Config(Storage):
         return self.gis.get("api_yahoo", None)
 
     def get_gis_building_name(self):
-        " Display Building Name when selecting Locations "
+        """
+            Display Building Name when selecting Locations
+        """
         return self.gis.get("building_name", True)
 
     def get_gis_check_within_parent_boundaries(self):
@@ -606,6 +608,30 @@ class S3Config(Storage):
             Whether location Lat/Lons should be within the boundaries of the parent
         """
         return self.gis.get("check_within_parent_boundaries", True)
+
+    def get_gis_cluster_fill(self):
+        """
+            Fill for Clustered points on Map, else default
+        """
+        return self.gis.get("cluster_fill", None)
+
+    def get_gis_cluster_stroke(self):
+        """
+            Stroke for Clustered points on Map, else default
+        """
+        return self.gis.get("cluster_stroke", None)
+
+    def get_gis_select_fill(self):
+        """
+            Fill for Selected points on Map, else default
+        """
+        return self.gis.get("select_fill", None)
+
+    def get_gis_select_stroke(self):
+        """
+            Stroke for Selected points on Map, else default
+        """
+        return self.gis.get("select_stroke", None)
 
     def get_gis_countries(self):
         """
