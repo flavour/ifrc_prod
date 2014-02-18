@@ -57,6 +57,7 @@ __all__ = ["single_phone_number_pattern",
            "IS_UTC_DATETIME",
            "IS_UTC_OFFSET",
            "QUANTITY_INV_ITEM",
+           "IS_PHONE_NUMBER",
            ]
 
 import re
@@ -110,7 +111,7 @@ multi_phone_number_pattern = "%s(\s*(,|/|;)\s*%s)*$" % (phone_number_pattern,
 
 s3_single_phone_requires = IS_MATCH(single_phone_number_pattern)
 s3_phone_requires = IS_MATCH(multi_phone_number_pattern,
-                             error_message=current.T("Invalid phone number!"))
+                             error_message="Invalid phone number!")
 
 # =============================================================================
 class IS_LAT(object):
@@ -1704,23 +1705,26 @@ class IS_LOCATION_SELECTOR2(Validator):
     # -------------------------------------------------------------------------
     def __call__(self, value):
 
+        if not value:
+            return (None, self.error_message or current.T("Location Required!"))
+
         if current.response.s3.bulk:
-            # Pointless in imports
+            # Pointless in imports/sync
             return (value, None)
 
-        vars = current.request.post_vars
-        address = vars.get("address", None)
-        postcode = vars.get("postcode", None)
-        lat = vars.get("lat", None)
+        post_vars = current.request.post_vars
+        address = post_vars.get("address", None)
+        postcode = post_vars.get("postcode", None)
+        lat = post_vars.get("lat", None)
         if lat == "":
             lat = None
-        lon = vars.get("lon", None)
+        lon = post_vars.get("lon", None)
         if lon == "":
             lon = None
-        wkt = vars.get("wkt", None)
+        wkt = post_vars.get("wkt", None)
         if wkt == "":
             wkt = None
-        parent = vars.get("parent", None)
+        parent = post_vars.get("parent", None)
         # Rough check for valid Lat/Lon
         errors = Storage()
         if lat:
@@ -1751,19 +1755,19 @@ class IS_LOCATION_SELECTOR2(Validator):
                 # Create a new point
                 if not current.auth.s3_has_permission("create", table):
                     return (None, current.auth.messages.access_denied)
-                vars = Storage(lat=lat,
-                               lon=lon,
-                               wkt=wkt,
-                               inherited=False,
-                               addr_street=address,
-                               addr_postcode=postcode,
-                               parent=parent,
-                               )
+                feature = Storage(lat=lat,
+                                  lon=lon,
+                                  wkt=wkt,
+                                  inherited=False,
+                                  addr_street=address,
+                                  addr_postcode=postcode,
+                                  parent=parent,
+                                  )
                 # onvalidation
                 # - includes detailed bounds check if deployment_setting doesn't disable it
                 form = Storage()
                 form.errors = errors
-                form.vars = vars
+                form.vars = feature
                 current.s3db.gis_location_onvalidation(form)
                 if form.errors:
                     errors = form.errors
@@ -1771,10 +1775,10 @@ class IS_LOCATION_SELECTOR2(Validator):
                     for e in errors:
                         error = "%s\n%s" % (error, errors[e]) if error else errors[e]
                     return (parent, error)
-                id = table.insert(**vars)
-                vars.id = id
+                id = table.insert(**feature)
+                feature.id = id
                 # onaccept
-                current.gis.update_location_tree(vars)
+                current.gis.update_location_tree(feature)
                 return (id, None)
             else:
                 # Update existing Point
@@ -1834,22 +1838,22 @@ class IS_LOCATION_SELECTOR2(Validator):
                         # Update the record
                         if not current.auth.s3_has_permission("update", table, record_id=value):
                             return (value, current.auth.messages.access_denied)
-                        vars = Storage(addr_street=address,
-                                       addr_postcode=postcode,
-                                       parent=parent,
-                                       )
+                        feature = Storage(addr_street=address,
+                                          addr_postcode=postcode,
+                                          parent=parent,
+                                          )
                         if lat is not None and lon is not None:
-                            vars.lat = lat
-                            vars.lon = lon
-                            vars.inherited = False
+                            feature.lat = lat
+                            feature.lon = lon
+                            feature.inherited = False
                         elif wkt is not None:
-                            vars.wkt = wkt
-                            vars.inherited = False
+                            feature.wkt = wkt
+                            feature.inherited = False
                         # onvalidation
                         # - includes detailed bounds check if deployment_setting doesn't disable it
                         form = Storage()
                         form.errors = errors
-                        form.vars = vars
+                        form.vars = feature
                         current.s3db.gis_location_onvalidation(form)
                         if form.errors:
                             errors = form.errors
@@ -1858,50 +1862,52 @@ class IS_LOCATION_SELECTOR2(Validator):
                                 error = "%s\n%s" % (error, errors[e]) if error else errors[e]
                             return (value, error)
                         # Update the record
-                        db(table.id == value).update(**vars)
+                        db(table.id == value).update(**feature)
                         # Update location tree in case parent has changed
-                        vars.id = value
+                        feature.id = value
                         # onaccept
-                        current.gis.update_location_tree(vars)
+                        current.gis.update_location_tree(feature)
                     return (value, None)
                 else:
                     return (value,
                             self.error_message or current.T("Invalid Location!"))
         else:
             # Lx or a specific location with blank Parent/Address/Lat/Lon
-            if value:
-                db = current.db
-                table = db.gis_location
-                query = (table.id == value) & \
-                        (table.deleted == False)
-                location = db(query).select(table.level,
-                                            table.lat,
-                                            table.lon,
-                                            table.addr_street,
-                                            table.addr_postcode,
-                                            table.parent,
-                                            limitby=(0, 1)).first()
-                if not location:
-                    return (value,
-                            self.error_message or current.T("Invalid Location!"))
-                if location.level:
-                    # Do a simple Location check
-                    return IS_LOCATION(level=self.levels)(value)
+            db = current.db
+            table = db.gis_location
+            query = (table.id == value) & \
+                    (table.deleted == False)
+            location = db(query).select(table.level,
+                                        table.lat,
+                                        table.lon,
+                                        table.addr_street,
+                                        table.addr_postcode,
+                                        table.parent,
+                                        limitby=(0, 1)).first()
+            if not location:
+                return (value,
+                        self.error_message or current.T("Invalid Location!"))
+            level = location.level
+            if level:
+                if level in self.levels:
+                    # OK
+                    return (value, None)
                 else:
-                    # Clear the Parent/Lat/Lon/Address
-                    vars = Storage(lat = None,
-                                   lon = None,
-                                   addr_street = None,
-                                   addr_postcode = None,
-                                   parent = None)
-                    db(table.id == value).update(**vars)
-                    # Update location tree in case parent has changed
-                    vars.id = value
-                    # onaccept
-                    current.gis.update_location_tree(vars)
+                    return (value,
+                            self.error_message or current.T("Location is of incorrect level!"))
             else:
-                # Do a simple Location check
-                return IS_LOCATION(level=self.levels)(value)
+                # Clear the Parent/Lat/Lon/Address
+                feature = Storage(lat = None,
+                                  lon = None,
+                                  addr_street = None,
+                                  addr_postcode = None,
+                                  parent = None)
+                db(table.id == value).update(**feature)
+                # Update location tree in case parent has changed
+                feature.id = value
+                # onaccept
+                current.gis.update_location_tree(feature)
+                return (value, None)
 
 # =============================================================================
 class IS_SITE_SELECTOR(IS_LOCATION_SELECTOR):
@@ -3072,5 +3078,56 @@ class IS_TIME_INTERVAL_WIDGET(Validator):
             return (0, None)
         seconds = val * mul
         return (seconds, None)
+
+# =============================================================================
+class IS_PHONE_NUMBER(Validator):
+    """
+        Validator for single phone numbers with option to
+        enforce E.123 international notation (with leading +
+        and no punctuation or spaces).
+    """
+
+    def __init__(self,
+                 international = False,
+                 error_message = "invalid phone number!"):
+        """
+            Constructor
+
+            @param international: enforce E.123 international notation,
+                                  no effect if turned off globally in
+                                  deployment settings
+            @param error_message: alternative error message
+        """
+
+        self.international = international
+        self.error_message = error_message
+
+    def __call__(self, value):
+        """
+            Validation of a value
+
+            @param value: the value
+            @return: tuple (value, error), where error is None if value
+                     is valid. With international=True, the value returned
+                     is converted into E.123 international notation.
+        """
+
+        number = str(value).strip()
+
+        number, error = s3_single_phone_requires(number)
+        if not error:
+            if self.international and \
+               current.deployment_settings \
+                      .get_msg_require_international_phone_numbers():
+                # Require E.123 international format
+                number = "".join(re.findall("[\d+]+", number))
+                match = re.match("(\+)([1-9]\d+)$", number)
+                #match = re.match("(\+|00|\+00)([1-9]\d+)$", number)
+                if match:
+                    number = "+%s" % match.groups()[1]
+                    return (number, None)
+            else:
+                return (number, None)
+        return (value, self.error_message)
 
 # END =========================================================================

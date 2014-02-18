@@ -139,9 +139,7 @@ class S3SVG(S3Codec):
         # @ToDo: Support multiple records
         wkt = items[0]["gis_location.wkt"]
         if not wkt:
-            error = "No Geometry!"
-            from ..s3utils import s3_debug
-            s3_debug(error)
+            current.log.error("No Geometry!")
         
         # Convert to SVG
         title = attr.get("title", resource._ids[0])
@@ -179,26 +177,15 @@ class S3SVG(S3Codec):
             from shapely import speedups
             speedups.enable()
         except:
-            from ..s3utils import s3_debug
-            s3_debug("S3GIS", "Upgrade Shapely for Performance enhancements")
+            current.log.info("S3GIS",
+                             "Upgrade Shapely for Performance enhancements")
 
         shape = wkt_loads(wkt)
 
         geom_type = shape.geom_type
-        if geom_type == "MultiPolygon":
-            polygons = shape.geoms
-        elif geom_type == "Polygon":
-            polygons = [shape]
-        else:
-            error = "Unsupported Geometry: %s" % geom_type
-            from ..s3utils import s3_debug
-            s3_debug(error)
+        if geom_type not in ("MultiPolygon", "Polygon"):
+            current.log.error("Unsupported Geometry", geom_type)
             return
-        # @ToDo:
-        #elif geom_type == "LineString":
-        #    _points = shape
-        #elif geom_type == "Point":
-        #    _points = [shape]
 
         # Scale Points & invert Y axis
         from shapely import affinity
@@ -207,14 +194,24 @@ class S3SVG(S3Codec):
         sheight = abs(bounds[3] - bounds[1])
         width_multiplier = iwidth / swidth
         height_multiplier = iheight / sheight
-        multiplier = min(width_multiplier, height_multiplier) * 0.9
+        multiplier = min(width_multiplier, height_multiplier) * 0.9 # Padding
         shape = affinity.scale(shape, xfact=multiplier, yfact=-multiplier, origin="centroid")
 
         # Center Shape
-        #centroid = shape.centroid
-        #xoff = (iwidth / 2) - centroid.x
-        #yoff = (iheight / 2) - centroid.y
-        #affinity.translate(shape, xoff=xoff, yoff=yoff)
+        centroid = shape.centroid
+        xoff = (iwidth / 2) - centroid.x
+        yoff = (iheight / 2) - centroid.y
+        shape = affinity.translate(shape, xoff=xoff, yoff=yoff)
+
+        if geom_type == "MultiPolygon":
+            polygons = shape.geoms
+        elif geom_type == "Polygon":
+            polygons = [shape]
+        # @ToDo:
+        #elif geom_type == "LineString":
+        #    _points = shape
+        #elif geom_type == "Point":
+        #    _points = [shape]
 
         points = []
         pappend = points.append

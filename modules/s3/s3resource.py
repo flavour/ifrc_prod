@@ -3592,10 +3592,8 @@ class S3Resource(object):
         except:
             # Oops - something went wrong in the validator:
             # write out a debug message, and continue anyway
-            if current.response.s3.debug:
-                from s3utils import s3_debug
-                s3_debug("Validate %s: %s (ignored)" %
-                         (field, sys.exc_info()[1]))
+            current.log.error("Validate %s: %s (ignored)" %
+                              (field, sys.exc_info()[1]))
             return (None, None)
         else:
             return (value, error)
@@ -4586,15 +4584,27 @@ class S3LeftJoins(object):
         accessible_query = current.auth.s3_accessible_query
 
         if tablenames is None:
-            tablenames = list(set(self.tables))
+            tablenames = set(self.tables)
         else:
-            tablenames = list(set(tablenames))
-
+            tablenames = set(tablenames)
+        
         joins = self.joins
 
-        joins_dict = {}
+        # Resolve dependencies
+        required_tables = set()
+        get_tables = current.db._adapter.tables
         for tablename in tablenames:
+            if tablename not in joins or tablename == self.tablename:
+                continue
+            required_tables.add(tablename)
+            for join in joins[tablename]:
+                dependencies = get_tables(join.second)
+                if dependencies:
+                    required_tables |= set(dependencies)
 
+        # Collect joins
+        joins_dict = {}
+        for tablename in required_tables:
             if tablename not in joins or tablename == self.tablename:
                 continue
             for join in joins[tablename]:
@@ -4610,6 +4620,8 @@ class S3LeftJoins(object):
                     if aquery is not None:
                         j = join.first.on(join.second & aquery)
                 joins_dict[tname] = j
+
+        # Sort joins (if possible)
         try:
             return self.sort(joins_dict.values())
         except RuntimeError:
@@ -4824,9 +4836,7 @@ class S3FieldSelector(object):
             try:
                 value = value()
             except:
-                if current.response.s3.debug:
-                    from s3utils import s3_debug
-                    s3_debug(sys.exc_info()[1])
+                current.log.error(sys.exc_info()[1])
                 value = None
 
         if hasattr(field, "expr"):
@@ -5345,9 +5355,7 @@ class S3ResourceField(object):
             try:
                 value = value()
             except:
-                if current.response.s3.debug:
-                    from s3utils import s3_debug
-                    s3_debug(sys.exc_info()[1])
+                current.log.error(sys.exc_info()[1])
                 value = None
 
         if represent:
@@ -5781,9 +5789,7 @@ class S3ResourceQuery(object):
             l = extract(lfield)
             r = extract(rfield)
         except (KeyError, SyntaxError):
-            if current.response.s3.debug:
-                from s3utils import s3_debug
-                s3_debug(sys.exc_info()[1])
+            current.log.error(sys.exc_info()[1])
             return None
 
         if isinstance(left, S3FieldSelector):
@@ -6276,7 +6282,12 @@ class S3URLQuery(object):
 
             # Append to query
             if len(selectors) > 1:
-                alias = resource.alias
+                aliases = [s.split(".", 1)[0] for s in selectors]
+                if len(set(aliases)) == 1:
+                    alias = aliases[0]
+                else:
+                    alias = resource.alias
+                #alias = resource.alias
             else:
                 alias = selectors[0].split(".", 1)[0]
             if alias == "~":
@@ -6426,9 +6437,7 @@ class S3URLQuery(object):
             try:
                 rquery = S3ResourceQuery(op, f, v)
             except SyntaxError:
-                if current.response.s3.debug:
-                    from s3utils import s3_debug
-                    s3_debug("Invalid URL query operator: %s (sub-query ignored)" % op)
+                current.log.error("Invalid URL query operator: %s (sub-query ignored)" % op)
                 q = None
                 break
 
@@ -6541,7 +6550,20 @@ class S3ResourceFilter(object):
 
                 # Filters
                 add_filter = self.add_filter
+                
+                # Current concept:
+                # Interpret all URL filters in the context of master
                 queries = S3URLQuery.parse(resource, vars)
+                
+                # @todo: Alternative concept (inconsistent?):
+                # Interpret all URL filters in the context of filter_component:
+                #if filter_component and \
+                   #filter_component in resource.components:
+                    #context = resource.components[filter_component]
+                #else:
+                    #context = resource
+                #queries = S3URLQuery.parse(context, vars)
+
                 for alias in queries:
                     if filter_component == alias:
                         for q in queries[alias]:

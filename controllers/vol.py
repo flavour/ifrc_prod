@@ -281,7 +281,7 @@ def volunteer():
         resource.configure(list_fields = list_fields,
                            filter_widgets = filter_widgets,
                            report_options = report_options,
-                          )
+                           )
                     
         if r.interactive:
             if r.id:
@@ -311,7 +311,7 @@ def volunteer():
                                "essential",
                                "site_contact",
                                "status",
-                              ):
+                               ):
                         table[fn].writable = table[fn].readable = False
                     # Organisation Dependent Fields
                     set_org_dependent_field = settings.set_org_dependent_field
@@ -353,6 +353,7 @@ def volunteer():
                "form" in output:
                 # @ToDo: Re-implement using
                 # http://eden.sahanafoundation.org/wiki/S3SQLForm
+                # NB This means adjusting IFRC/config.py too
                 sep = ": "
                 table = s3db.hrm_programme_hours
                 field = table.programme_id
@@ -578,8 +579,11 @@ def person():
             else:
                 if r.component_name == "hours":
                     # Exclude records which are just to link to Programme
+                    component_table = r.component.table
                     filter = (r.component.table.hours != None)
                     r.resource.add_component_filter("hours", filter)
+                    component_table.training.readable = False
+                    component_table.training_id.readable = False
 
                 elif r.component_name == "physical_description":
                     # Hide all but those details that we want
@@ -733,7 +737,7 @@ def person():
     return output
 
 # -----------------------------------------------------------------------------
-def person_search():
+def hr_search():
     """
         Human Resource REST controller
         - limited to just search_ac for use in Autocompletes
@@ -747,6 +751,22 @@ def person_search():
     s3.prep = lambda r: r.method == "search_ac"
 
     return s3_rest_controller("hrm", "human_resource")
+
+# -----------------------------------------------------------------------------
+def person_search():
+    """
+        Person REST controller
+        - limited to just search_ac for use in Autocompletes
+        - allows differential access permissions
+    """
+
+    # Filter to just Volunteers
+    s3.filter = s3base.S3FieldSelector("human_resource.type") == 2
+
+    # Only allow use in the search_ac method
+    s3.prep = lambda r: r.method == "search_ac"
+
+    return s3_rest_controller("pr", "person")
 
 # =============================================================================
 # Teams

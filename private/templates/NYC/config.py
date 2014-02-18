@@ -309,11 +309,19 @@ def customize_org_facility(**attr):
             tablename = "org_facility"
             table = s3db[tablename]
 
-            if r.method in ("create", "update"):
+            if r.component_name == "human_resource":
+                from s3.s3validators import IS_ADD_PERSON_WIDGET2
+                from s3.s3widgets import S3AddPersonWidget2
+                pfield = r.component.table.person_id
+                pfield.requires = IS_ADD_PERSON_WIDGET2()
+                pfield.widget = S3AddPersonWidget2(controller="pr")
+
+            elif r.method in (None, "create", "update"):
                 from s3.s3validators import IS_LOCATION_SELECTOR2
                 from s3.s3widgets import S3LocationSelectorWidget2#, S3SelectChosenWidget
                 field = table.location_id
-                field.label = "" # Gets replaced by widget
+                if r.method in ("create", "update"):
+                    field.label = "" # Gets replaced by widget
                 levels = ("L2", "L3")
                 field.requires = IS_LOCATION_SELECTOR2(levels=levels)
                 field.widget = S3LocationSelectorWidget2(levels=levels,
@@ -600,14 +608,29 @@ def customize_org_group(**attr):
             if not r.component:
                 from gluon.html import DIV, INPUT
                 from s3.s3forms import S3SQLCustomForm, S3SQLInlineComponent, S3SQLInlineComponentMultiSelectWidget
-                from s3.s3validators import IS_LOCATION_SELECTOR2
-                from s3.s3widgets import S3LocationSelectorWidget2
-                field = s3db.org_group.location_id
-                field.label = "" # Gets replaced by widget
-                field.requires = IS_LOCATION_SELECTOR2(levels=("L2",))
-                field.widget = S3LocationSelectorWidget2(levels=("L2",),
-                                                         polygons=True,
-                                                         )
+                if r.method != "read":
+                    from gluon.validators import IS_NULL_OR
+                    from s3.s3validators import IS_LOCATION_SELECTOR2
+                    from s3.s3widgets import S3LocationSelectorWidget2
+                    field = s3db.org_group.location_id
+                    field.label = "" # Gets replaced by widget
+                    #field.requires = IS_LOCATION_SELECTOR2(levels=("L2",))
+                    field.requires = IS_NULL_OR(
+                                        IS_LOCATION_SELECTOR2(levels=("L2",))
+                                        )
+                    field.widget = S3LocationSelectorWidget2(levels=("L2",),
+                                                             polygons=True,
+                                                             )
+                    # Default location to Manhattan
+                    db = current.db
+                    gtable = db.gis_location
+                    query = (gtable.name == "New York") & \
+                            (gtable.level == "L2")
+                    manhattan = db(query).select(gtable.id,
+                                                 limitby=(0, 1)).first()
+                    if manhattan:
+                        field.default = manhattan.id
+
                 s3db.pr_contact.value.label = ""
                 s3db.doc_document.url.label = ""
                 crud_form = S3SQLCustomForm(
@@ -633,7 +656,7 @@ def customize_org_group(**attr):
                                         options = "EMAIL"
                                         )
                     ),
-                    #"website",
+                    "website",
                     S3SQLInlineComponent(
                         "contact",
                         comment = DIV(INPUT(_type="checkbox",

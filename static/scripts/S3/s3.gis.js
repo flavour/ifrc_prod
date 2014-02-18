@@ -109,6 +109,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
 
         // If we were instantiated with bounds, use these now
         if (bounds) {
+            bounds.transform(proj4326, projection_current);
             map.zoomToExtent(bounds);
         }
 
@@ -221,7 +222,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                         });
                         strategies = layer.strategies;
                         jlen = strategies.length;
-                        // Disable Clustering to get correct bounds
+                        // Disable BBOX and Clustering to get correct bounds
                         for (j=0; j < jlen; j++) {
                             strategy = strategies[j];
                             if (strategy.CLASS_NAME == 'OpenLayers.Strategy.AttributeCluster') {
@@ -233,8 +234,10 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                             // Reload the layer
                             for (j=0; j < jlen; j++) {
                                 strategy = strategies[j];
-                                if (strategy.CLASS_NAME == 'OpenLayers.Strategy.Refresh') {
-                                    strategy.refresh();
+                                if (strategy.CLASS_NAME == 'OpenLayers.Strategy.BBOX') {
+                                    // Set bounds to maxExtent so that filter doesn't apply
+                                    strategy.bounds = null;
+                                    strategy.triggerRead();
                                     break;
                                 }
                             }
@@ -936,7 +939,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
             }
             for (dir in folders) {
                 _dir = folders[dir];
-                children = []
+                children = [];
                 // @ToDo: Recursive (currently just 1 layer)
                 for (sub in _dir) {
                     baseAttrs = {
@@ -4019,6 +4022,12 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                     // Clear the one from the Current Location in S3LocationSelector
                     draftLayer.features[0].destroy();
                 }
+
+                if (undefined != map.s3.pointPlaced) {
+                    // Call Custom Call-back
+                    map.s3.pointPlaced(feature);
+                }
+
                 // Prepare in case user draws a new line
                 map.s3.lastDraftFeature = feature;
             }
@@ -4093,6 +4102,17 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                         wkt_search_field.val(WKT).trigger('change');
                     }
                 }
+
+                if (undefined != map.s3.pointPlaced) {
+                    // Call Custom Call-back
+                    map.s3.pointPlaced(feature);
+                }
+
+                if (undefined != map.s3.pointPlaced) {
+                    // Call Custom Call-back
+                    map.s3.pointPlaced(feature);
+                }
+
                 // Prepare in case user draws a new polygon
                 map.s3.lastDraftFeature = feature;
             }

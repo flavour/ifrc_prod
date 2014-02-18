@@ -380,8 +380,8 @@ class S3OptionsMenu(object):
         settings_messaging = self.settings_messaging()
         translate = current.deployment_settings.has_module("translate")
 
-        # ATTN: Do not specify a controller for the main menu to allow
-        #       re-use of this menu by other controllers
+        # NB: Do not specify a controller for the main menu to allow
+        #     re-use of this menu by other controllers
         return M(restrict=[ADMIN])(
                     M("Settings", c="admin", f="setting")(
                         settings_messaging,
@@ -508,25 +508,25 @@ class S3OptionsMenu(object):
                     M("Budgets", f="budget")(
                         M("New", m="create"),
                     ),
-                    M("Parameters", f="parameters"),
-                    M("Items", f="item")(
-                        M("New", m="create"),
-                    ),
-                    M("Kits", f="kit")(
-                        M("New", m="create"),
-                    ),
-                    M("Bundles", f="bundle")(
-                        M("New", m="create"),
-                    ),
                     M("Staff", f="staff")(
-                        M("New", m="create"),
-                    ),
-                    M("Locations", f="location")(
                         M("New", m="create"),
                     ),
                     M("Projects", f="project")(
                         M("New", m="create"),
                     ),
+                    M("Locations", f="location")(
+                        M("New", m="create"),
+                    ),
+                    M("Bundles", f="bundle")(
+                        M("New", m="create"),
+                    ),
+                    M("Kits", f="kit")(
+                        M("New", m="create"),
+                    ),
+                    M("Items", f="item")(
+                        M("New", m="create"),
+                    ),
+                    M("Parameters", f="parameter"),
                 )
 
     # -------------------------------------------------------------------------
@@ -804,20 +804,6 @@ class S3OptionsMenu(object):
                 )
 
     # -------------------------------------------------------------------------
-    def flood(self):
-        """ FLOOD """
-
-        return M(c="flood")(
-                    M("Gauges", f="gauge")(
-                        M("New", m="create"),
-                        M("List All"),
-                        M("Map", m="map"),
-                        #M("Search", m="search"),
-                        M("Import", m="import"),
-                    ),
-                )
-
-    # -------------------------------------------------------------------------
     def gis(self):
         """ GIS / GIS Controllers """
 
@@ -870,10 +856,10 @@ class S3OptionsMenu(object):
             return ["create"]
 
         return M(c="gis")(
-                    M("Fullscreen Map", f="map_viewing_client"),
+                    M("Fullscreen Map", c="gis", f="map_viewing_client"),
                     # Currently not got geocoding support
                     #M("Bulk Uploader", c="doc", f="bulk_upload"),
-                    M("Locations", f="location")(
+                    M("Locations", c="gis", f="location")(
                         M("Add Location", m="create"),
                         #M("Add Location Group", m="create", vars={"group": 1}),
                         M("List All"),
@@ -882,15 +868,15 @@ class S3OptionsMenu(object):
                           restrict=[MAP_ADMIN]),
                         #M("Geocode", f="geocode_manual"),
                     ),
-                    M("PoIs", f="poi", check=[pois])(),
+                    M("PoIs", c="gis", f="poi", check=[pois])(),
                     #M("Population Report", f="location", m="report",
                     #  vars=dict(rows="name",
                     #            fact="population",
                     #            aggregate="sum")),
-                    M("Configuration", f="config", args=config_args(),
+                    M("Configuration", c="gis", f="config", args=config_args(),
                       _id="gis_menu_config",
                       check=config_menu),
-                    M("Admin", restrict=[MAP_ADMIN])(
+                    M("Admin", c="gis", restrict=[MAP_ADMIN])(
                         M("Hierarchy", f="hierarchy"),
                         M("Layers", f="catalog"),
                         M("Markers", f="marker"),
@@ -1143,54 +1129,51 @@ class S3OptionsMenu(object):
                     #M("Home", f="index"),
                     M("Warehouses", c="inv", f="warehouse")(
                         M("New", m="create"),
-                        M("List All"),
-                        M("Search", m="search"),
+                        #M("Search"),
                         M("Import", m="import", p="create"),
                     ),
                     M("Warehouse Stock", c="inv", f="inv_item")(
-                        M("Search", f="inv_item", m="search"),
-                        M("Search Shipped Items", f="track_item", m="search"),
+                        #M("Search", f="inv_item"),
+                        # Duplicate:
+                        #M("Search Shipped Items", f="track_item"),
                         M("Adjust Stock Levels", f="adj", check=use_adjust),
                         M("Kitting", f="kit"),
                         M("Import", f="inv_item", m="import", p="create"),
                     ),
                     M("Reports", c="inv", f="inv_item")(
-                        M("Warehouse Stock", f="inv_item",m="report"),
+                        M("Warehouse Stock", f="inv_item", m="report2"),
                         M("Expiration Report", c="inv", f="track_item",
-                          m="search", vars=dict(report="exp")),
+                          vars=dict(report="exp")),
                         M("Monetization Report", c="inv", f="inv_item",
-                          m="search", vars=dict(report="mon")),
+                          vars=dict(report="mon")),
                         M("Utilization Report", c="inv", f="track_item",
-                          m="search", vars=dict(report="util")),
+                          vars=dict(report="util")),
                         M("Summary of Incoming Supplies", c="inv", f="track_item",
-                          m="search", vars=dict(report="inc")),
+                          vars=dict(report="inc")),
                         M("Summary of Releases", c="inv", f="track_item",
-                          m="search", vars=dict(report="rel")),
+                          vars=dict(report="rel")),
                     ),
                     M(inv_recv_list, c="inv", f="recv")(
                         M("New", m="create"),
-                        M("List All"),
-                        M("Search", m="search"),
-                        M("timeline", args="timeline"),
+                        #M("List All"),
+                        M("Timeline", args="timeline"),
                     ),
                     M("Sent Shipments", c="inv", f="send")(
                         M("New", m="create"),
-                        M("List All"),
-                        M("Search", m="search"),
-                        M("Search Shipped Items", f="track_item", m="search"),
-                        M("timeline", args="timeline"),
+                        #M("List All"),
+                        M("Search Shipped Items", f="track_item"),
+                        M("Timeline", args="timeline"),
                     ),
                     M("Items", c="supply", f="item")(
                         M("New", m="create"),
-                        M("List All"),
+                        #M("List All"),
                         M("Report", m="report2"),
                         M("Import", f="catalog_item", m="import", p="create"),
                     ),
                     # Catalog Items moved to be next to the Item Categories
                     #M("Catalog Items", c="supply", f="catalog_item")(
                        #M("New", m="create"),
-                       #M("List All"),
-                       #M("Search", m="search"),
+                       #M("Search"),
                     #),
                     #M("Brands", c="supply", f="brand",
                     #  restrict=[ADMIN])(
@@ -1199,38 +1182,34 @@ class S3OptionsMenu(object):
                     #),
                     M("Catalogs", c="supply", f="catalog")(
                         M("New", m="create"),
-                        M("List All"),
-                        #M("Search", m="search"),
+                        #M("List All"),
                     ),
                     M("Item Categories", c="supply", f="item_category",
                       restrict=[ADMIN])(
                         M("New", m="create"),
-                        M("List All"),
+                        #M("List All"),
                     ),
                     M("Suppliers", c="inv", f="supplier")(
                         M("New", m="create"),
-                        M("List All"),
-                        M("Search", m="search"),
+                        #M("List All"),
                         M("Import", m="import", p="create"),
                     ),
                     M("Facilities", c="inv", f="facility")(
                         M("New", m="create", t="org_facility"),
-                        M("List All"),
+                        #M("List All"),
                     ),
                     M("Facility Types", c="inv", f="facility_type",
                       restrict=[ADMIN])(
                         M("New", m="create"),
-                        M("List All"),
-                        #M("Search", m="search"),
+                        #M("List All"),
                     ),
                     M("Requests", c="req", f="req")(
                         M("New", m="create"),
-                        M("List All"),
+                        #M("List All"),
                         M("Requested Items", f="req_item"),
-                        #M("Search Requested Items", f="req_item", m="search"),
                     ),
                     M("Commitments", c="req", f="commit", check=use_commit)(
-                        M("List All")
+                        #M("List All")
                     ),
                 )
 
@@ -1713,8 +1692,7 @@ class S3OptionsMenu(object):
                     # Catalog Items moved to be next to the Item Categories
                     #M("Catalog Items", c="supply", f="catalog_item")(
                        #M("New", m="create"),
-                       #M("List All"),
-                       #M("Search", m="search"),
+                       #M("Search"),
                     #),
                     M("Catalogs", c="supply", f="catalog")(
                         M("New", m="create"),
@@ -1824,6 +1802,37 @@ class S3OptionsMenu(object):
                         M("Import", m="import"),
                         M("List All"),
                         #M("Search", m="search"),
+                    ),
+                )
+
+    # -------------------------------------------------------------------------
+    def water(self):
+        """ Water: Floods, etc """
+
+        return M(c="water")(
+                    M("Gauges", f="gauge")(
+                        M("New", m="create"),
+                        M("List All"),
+                        M("Map", m="map"),
+                        M("Import", m="import"),
+                    ),
+                    M("Rivers", f="river")(
+                        M("New", m="create"),
+                        M("List All"),
+                        M("Map", m="map"),
+                        #M("Import", m="import"),
+                    ),
+                    M("Zones", f="zone")(
+                        M("New", m="create"),
+                        M("List All"),
+                        M("Map", m="map"),
+                        #M("Import", m="import"),
+                    ),
+                    M("Zone Types", f="zone_type")(
+                        M("New", m="create"),
+                        M("List All"),
+                        M("Map", m="map"),
+                        #M("Import", m="import"),
                     ),
                 )
 

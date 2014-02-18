@@ -76,6 +76,7 @@ class S3Config(Storage):
         self.search = Storage()
         self.security = Storage()
         self.ui = Storage()
+        self.log = Storage()
 
     # -------------------------------------------------------------------------
     # Template
@@ -530,6 +531,35 @@ class S3Config(Storage):
             if default:
                 return default
 
+    # -------------------------------------------------------------------------
+    # Logger settings
+    def get_log_level(self):
+        """
+            Minimum severity level for logger: "DEBUG", "INFO", "WARNING",
+            "ERROR", "CRITICAL". None = turn off logging
+        """
+        return "DEBUG" if self.base.get("debug") \
+                       else self.log.get("level", None)
+
+    def get_log_console(self):
+        """
+            True to enable console logging (sys.stderr)
+        """
+        return self.log.get("console", True)
+
+    def get_log_logfile(self):
+        """
+            Log file name, None to turn off log file output
+        """
+        return self.log.get("logfile", None)
+
+    def get_log_caller_info(self):
+        """
+            True to enable detailed caller info in log (filename,
+            line number, function name), useful for diagnostics
+        """
+        return self.log.get("caller_info", False)
+        
     # -------------------------------------------------------------------------
     # Database settings
     def get_database_type(self):
@@ -1275,6 +1305,17 @@ class S3Config(Storage):
         """
         return self.msg.get("notify_renderer", None)
 
+    # -------------------------------------------------------------------------
+    # SMS
+    #
+    def get_msg_require_international_phone_numbers(self):
+        """
+            Requires the E.123 international phone number
+            notation where needed (e.g. SMS)
+        """
+
+        return self.msg.get("require_international_phone_numbers", True)
+    
     # =========================================================================
     # Search
 
