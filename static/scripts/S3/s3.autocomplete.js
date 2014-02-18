@@ -303,7 +303,7 @@
      */
     var represent_location = function(item) {
         if (item.label != undefined) {
-            // No Match
+            // No Match or too many results
             return item.label;
         }
         if (item.name) {
@@ -502,7 +502,7 @@
      */
     var represent_person = function(item) {
         if (item.label != undefined) {
-            // No Match
+            // No Match or too many results
             return item.label;
         }
         var name = item.first;
@@ -801,7 +801,7 @@
      */
     var represent_hr = function(item) {
         if (item.label != undefined) {
-            // No Match
+            // No Match or too many results
             return item.label;
         }
         var name = item.first;
@@ -841,16 +841,16 @@
 
         if (group == 'staff') {
             // Search Staff
-            var url = S3.Ap.concat('/hrm/person_search/search_ac?group=staff');
+            var url = S3.Ap.concat('/hrm/hr_search/search_ac?group=staff');
         } else if (group == 'volunteer') {
             // Search Volunteers
-            var url = S3.Ap.concat('/vol/person_search/search_ac');
+            var url = S3.Ap.concat('/vol/hr_search/search_ac');
         } else if (group == 'deploy') {
             // Search Deployables
-            var url = S3.Ap.concat('/deploy/person_search/search_ac');
+            var url = S3.Ap.concat('/deploy/hr_search/search_ac');
         } else {
             // Search all HRs
-            var url = S3.Ap.concat('/hrm/person_search/search_ac');
+            var url = S3.Ap.concat('/hrm/hr_search/search_ac');
         }
 
         var real_input = $('#' + input);
@@ -981,7 +981,7 @@
      */
     var represent_org = function(item) {
         if (item.label != undefined) {
-            // No Match
+            // No Match or too many results
             return item.label;
         }
         if (item.matchString) {
@@ -1159,7 +1159,7 @@
      */
     var represent_site = function(item) {
         if (item.label != undefined) {
-            // No Match
+            // No Match or too many results
             return item.label;
         }
 
