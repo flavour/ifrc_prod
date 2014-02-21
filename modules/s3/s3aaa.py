@@ -1387,20 +1387,27 @@ Thank you
             else:
                 field.readable = field.writable = True
                 #field.default = deployment_settings.get_auth_registration_site_id_default()
+                site_required = deployment_settings.get_auth_registration_site_required()
                 if req_org:
                     from s3validators import IS_ONE_OF_EMPTY
                     requires = IS_ONE_OF_EMPTY(db, "org_site.site_id",
                                                site_represent,
                                                orderby="org_site.name",
                                                sort=True)
+                    if site_required:
+                        site_required = ""
+                    else:
+                        site_required = ''',
+ 'optional': true'''
                     current.response.s3.jquery_ready.append('''
 S3OptionsFilter({
  'triggerName':'organisation_id',
  'targetName':'site_id',
  'lookupField':'site_id',
  'lookupResource':'site',
- 'lookupURL':S3.Ap.concat('/org/sites_for_org/')
-})''')
+ 'lookupURL':S3.Ap.concat('/org/sites_for_org/')%s
+})''' % site_required)
+
                 else:
                     requires = IS_ONE_OF(db, "org_site.site_id",
                                          site_represent,
@@ -1411,7 +1418,7 @@ S3OptionsFilter({
                 field.comment = DIV(_class="tooltip",
                                     _title="%s|%s" % (T("Facility"),
                                                       T("Select the default site.")))
-                if deployment_settings.get_auth_registration_site_required():
+                if site_required:
                     field.requires = requires
                 else:
                     field.requires = IS_NULL_OR(requires)
