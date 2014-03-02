@@ -7665,14 +7665,8 @@ class S3RoleManager(S3Method):
         if is_admin:
             pe_ids = []
         else:
-            # Filter the realms
-            otable = s3db.org_organisation
-            query = (otable.id == auth.user.organisation_id)
-            pe_id = current.db(query).select(otable.pe_id,
-                                             limitby=(0, 1)
-                                             ).first().pe_id
-            pe_ids = s3db.pr_get_descendants(pe_id, entity_types=types)
-            pe_ids.append(pe_id)
+            # Filter realms to just those for which the user has Org_Admin role
+            pe_ids = auth.user.realms[auth.get_system_roles().ORG_ADMIN]
 
         entities = s3db.pr_get_entities(pe_ids=pe_ids, types=types, group=True)
 
