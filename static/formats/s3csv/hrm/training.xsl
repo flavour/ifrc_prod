@@ -178,6 +178,7 @@
                 </xsl:attribute>
             </reference>
             <data field="date"><xsl:value-of select="col[@field='Start']"/></data>
+            <data field="end_date"><xsl:value-of select="col[@field='End']"/></data>
             <data field="hours"><xsl:value-of select="$Hours"/></data>
         </resource>
 

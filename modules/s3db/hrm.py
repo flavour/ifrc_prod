@@ -324,7 +324,7 @@ class S3HRModel(S3Model):
 
         organisation_label = settings.get_hrm_organisation_label()
 
-        if group == "volunteer" or s3.bulk:
+        if group == "volunteer" or s3.bulk or not group:
             # Volunteers don't have a Site
             # Don't set a Site for Bulk Imports unless set explicitly
             default_site = None
