@@ -22,7 +22,7 @@ def index():
         redirect(URL(f="person"))
     else:
         # Bypass home page & go direct to searchable list of Staff
-        redirect(URL(f="staff"))
+        redirect(URL(f="staff", args="summary"))
 
 # =============================================================================
 # People
@@ -95,7 +95,7 @@ def staff():
             list_fields.append((T("Contract End Date"), "end_date"))
             list_fields.append("status")
         resource.configure(list_fields = list_fields)
-        
+
         if r.interactive:
             if r.id:
                 if r.method not in ("profile", "delete"):
@@ -122,7 +122,7 @@ def staff():
                                             _title="%s|%s" % (
                                                     settings.get_org_site_label(),
                                                     T("The facility where this position is based."),
-                                                    #T("Enter some characters to bring up a list of possible matches")
+                                                    #messages.AUTOCOMPLETE_HELP,
                                             )))
                     #field.comment = S3AddResourceLink(c="org", f="facility",
                     #                                  vars = dict(child="site_id",

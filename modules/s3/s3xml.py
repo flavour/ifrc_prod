@@ -884,7 +884,7 @@ class S3XML(S3Codec):
                tablename in auth.org_site_types:
                 # Lookup the right pre-prepared data for mapping by site_id
                 root = element.getparent()
-                if root.tag == self.TAG.root:
+                if root and root.tag == self.TAG.root:
                     #print self.tostring(root)
                     first = root[0]
                     _tablename = first.get(ATTRIBUTE.name, None)
@@ -1188,7 +1188,9 @@ class S3XML(S3Codec):
             # Get the representation
             is_lazy = False
             if fieldtype not in ("upload", "password", "blob"):
-                if represent is not None and fieldtype != "id":
+                if represent is not None and \
+                   fieldtype != "id" and \
+                   f not in ("created_on", "modified_on"):
                     if lazy is not None and hasattr(represent, "bulk"):
                         is_lazy = True
                         text = S3RepresentLazy(v, represent)
@@ -2227,6 +2229,7 @@ class S3XML(S3Codec):
                 if hasattr(source, "seek"):
                     source.seek(0)
                 wb = xlrd.open_workbook(file_contents=source.read(),
+                                        # requires xlrd 0.7.x or higher
                                         on_demand=True)
             elif isinstance(source, xlrd.book.Book):
                 # Source is an open work book
@@ -2475,6 +2478,9 @@ class S3XMLFormat(object):
         """
 
         self.tree = current.xml.parse(stylesheet)
+        if not self.tree:
+            current.log.error("%s parse error: %s" %
+                              (stylesheet, current.xml.error))
         
         self.select = None
         self.skip = None
@@ -2491,7 +2497,7 @@ class S3XMLFormat(object):
         """
 
         ANY = "ANY"
-        default = None
+        default = (None, None)
 
         tree = self.tree
         if not tree:
@@ -2579,6 +2585,10 @@ class S3XMLFormat(object):
             @param tree: the element tree
             @param args: parameters for the stylesheet
         """
+
+        if not self.tree:
+            current.log.error("XMLFormat: no stylesheet available")
+            return tree
 
         return current.xml.transform(tree, self.tree, **args)
 

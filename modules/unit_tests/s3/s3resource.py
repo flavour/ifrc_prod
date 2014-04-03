@@ -432,19 +432,24 @@ class ResourceFilterJoinTests(unittest.TestCase):
         project_project = resource.table
         project_task_project = s3db.project_task_project
         project_task = s3db.project_task
+        org_organisation = s3db.org_organisation
         
-        expected_l = project_task_project.on(
+        expected1 = org_organisation.on(
+                        project_project.organisation_id == org_organisation.id)
+
+        expected2 = project_task_project.on(
                         (project_task_project.project_id == project_project.id) &
                         (project_task_project.deleted != True))
 
-        expected_r = project_task.on(
-                        project_task_project.task_id == project_task.id)
-
+        expected3 = project_task.on(project_task_project.task_id == project_task.id)
+        
         joins = resource.rfilter.get_left_joins()
         self.assertTrue(isinstance(joins, list))
+        self.assertEqual(len(joins), 3)
 
-        self.assertEqual(joins[0], str(expected_l))
-        self.assertEqual(joins[1], str(expected_r))
+        self.assertEqual(str(joins[0]), str(expected1))
+        self.assertEqual(str(joins[1]), str(expected2))
+        self.assertEqual(str(joins[2]), str(expected3))
 
     # -------------------------------------------------------------------------
     def tearDown(self):
@@ -573,31 +578,38 @@ class ResourceFilterQueryTests(unittest.TestCase):
         rfilter = component.rfilter
         query = rfilter.get_query()
 
-        expected = (((((project_task.deleted != True) &
-                       (project_task.id > 0)) &
-                      (((project_project.deleted !=True) &
-                        (project_project.id > 0)) &
-                       ((org_organisation.name == "test") &
-                        (project_task.description == "test")))) &
-                     ((project_task_project.deleted != True) &
-                      ((project_task_project.project_id == project_project.id) &
-                       (project_task_project.task_id == project_task.id)))) &
-                    (project_project.organisation_id == org_organisation.id))
-
-        #expected = (((((project_task.deleted != True) &
-                       #(project_task.id > 0)) &
-                      #((((project_project.deleted != True) &
-                         #(project_project.id > 0)) &
-                        #(org_organisation.name == "test")) &
-                      #(project_task.description == "test"))) &
-                     #((project_task_project.deleted != True) &
-                      #((project_task_project.project_id == project_project.id) &
-                       #(project_task_project.task_id == project_task.id)))) &
-                    #(project_project.organisation_id == org_organisation.id))
-
-        self.assertEqual(str(query), str(expected))
-        self.assertEqual(rfilter.get_left_joins(as_list=False), Storage())
+        expected = ((((project_task.deleted != True) &
+                   (project_task.id > 0)) &
+                   (((project_project.deleted != True) &
+                   (project_project.id > 0)) &
+                   ((org_organisation.name == "test") &
+                   (project_task.description == "test")))) &
+                   ((project_task_project.deleted != True) &
+                   ((project_task_project.project_id == project_project.id) &
+                   (project_task_project.task_id == project_task.id))))
+                    
+        self.assertEqual(query, expected)
         
+        left = rfilter.get_left_joins(as_list=False)
+        tablenames = left.keys()
+        self.assertEqual(len(tablenames), 2)
+        self.assertTrue("org_organisation" in tablenames)
+        self.assertTrue("project_project" in tablenames)
+        
+        self.assertTrue(isinstance(left["org_organisation"], list))
+        self.assertEqual(len(left["org_organisation"]), 1)
+        expected = org_organisation.on(
+                        project_project.organisation_id == org_organisation.id)
+        self.assertEqual(str(left["org_organisation"][0]), str(expected))
+        
+        self.assertTrue(isinstance(left["project_project"], list))
+        self.assertEqual(len(left["project_project"]), 2)
+        expected = project_task_project.on(project_task_project.task_id == project_task.id)
+        self.assertEqual(str(left["project_project"][0]), str(expected))
+        expected = project_project.on((project_task_project.project_id == project_project.id) &
+                                      (project_task_project.deleted != True))
+        self.assertEqual(str(left["project_project"][1]), str(expected))
+
         # Try to select rows
         rows = component.select(None, limit=1, as_rows=True)
 
@@ -623,32 +635,41 @@ class ResourceFilterQueryTests(unittest.TestCase):
         component.build_query()
         rfilter = component.rfilter
         query = rfilter.get_query()
-        expected = ((((((pr_identity.deleted != True) &
-                        (pr_identity.id > 0)) &
-                       (((pr_person.deleted != True) &
-                         (pr_person.id > 0)) &
-                        ((org_organisation.name == "test") &
-                         (pr_identity.value == "test")))) &
-                      ((pr_identity.person_id == pr_person.id) &
-                       (pr_identity.deleted != True))) &
-                     ((hrm_human_resource.person_id == pr_person.id) &
-                      (hrm_human_resource.deleted != True))) &
-                    (hrm_human_resource.organisation_id == org_organisation.id))
                     
-        #expected = ((((((pr_identity.deleted != True) &
-                        #(pr_identity.id > 0)) &
-                       #((((pr_person.deleted != True) &
-                          #(pr_person.id > 0)) &
-                         #(org_organisation.name == "test")) &
-                        #(pr_identity.value == "test"))) &
-                      #((pr_identity.person_id == pr_person.id) &
-                       #(pr_identity.deleted != True))) &
-                     #((hrm_human_resource.person_id == pr_person.id) &
-                      #(hrm_human_resource.deleted != True))) &
-                    #(hrm_human_resource.organisation_id == org_organisation.id))
+        expected = ((((pr_identity.deleted != True) &
+                   (pr_identity.id > 0)) &
+                   (((pr_person.deleted != True) &
+                   (pr_person.id > 0)) &
+                   ((org_organisation.name == "test") &
+                   (pr_identity.value == "test")))) &
+                   ((pr_identity.person_id == pr_person.id) &
+                   (pr_identity.deleted != True))) # Duplicated!
+                   
+        self.assertEqual(query, expected)
+        
+        # Check left joins
+        expected_h = hrm_human_resource.on(
+                        (hrm_human_resource.person_id == pr_person.id) &
+                        (hrm_human_resource.deleted != True))
+        expected_o = org_organisation.on(
+                        hrm_human_resource.organisation_id == org_organisation.id)
+        expected_p = pr_person.on(pr_identity.person_id == pr_person.id)
 
-        self.assertEqual(str(query), str(expected))
-        self.assertEqual(rfilter.get_left_joins(as_list=False), Storage())
+        left = rfilter.get_left_joins(as_list=False)
+        tablenames = left.keys()
+        self.assertEqual(len(tablenames), 3)
+        self.assertTrue("hrm_human_resource" in tablenames)
+        self.assertTrue("org_organisation" in tablenames)
+        self.assertTrue("pr_person" in tablenames)
+        
+        self.assertTrue(isinstance(left["hrm_human_resource"], list))
+        self.assertEqual(len(left["hrm_human_resource"]), 1)
+        self.assertEqual(str(left["hrm_human_resource"][0]), str(expected_h))
+        self.assertTrue(isinstance(left["org_organisation"], list))
+        self.assertEqual(len(left["org_organisation"]), 1)
+        self.assertEqual(str(left["org_organisation"][0]), str(expected_o))
+        self.assertEqual(len(left["pr_person"]), 1)
+        self.assertEqual(str(left["pr_person"][0]), str(expected_p))
         
         # Try to select rows
         rows = component.select(None, limit=1, as_rows=True)
@@ -1606,10 +1627,11 @@ class ResourceAxisFilterTests(unittest.TestCase):
 
         tablename = "axis_filter"
         db = current.db
-        table = db.define_table(tablename,
-                                Field("facility_type_id",
-                                      "list:reference org_facility_type"),
-                                *s3_meta_fields())
+        db.define_table(tablename,
+                        Field("facility_type_id",
+                              "list:reference org_facility_type"),
+                        *s3_meta_fields())
+        table = db[tablename]
 
         try:
 
@@ -2327,6 +2349,99 @@ class MergeOrganisationsTests(unittest.TestCase):
         self.assertEqual(org2.website, "http://www.example.com")
 
     # -------------------------------------------------------------------------
+    def testMergeMissingOriginalSE(self):
+        """ Test merge where original record lacks SEs """
+
+        resource = self.resource
+        get_records = self.get_records
+
+        assertEqual = self.assertEqual
+        assertNotEqual = self.assertNotEqual
+        assertTrue = self.assertTrue
+
+        org1, org2 = get_records()
+        success = current.s3db.delete_super(resource.table, org1)
+        assertTrue(success)
+        org1, org2 = get_records()
+        assertEqual(org1.pe_id, None)
+
+        success = resource.merge(self.id1, self.id2)
+        assertTrue(success)
+        org1, org2 = get_records()
+
+        assertNotEqual(org1, None)
+        assertNotEqual(org2, None)
+
+        self.assertFalse(org1.deleted)
+        assertTrue(org2.deleted)
+        assertEqual(str(self.id1), str(org2.deleted_rb))
+
+        assertNotEqual(org1.pe_id, None)
+
+    # -------------------------------------------------------------------------
+    def testMergeMissingDuplicateSE(self):
+        """ Test merge where duplicate record lacks SEs """
+
+        resource = self.resource
+        get_records = self.get_records
+
+        assertEqual = self.assertEqual
+        assertNotEqual = self.assertNotEqual
+        assertTrue = self.assertTrue
+
+        org1, org2 = get_records()
+        success = current.s3db.delete_super(resource.table, org2)
+        assertTrue(success)
+        org1, org2 = get_records()
+        assertEqual(org2.pe_id, None)
+
+        success = resource.merge(self.id1, self.id2)
+        assertTrue(success)
+        org1, org2 = get_records()
+
+        assertNotEqual(org1, None)
+        assertNotEqual(org2, None)
+
+        self.assertFalse(org1.deleted)
+        assertTrue(org2.deleted)
+        assertEqual(str(self.id1), str(org2.deleted_rb))
+
+        assertEqual(org2.pe_id, None)
+
+    # -------------------------------------------------------------------------
+    def testMergeMissingSE(self):
+        """ Test merge where both records lack SEs """
+
+        resource = self.resource
+        get_records = self.get_records
+
+        assertEqual = self.assertEqual
+        assertNotEqual = self.assertNotEqual
+        assertTrue = self.assertTrue
+
+        org1, org2 = get_records()
+        success = current.s3db.delete_super(resource.table, org1)
+        success = current.s3db.delete_super(resource.table, org2)
+        assertTrue(success)
+        org1, org2 = get_records()
+        assertEqual(org1.pe_id, None)
+        assertEqual(org2.pe_id, None)
+
+        success = resource.merge(self.id1, self.id2)
+        assertTrue(success)
+        org1, org2 = get_records()
+
+        assertNotEqual(org1, None)
+        assertNotEqual(org2, None)
+
+        self.assertFalse(org1.deleted)
+        assertTrue(org2.deleted)
+        assertEqual(str(self.id1), str(org2.deleted_rb))
+
+        assertNotEqual(org1.pe_id, None)
+        assertEqual(org2.pe_id, None)
+
+    # -------------------------------------------------------------------------
     def testMergeReplace(self):
         """ Test merge with replace """
 
@@ -2868,10 +2983,10 @@ class MergeReferenceListsTest(unittest.TestCase):
         
         tablename = self.tablename = "merge_list_reference"
         db = current.db
-        table = db.define_table(tablename,
-                                Field("facility_type_id",
-                                      "list:reference org_facility_type"),
-                                *s3_meta_fields())
+        db.define_table(tablename,
+                        Field("facility_type_id",
+                              "list:reference org_facility_type"),
+                        *s3_meta_fields())
                                 
         xmlstr = """
 <s3xml>
@@ -3021,7 +3136,7 @@ class ResourceLazyVirtualFieldsSupportTests(unittest.TestCase):
         s3db = current.s3db
         table = s3db.pr_person
         if not hasattr(table, "name"):
-            table.name = Field.Lazy(self.lazy_name)
+            table.name = Field.Method("name", self.lazy_name)
             s3db.configure("pr_person",
                            extra_fields=["first_name", "last_name"])
         self.record_id = None
@@ -3791,10 +3906,10 @@ class ResourceDeleteTests(unittest.TestCase):
                           {"del_master": "DEL Master"})
 
         # Define master table
-        master = s3db.define_table("del_master",
-                                   s3db.super_link("del_super_id",
-                                                   "del_super"),
-                                   *s3_meta_fields())
+        s3db.define_table("del_master",
+                          s3db.super_link("del_super_id",
+                                          "del_super"),
+                          *s3_meta_fields())
 
         current.db.commit()
 
@@ -3910,11 +4025,12 @@ class ResourceDeleteTests(unittest.TestCase):
         master_id = self.master_id
 
         # Define component table
-        component = s3db.define_table("del_component",
-                                      Field("del_master_id",
-                                            s3db.del_master,
-                                            ondelete="CASCADE"),
-                                      *s3_meta_fields())
+        s3db.define_table("del_component",
+                          Field("del_master_id",
+                                s3db.del_master,
+                                ondelete="CASCADE"),
+                          *s3_meta_fields())
+        component = s3db["del_component"]
         s3db.add_components("del_master",
                             del_component="del_master_id")
 
@@ -3963,11 +4079,12 @@ class ResourceDeleteTests(unittest.TestCase):
         master_id = self.master_id
 
         # Define component table
-        component = s3db.define_table("del_component",
-                                      Field("del_master_id",
-                                            s3db.del_master,
-                                            ondelete="SET NULL"),
-                                      *s3_meta_fields())
+        s3db.define_table("del_component",
+                          Field("del_master_id",
+                                s3db.del_master,
+                                ondelete="SET NULL"),
+                          *s3_meta_fields())
+        component = s3db["del_component"]
         s3db.add_components("del_master",
                             del_component="del_master_id")
 
@@ -4017,11 +4134,12 @@ class ResourceDeleteTests(unittest.TestCase):
         master_id = self.master_id
 
         # Define component table
-        component = s3db.define_table("del_component",
-                                      Field("del_master_id",
-                                            s3db.del_master,
-                                            ondelete="RESTRICT"),
-                                      *s3_meta_fields())
+        s3db.define_table("del_component",
+                          Field("del_master_id",
+                                s3db.del_master,
+                                ondelete="RESTRICT"),
+                          *s3_meta_fields())
+        component = s3db["del_component"]
         s3db.add_components("del_master",
                             del_component="del_master_id")
 
@@ -4106,11 +4224,12 @@ class ResourceDeleteTests(unittest.TestCase):
         master_id = self.master_id
 
         # Define component table
-        component = s3db.define_table("del_component",
-                                      s3db.super_link("del_super_id",
-                                                      "del_super",
-                                                      ondelete="CASCADE"),
-                                      *s3_meta_fields())
+        s3db.define_table("del_component",
+                          s3db.super_link("del_super_id",
+                                          "del_super",
+                                          ondelete="CASCADE"),
+                          *s3_meta_fields())
+        component = s3db["del_component"]
         s3db.add_components("del_super",
                             del_component="del_super_id")
 
@@ -4169,11 +4288,12 @@ class ResourceDeleteTests(unittest.TestCase):
         master_id = self.master_id
 
         # Define component table
-        component = s3db.define_table("del_component",
-                                      s3db.super_link("del_super_id",
-                                                      "del_super",
-                                                      ondelete="SET NULL"),
-                                      *s3_meta_fields())
+        s3db.define_table("del_component",
+                          s3db.super_link("del_super_id",
+                                          "del_super",
+                                          ondelete="SET NULL"),
+                          *s3_meta_fields())
+        component = s3db["del_component"]
         s3db.add_components("del_super",
                             del_component="del_super_id")
 
@@ -4232,11 +4352,12 @@ class ResourceDeleteTests(unittest.TestCase):
         master_id = self.master_id
 
         # Define component table
-        component = s3db.define_table("del_component",
-                                      s3db.super_link("del_super_id",
-                                                      "del_super",
-                                                      ondelete="RESTRICT"),
-                                      *s3_meta_fields())
+        s3db.define_table("del_component",
+                          s3db.super_link("del_super_id",
+                                          "del_super",
+                                          ondelete="RESTRICT"),
+                          *s3_meta_fields())
+        component = s3db["del_component"]
         s3db.add_components("del_super",
                             del_component="del_super_id")
 

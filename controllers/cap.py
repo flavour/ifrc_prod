@@ -116,8 +116,8 @@ def alert():
         """
             REST post-processor:
              - check to see if "Save and add information" was pressed
-        """
-
+        """ 
+        
         lastid = r.resource.lastid
         if lastid and request.post_vars.get("edit_info", False):
             table = db.cap_alert
@@ -212,7 +212,7 @@ def template():
         for f in ["status", "scope"]:
             atable[f].requires = None
         atable.template_title.required = True
-
+        atable.status.readable = atable.status.writable = False
         itable = db.cap_info
         for f in ["urgency", "certainty",
                   "priority", "severity",
@@ -227,15 +227,12 @@ def template():
 
         ADD_ALERT_TPL = T("Create Template")
         s3.crud_strings["cap_template"] = Storage(
-            title_create = ADD_ALERT_TPL,
+            label_create = ADD_ALERT_TPL,
             title_display = T("Template"),
             title_list = T("Templates"),
             title_update = T("Edit Template"), # If already-published, this should create a new "Update" alert instead of modifying the original
             title_upload = T("Import Templates"),
-            title_search = T("Search Templates"),
-            subtitle_create = T("Create new Template"),
             label_list_button = T("List Templates"),
-            label_create_button = ADD_ALERT_TPL,
             label_delete_button = T("Delete Template"),
             msg_record_created = T("Template created"),
             msg_record_modified = T("Template modified"),

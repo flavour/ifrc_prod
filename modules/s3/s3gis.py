@@ -76,13 +76,12 @@ from gluon import *
 #from gluon.html import *
 #from gluon.http import HTTP, redirect
 from gluon.dal import Rows
-from gluon.storage import Storage, Messages
+from gluon.storage import Storage
 
 from s3fields import s3_all_meta_field_names
 from s3rest import S3Method
 from s3track import S3Trackable
-from s3track import S3Trackable
-from s3utils import s3_fullname, s3_fullname_bulk, s3_has_foreign_key, s3_include_ext, s3_unicode
+from s3utils import s3_include_ext, s3_unicode
 
 DEBUG = False
 if DEBUG:
@@ -520,7 +519,7 @@ class GIS(object):
         if postcode:
             location = "%s,%s" % (location, postcode)
 
-        L5 = L4 = L3 = L2 = L1 = L0 = None
+        Lx = L5 = L4 = L3 = L2 = L1 = L0 = None
         if Lx_ids:
             # Convert Lx IDs to Names
             table = current.s3db.gis_location
@@ -590,27 +589,27 @@ class GIS(object):
                             wkt = db(table.id == L5).select(table.wkt,
                                                             limitby=(0, 1)
                                                             ).first().wkt
-                            used_Lx = "L5"
+                            used_Lx = L5
                         elif L4 and Lx[L4]["gis_feature_type"] != 1:
                             wkt = db(table.id == L4).select(table.wkt,
                                                             limitby=(0, 1)
                                                             ).first().wkt
-                            used_Lx = "L4"
+                            used_Lx = L4
                         elif L3 and Lx[L3]["gis_feature_type"] != 1:
                             wkt = db(table.id == L3).select(table.wkt,
                                                             limitby=(0, 1)
                                                             ).first().wkt
-                            used_Lx = "L3"
+                            used_Lx = L3
                         elif L2 and Lx[L2]["gis_feature_type"] != 1:
                             wkt = db(table.id == L2).select(table.wkt,
                                                             limitby=(0, 1)
                                                             ).first().wkt
-                            used_Lx = "L2"
+                            used_Lx = L2
                         elif L1 and Lx[L1]["gis_feature_type"] != 1:
                             wkt = db(table.id == L1).select(table.wkt,
                                                             limitby=(0, 1)
                                                             ).first().wkt
-                            used_Lx = "L1"
+                            used_Lx = L1
                         elif L0:
                             L0_row = db(table.id == L0).select(table.wkt,
                                                                table.lon_min,
@@ -619,8 +618,9 @@ class GIS(object):
                                                                table.lat_max,
                                                                limitby=(0, 1)
                                                                ).first()
-                            wkt = L0_row.wkt
-                            used_Lx = "L0"
+                            if not L0_row.wkt.startswith("POI"): # Point
+                                wkt = L0_row.wkt
+                            used_Lx = L0
                         if wkt:
                             from shapely.geometry import point
                             from shapely.wkt import loads as wkt_loads
@@ -635,7 +635,7 @@ class GIS(object):
                             shape = wkt_loads(wkt)
                             ok = test.intersects(shape)
                             if not ok:
-                                output = "Returned value not within %s" % Lx[used_Lx].name
+                                output = "Returned value not within %s" % Lx[used_Lx]["name"]
                         elif L0:
                             # Check within country at least
                             if not L0_row:
@@ -1083,7 +1083,7 @@ class GIS(object):
             Only update tables which are already defined
         """
 
-        levels = ["L1", "L2", "L3", "L4"]
+        levels = ("L1", "L2", "L3", "L4", "L5")
         labels = self.get_location_hierarchy()
 
         db = current.db
@@ -1091,7 +1091,7 @@ class GIS(object):
             # Update the specific table which has just been defined
             table = db[tablename]
             if tablename == "gis_location":
-                labels["L0"] = current.messages["COUNTRY"]
+                labels["L0"] = current.messages.COUNTRY
                 table.level.requires = \
                     IS_NULL_OR(IS_IN_SET(labels))
             else:
@@ -1372,7 +1372,7 @@ class GIS(object):
             else:
                 return _levels
 
-        COUNTRY = current.messages["COUNTRY"]
+        COUNTRY = current.messages.COUNTRY
 
         if level == "L0":
             return COUNTRY
@@ -2185,7 +2185,7 @@ class GIS(object):
                                        represent=True)
 
                 rfields = data["rfields"]
-                attr_cols = []
+                attr_cols = {}
                 _popup_cols = {}
                 for f in rfields:
                     fname = f.fname
@@ -2195,7 +2195,14 @@ class GIS(object):
                     elif selector in popup_fields:
                         _popup_cols[selector] = f.colname
                     if fname in attr_fields or selector in attr_fields:
-                        attr_cols.append(f.colname)
+                        fieldname = f.colname
+                        tname, fname = fieldname.split(".")
+                        try:
+                            ftype = db[tname][fname].type
+                        except AttributeError:
+                            # FieldMethod
+                            ftype = None
+                        attr_cols[fieldname] = (ftype, fname)
 
                 # Want to control sort order
                 popup_cols = []
@@ -2214,8 +2221,8 @@ class GIS(object):
                             represent = row[fieldname]
                             if represent and represent != NONE:
                                 # Skip empty fields
-                                tname, fname = fieldname.split(".")
-                                ftype = db[tname][fname].type
+                                _attr = attr_cols[fieldname]
+                                ftype = _attr[0]
                                 if ftype == "integer":
                                     # Attributes should be numbers not Strings
                                     try:
@@ -2237,7 +2244,7 @@ class GIS(object):
                                         # @ToDo: Don't assume this i18n formatting...better to have no represent & then bypass the s3_unicode in select too
                                         #        (although we *do* want the represent in the tooltips!)
                                         pass
-                                attribute[fname] = represent
+                                attribute[_attr[1]] = represent
                         attr[record_id] = attribute
 
                     if popup_cols:
@@ -6069,6 +6076,8 @@ class MAP(DIV):
         select_stroke = settings.get_gis_select_stroke() 
         if select_stroke and select_stroke != 'ff9933':
             options["select_stroke"] = select_stroke
+        if not settings.get_gis_cluster_label():
+            options["cluster_label"] = False
 
         ########
         # Layout
@@ -8145,6 +8154,8 @@ class S3Map(S3Method):
 
                 request = self.request
                 from s3filter import S3FilterForm
+                # Apply filter defaults (before rendering the data!)
+                S3FilterForm.apply_filter_defaults(r, resource)
                 filter_formstyle = get_config("filter_formstyle", None)
                 submit = resource.get_config("map_submit", True)
                 filter_form = S3FilterForm(filter_widgets,
@@ -8685,6 +8696,6 @@ class S3ImportPOI(S3Method):
             return output
 
         else:
-            raise HTTP(501, BADMETHOD)
+            raise HTTP(501, current.ERROR.BAD_METHOD)
 
 # END =========================================================================

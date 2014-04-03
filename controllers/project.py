@@ -46,14 +46,28 @@ def project():
         component_name = component.name if component else None
 
         hr_group = r.get_vars.get("group")
-        
+
+        if r.method == "datalist":
+            # Set list_fields for renderer (project_project_list_layout)
+            # @ ToDo: move this to somewhere in trunk where it is called when projects are used in a profile page
+            s3db.configure("project_project",
+                           list_fields = ["name",
+                                          "description",
+                                          "location.location_id",
+                                          "start_date",
+                                          "organisation_id",
+                                          "organisation_id$logo",
+                                          "modified_by",
+                                          ]
+                           )
+
         # Show activity name in tasks list
         if component_name == "task":
             list_fields = component.get_config("list_fields")
             list_fields.insert(3, (T("Activity"), "activity.name"))
 
         # Filter human resource records if "group" in get_vars
-        if component_name == "human_resource":
+        elif component_name == "human_resource":
             type_field = s3base.S3FieldSelector("human_resource.type")
             if hr_group == "staff":
                 query = (type_field == 1)
@@ -65,7 +79,6 @@ def project():
                 r.resource.add_component_filter("human_resource", query)
 
         if r.interactive:
-            
             htable = s3db.hrm_human_resource
             htable.person_id.comment = DIV(_class="tooltip",
                                            _title="%s|%s" % (T("Person"),
@@ -86,7 +99,6 @@ def project():
                 set_theme_requires(sector_ids)
 
             if not r.component:
-                
                 if r.method in ("create", "update"):
                     # Context from a Profile page?"
                     location_id = request.get_vars.get("(location)", None)
@@ -114,9 +126,7 @@ def project():
                         r.table.status_id.writable = False
                         
             elif component_name == "organisation":
-                    
                 if r.method != "update":
-                    
                     allowed_roles = dict(settings.get_project_organisation_roles())
                     if settings.get_template() == "DRRPP":
                         # Partner NS should only come via sync from RMS
@@ -136,12 +146,10 @@ def project():
                     otable.role.requires = IS_NULL_OR(IS_IN_SET(allowed_roles))
 
             elif component_name == "activity":
-
                 # Filter Activity Type based on Sector
                 set_activity_type_requires("project_activity_activity_type", sector_ids)
 
             elif component_name == "task":
-
                 if not auth.s3_has_role("STAFF"):
                     # Hide fields which are meant for staff members
                     # (avoid confusion both of inputters & recipients)
@@ -164,7 +172,6 @@ def project():
                     r.resource.add_component_filter("task", query)
 
             elif component_name == "beneficiary":
-
                 # Filter the location selector to the project's locations
                 component.table.project_location_id.requires = \
                     IS_NULL_OR(IS_ONE_OF(db, "project_location.id",
@@ -190,15 +197,11 @@ def project():
                         filter_opts = (1,)
                         human_resource_id.label = T("Staff")
                         crud_strings["project_human_resource"] = crud_strings["hrm_staff"]
-                        crud_strings["project_human_resource"] \
-                                    ["subtitle_create"] = T("Add Staff Member to Project")
 
                     elif hr_group == "volunteer":
                         filter_opts = (2,)
                         human_resource_id.label = T("Volunteer")
                         crud_strings["project_human_resource"] = crud_strings["hrm_volunteer"]
-                        crud_strings["project_human_resource"] \
-                                    ["subtitle_create"] = T("Add Volunteer to Project")
 
                 if filter_opts:
                     # Use the group to filter the form widget when
@@ -213,7 +216,6 @@ def project():
                         )
 
             elif component_name == "document":
-
                 # Hide unnecessary fields
                 dtable = component.table
                 dtable.organisation_id.readable = \
@@ -370,6 +372,12 @@ def project_theme_id_widget():
     return widget
 
 # =============================================================================
+def sector():
+    """ RESTful CRUD controller """
+
+    return s3_rest_controller("org", "sector")
+
+# -----------------------------------------------------------------------------
 def status():
     """ RESTful CRUD controller """
 
@@ -431,11 +439,12 @@ def theme_sector_widget():
         )
 
     resource = s3db.resource("project_project")
-    #(_instance , _nothing, _field) = widget.resolve(resource)
-    widget.resolve(resource)
+    instance, fieldname, field = widget.resolve(resource)
+    
     value = widget.extract(resource, record_id=None)
-
-    output = widget(s3db.project_theme_project.theme_id, value)
+    output = widget(s3db.project_theme_project.theme_id,
+                    value,
+                    _name=field.name)
 
     return output
 
@@ -736,15 +745,12 @@ def partners():
     # Modify CRUD Strings
     ADD_PARTNER = T("Add Partner Organization")
     s3.crud_strings.org_organisation = Storage(
-        title_create=ADD_PARTNER,
+        label_create=ADD_PARTNER,
         title_display=T("Partner Organization Details"),
         title_list=T("Partner Organizations"),
         title_update=T("Edit Partner Organization"),
-        title_search=T("Search Partner Organizations"),
         title_upload=T("Import Partner Organizations"),
-        subtitle_create=ADD_PARTNER,
         label_list_button=T("List Partner Organizations"),
-        label_create_button=ADD_PARTNER,
         label_delete_button=T("Delete Partner Organization"),
         msg_record_created=T("Partner Organization added"),
         msg_record_modified=T("Partner Organization updated"),

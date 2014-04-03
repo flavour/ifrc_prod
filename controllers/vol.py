@@ -21,8 +21,8 @@ def index():
         # Go to Personal Profile
         redirect(URL(f="person"))
     else:
-        # Bypass home page & go direct to filterable list of Volunteers
-        redirect(URL(f="volunteer"))
+        # Bypass home page & go direct to Volunteers Summary
+        redirect(URL(f="volunteer", args=["summary"]))
 
 # =============================================================================
 # People
@@ -138,21 +138,6 @@ def human_resource():
                            # Needed for Age Group VirtualField to avoid extra DB calls
                            report_fields = ["person_id$date_of_birth"],
                            report_options = report_options,
-                           summary = [{"name": "table",
-                                       "label": "Table",
-                                       "widgets": [{"method": "datatable"}]
-                                       },
-                                      {"name": "report",
-                                       "label": "Report",
-                                       "widgets": [{"method": "report",
-                                                    "ajax_init": True}]
-                                       },
-                                      {"name": "map",
-                                       "label": "Map",
-                                       "widgets": [{"method": "map",
-                                                    "ajax_init": True}],
-                                       },
-                                      ],
                            )
             s3.filter = None
         else:
@@ -205,7 +190,7 @@ def volunteer():
 
     # Volunteers only
     s3.filter = s3base.S3FieldSelector("type") == 2
-    
+
     vol_experience = settings.get_hrm_vol_experience()
     
     def prep(r):
@@ -250,19 +235,17 @@ def volunteer():
         if vol_experience in ("programme", "both"):
             # Don't use status field
             table.status.readable = table.status.writable = False
-            # Use active-field?
-            enable_active = settings.set_org_dependent_field("vol_details",
-                                                             "active",
-                                                             enable_field=False)
-            # Add active and programme to List Fields
-            if enable_active:
+            # Use active field?
+            vol_active = settings.get_hrm_vol_active()
+            if vol_active:
                 list_fields.insert(3, (T("Active?"), "details.active"))
+            # Add Programme to List Fields
             list_fields.insert(6, "person_id$hours.programme_id")
             
             # Add active and programme to Report Options
             report_fields = report_options.rows
             report_fields.append("person_id$hours.programme_id")
-            if enable_active:
+            if vol_active:
                 report_fields.append((T("Active?"), "details.active"))
             report_options.rows = report_fields
             report_options.cols = report_fields
@@ -300,7 +283,7 @@ def volunteer():
                                 
                 elif not r.component and r.method != "delete":
                     # Configure AddPersonWidget
-                    table.person_id.widget = S3AddPersonWidget(controller="vol")
+                    table.person_id.widget = S3AddPersonWidget2(controller="vol")
                     # Show location ID
                     location_id.writable = location_id.readable = True
                     # Hide unwanted fields
@@ -374,15 +357,20 @@ def volunteer():
                                     _id=field_id + SQLFORM.ID_LABEL_SUFFIX)
                     programme = s3_formstyle(row_id, label, widget,
                                                 field.comment)
-                    try:
-                        output["form"][0].insert(4, programme[1])
-                    except:
-                        # A non-standard formstyle with just a single row
-                        pass
-                    try:
-                        output["form"][0].insert(4, programme[0])
-                    except:
-                        pass
+                    if isinstance(programme, DIV) and \
+                       "form-row" in programme["_class"]:
+                        # Foundation formstyle
+                        output["form"][0].insert(4, programme)
+                    else:
+                        try:
+                            output["form"][0].insert(4, programme[1])
+                        except:
+                            # A non-standard formstyle with just a single row
+                            pass
+                        try:
+                            output["form"][0].insert(4, programme[0])
+                        except:
+                            pass
                 else:
                     # Unsupported
                     raise

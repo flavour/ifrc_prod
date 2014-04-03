@@ -937,6 +937,8 @@ class S3Model(object):
 
         if supertable is None and default:
             return default
+        if isinstance(supertable, str):
+            supertable = cls.table(supertable)
         try:
             return supertable._id.name
         except AttributeError:
@@ -1070,7 +1072,9 @@ class S3Model(object):
             else:
                 shared = dict([(fn, shared[fn])
                                for fn in shared
-                               if fn != key and fn in s.fields and fn in table.fields])
+                               if fn != key and \
+                                  fn in s.fields and \
+                                  shared[fn] in table.fields])
             fields.extend(shared.values())
             fields.append(key)
             updates.append((tn, s, key, shared))
@@ -1185,6 +1189,9 @@ class S3Model(object):
         update_record = record.update_record
         for sname in keys:
             key, value = keys[sname]
+            if not value:
+                # Skip if we don't have a super-key
+                continue
 
             # Remove the super key
             update_record(**{key: None})

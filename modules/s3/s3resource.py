@@ -862,7 +862,7 @@ class S3Resource(object):
                                        limitby=limitby,
                                        cacheable=not as_rows,
                                        *qfields.values())
-
+                                       
         # Restore virtual fields (if they were deactivated before)
         if not virtual:
             osetattr(table, "virtualfields", vf)
@@ -899,7 +899,9 @@ class S3Resource(object):
             return rows
 
         # Otherwise: initialize output
-        output = {"rfields": dfields, "numrows": totalrows, "ids": ids}
+        output = {"rfields": dfields,
+                  "numrows": 0 if totalrows is None else totalrows,
+                  "ids": ids}
 
         if not rows:
             output["rows"] = []
@@ -1517,7 +1519,7 @@ class S3Resource(object):
             return False
 
         tablename = self.tablename
-        table = self.table
+        table = self._table
 
         records = self.select([self._id.name], limit=None)
         for record in records["rows"]:
@@ -1710,7 +1712,7 @@ class S3Resource(object):
               duplicate_id,
               replace=None,
               update=None,
-              main=None):
+              main=True):
         """ Merge two records, see also S3RecordMerger.merge """
 
         return S3RecordMerger(self).merge(original_id,
@@ -3934,6 +3936,38 @@ class S3Resource(object):
         return join
 
     # -------------------------------------------------------------------------
+    def get_reverse_left_join(self):
+        """ Get a reverse left join for this component """
+
+        if self.parent is None:
+            # This isn't a component
+            return None
+        else:
+            ltable = self.parent.table
+
+        rtable = self.table
+        pkey = self.pkey
+        fkey = self.fkey
+
+        if self.linked:
+            return self.linked.get_left_join()
+        elif self.linktable:
+            linktable = self.linktable
+            lkey = self.lkey
+            rkey = self.rkey
+            lquery = (linktable[lkey] == ltable[pkey])
+            DELETED = current.xml.DELETED
+            if DELETED in linktable:
+                lquery &= (linktable[DELETED] != True)
+            rquery = (rtable[fkey] == linktable[rkey])
+            join = [linktable.on(rquery), ltable.on(lquery)]
+        else:
+            lquery = (rtable[fkey] == ltable[pkey])
+            join = [ltable.on(lquery)]
+
+        return join
+
+    # -------------------------------------------------------------------------
     def link_id(self, master_id, component_id):
         """
             Helper method to find the link table entry ID for
@@ -4380,6 +4414,20 @@ class S3Resource(object):
             fields.insert(0, pkey)
         return fields
         
+    # -------------------------------------------------------------------------
+    @property
+    def _table(self):
+        """
+            Get the original Table object (without SQL Alias), this
+            is required for SQL update (DAL doesn't detect the alias
+            and uses the wrong tablename).
+        """
+
+        if self.tablename != self._alias:
+            return current.s3db[self.tablename]
+        else:
+            return self.table
+
 # =============================================================================
 class S3LeftJoins(object):
 
@@ -5588,7 +5636,7 @@ class S3ResourceQuery(object):
         elif op == self.ANYOF:
             q = l.contains(r, all=False)
         elif op == self.BELONGS:
-            if type(r) is not list:
+            if not isinstance(r, (list, tuple, set)):
                 r = [r]
             if None in r:
                 _r = [item for item in r if item is not None]
@@ -5596,13 +5644,6 @@ class S3ResourceQuery(object):
             else:
                 q = l.belongs(r)
         elif op == self.LIKE:
-            # Fixed in web2py trunk by:
-            # https://github.com/web2py/web2py/commit/7b4a0515becf3a6b7ffd145d7a1e00c11ede9b91
-            # for earlier versions, use this instead as a workaround:
-            #if isinstance(l, Field) and l.type not in TEXTTYPES:
-                #q = (l == s3_unicode(r).replace("%", ""))
-            #else:
-                #q = l.like(s3_unicode(r))
             q = l.like(s3_unicode(r))
         elif op == self.LT:
             q = l < r
@@ -6289,7 +6330,7 @@ class S3URLQuery(object):
                     if w in NONE:
                         w = None
                     else:
-                        w = uquote(w)
+                        w = uquote(w).encode("utf-8")
                     vlist.append(w)
                     w = ""
                 else:
@@ -6301,7 +6342,7 @@ class S3URLQuery(object):
             if w in NONE:
                 w = None
             else:
-                w = uquote(w)
+                w = uquote(w).encode("utf-8")
             vlist.append(w)
         if len(vlist) == 1:
             return vlist[0]
@@ -6572,20 +6613,6 @@ class S3ResourceFilter(object):
                 # Add to query
                 query &= self.rfltr.query(self.resource)
 
-        # Add cross-component joins if required
-        parent = resource.parent
-        if parent:
-            pf = parent.rfilter
-            if pf is None:
-                pf = parent.build_query()
-            left = pf.get_left_joins(as_list=False)
-            tablename = resource._alias
-            if left:
-                for tn in left:
-                    if tn != tablename:
-                        for join in left[tn]:
-                            query &= join.second
-                
         self.query = query
         return query
 
@@ -6613,6 +6640,20 @@ class S3ResourceFilter(object):
         for q in self.filters:
             joins, distinct = q.joins(resource, left=True)
             left.update(joins)
+
+        # Add cross-component joins if required
+        parent = resource.parent
+        if parent:
+            pf = parent.rfilter
+            if pf is None:
+                pf = parent.build_query()
+            parent_left = pf.get_left_joins(as_list=False)
+            tablename = resource._alias
+            if parent_left:
+                for tn in parent_left:
+                    if tn not in left and tn != tablename:
+                        left[tn] = parent_left[tn]
+                left[parent.tablename] = resource.get_reverse_left_join()
 
         if as_list:
             return [j for tablename in left for j in left[tablename]]
@@ -6958,7 +6999,7 @@ class S3RecordMerger(object):
             alias, fn = key.split(".", 1)
             if alias not in ("~", self.resource.alias):
                 fn = None
-        elif self.main is None:
+        elif self.main:
             fn = key
         return fn
 
@@ -6968,7 +7009,7 @@ class S3RecordMerger(object):
               duplicate_id,
               replace=None,
               update=None,
-              main=None):
+              main=True):
         """
             Merge a duplicate record into its original and remove the
             duplicate, updating all references in the database.
@@ -7023,7 +7064,7 @@ class S3RecordMerger(object):
 
         # Load all models
         s3db = current.s3db
-        if main is None:
+        if main:
             s3db.load_all_models()
 
         # Get the records
@@ -7031,7 +7072,7 @@ class S3RecordMerger(object):
         duplicate = None
         query = table._id.belongs([original_id, duplicate_id])
         if "deleted" in table.fields:
-            query &= table.deleted != True
+            query &= (table.deleted != True)
         rows = db(query).select(table.ALL, limitby=(0, 2))
         for row in rows:
             record_id = row[table._id]
@@ -7138,7 +7179,7 @@ class S3RecordMerger(object):
                         cresource.merge(osub_id, dsub_id,
                                         replace=replace,
                                         update=update,
-                                        main=resource)
+                                        main=False)
                     continue
 
             # Find the foreign key
@@ -7170,22 +7211,42 @@ class S3RecordMerger(object):
                 update_record(rtable, row[rtable._id], row, data)
 
         # Merge super-entity records
-        se = s3db.get_config(tablename, "super_entity")
-        if se is not None:
-            if not isinstance(se, (list, tuple)):
-                se = [se]
-            for entity in se:
-                supertable = s3db[entity]
-                # Get the super-keys
-                superkey = supertable._id.name
+        super_entities = resource.get_config("super_entity")
+        if super_entities is not None:
+            
+            if not isinstance(super_entities, (list, tuple)):
+                super_entities = [super_entities]
+                
+            for super_entity in super_entities:
+                
+                super_table = s3db.table(super_entity)
+                if not super_table:
+                    continue
+                superkey = super_table._id.name
+                
                 skey_o = original[superkey]
+                if not skey_o:
+                    msg = "No %s found in %s.%s" % (superkey,
+                                                    tablename,
+                                                    original_id)
+                    current.log.warning(msg)
+                    s3db.update_super(table, original)
+                    skey_o = original[superkey]
+                if not skey_o:
+                    continue
                 skey_d = duplicate[superkey]
-                # Merge the super-records
-                sresource = define_resource(entity)
+                if not skey_d:
+                    msg = "No %s found in %s.%s" % (superkey,
+                                                    tablename,
+                                                    duplicate_id)
+                    current.log.warning(msg)
+                    continue
+
+                sresource = define_resource(super_entity)
                 sresource.merge(skey_o, skey_d,
                                 replace=replace,
                                 update=update,
-                                main=resource)
+                                main=False)
 
         # Merge and update original data
         data = Storage()

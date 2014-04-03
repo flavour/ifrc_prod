@@ -39,13 +39,23 @@ except:
     # Python 2.6
     from gluon.contrib.simplejson.ordered_dict import OrderedDict
 
-from gluon import current, URL, TR, TD
+from gluon import current, URL
 from gluon.storage import Storage
+
+from s3theme import *
 
 class S3Config(Storage):
     """
         Deployment Settings Helper Class
     """
+
+    # Used by modules/s3theme.py
+    FORMSTYLE = {
+        "foundation": formstyle_foundation,
+        "foundation_inline": formstyle_foundation_inline,
+        "default": formstyle_default,
+        "default_inline": formstyle_default_inline,
+    }
 
     def __init__(self):
         self.auth = Storage()
@@ -111,6 +121,28 @@ class S3Config(Storage):
             - specified as <themefolder>/xtheme-<filename>.css
         """
         return self.base.get("xtheme", None)
+
+    # -------------------------------------------------------------------------
+    # Customise Hooks
+    def customise_controller(self, tablename, **attr):
+        """
+            Customise a Controller
+            - runs before resource customisation
+            - but prep runs after resource customisation
+        """
+        customise = self.get("customise_%s_controller" % tablename)
+        if customise:
+            return customise(**attr)
+        else:
+            return attr
+
+    def customise_resource(self, tablename):
+        """
+            Get customisation callback for a resource
+            - runs after controller customisation
+            - but runs before prep
+        """
+        return self.get("customise_%s_resource" % tablename)
 
     # -------------------------------------------------------------------------
     def has_module(self, module_name):
@@ -645,6 +677,12 @@ class S3Config(Storage):
         """
         return self.gis.get("cluster_fill", None)
 
+    def get_gis_cluster_label(self):
+        """
+            Label Clustered points on Map?
+        """
+        return self.gis.get("cluster_label", True)
+
     def get_gis_cluster_stroke(self):
         """
             Stroke for Clustered points on Map, else default
@@ -1025,38 +1063,27 @@ class S3Config(Storage):
     # -------------------------------------------------------------------------
     # UI Settings
     #
-    @staticmethod
-    def default_formstyle(id, label, widget, comment, hidden=False):
-        """
-            Provide the default Sahana Eden Form Style
-            Label above the Inputs:
-            http://uxmovement.com/design-articles/faster-with-top-aligned-labels
-
-            Things that need to be looked at for custom formstyles:
-            * subheadings (s3forms.py)
-            * S3AddPersonWidget (s3widgets.py)
-            * S3EmbedComponentWidget (s3widgets.py)
-        """
-
-        row = []
-        if hidden:
-            _class = "hide"
-        else:
-            _class = ""
-        # Label on the 1st row
-        row.append(TR(TD(label, _class="w2p_fl"),
-                      TD(""),
-                      _id=id + "1",
-                      _class=_class))
-        # Widget & Comment on the 2nd Row
-        row.append(TR(widget,
-                      TD(comment, _class="w2p_fc"),
-                      _id=id,
-                      _class=_class))
-        return tuple(row)
-
     def get_ui_formstyle(self):
-        return self.ui.get("formstyle", self.default_formstyle)
+        """ Get the current form style """
+
+        setting = self.ui.get("formstyle", "default")
+        if callable(setting):
+            return setting
+        elif setting in self.FORMSTYLE:
+            return self.FORMSTYLE[setting]
+        else:
+            return setting
+
+    def get_ui_filter_formstyle(self):
+        """ Get the current filter form style """
+
+        setting = self.ui.get("filter_formstyle", "default_inline")
+        if callable(setting):
+            return setting
+        elif setting in self.FORMSTYLE:
+            return self.FORMSTYLE[setting]
+        else:
+            return setting
 
     # -------------------------------------------------------------------------
     def get_ui_auth_user_represent(self):
@@ -1073,22 +1100,6 @@ class S3Config(Storage):
                 http://code.google.com/p/selenium/issues/detail?id=1604
         """
         return self.ui.get("confirm", True)
-
-    def get_ui_crud_form(self, tablename):
-        """
-            Get custom crud_forms for diffent tables
-        """
-        return self.ui.get("crud_form_%s" % tablename, None)
-
-    def ui_customize(self, tablename, **attr):
-        """
-            Customize a Controller
-        """
-        customize = self.ui.get("customize_%s" % tablename)
-        if customize:
-            return customize(**attr)
-        else:
-            return attr
 
     def get_ui_export_formats(self):
         """
@@ -1221,6 +1232,12 @@ class S3Config(Storage):
         """
         return self.ui.get("report_auto_submit", 800)
 
+    def get_ui_use_button_glyphicons(self):
+        """
+            Use glyphicons on action buttons (requires bootstrap CSS)
+        """
+        return self.ui.get("use_button_glyphicons", False)
+
     # =========================================================================
     # Messaging
     #
@@ -1328,14 +1345,6 @@ class S3Config(Storage):
             Lower this number to get extra performance from an overloaded server.
         """
         return self.search.get("max_results", 200)
-
-    # -------------------------------------------------------------------------
-    # Save Search and Subscription
-    def get_search_save_widget(self):
-        """
-            Enable the Saved Search widget
-        """
-        return self.search.get("save_widget", False)
 
     # -------------------------------------------------------------------------
     # Filter Manager Widget
@@ -1474,17 +1483,68 @@ class S3Config(Storage):
         """
         return self.cms.get("bookmarks", False)
 
+    def get_cms_filter_open(self):
+        """
+            Whether the filter form on the Newsfeed should default to Open or Closed
+        """
+        return self.cms.get("filter_open", False)
+
+    def get_cms_organisation(self):
+        """
+            Which field to use for the Organisation of Posts:
+                * None
+                * created_by$organisation_id
+                * post_organisation.organisation_id
+        """
+        return self.cms.get("organisation", "created_by$organisation_id")
+
+    def get_cms_organisation_group(self):
+        """
+            Which field to use for the Organisation Group of Posts:
+                * None
+                * created_by$org_group_id
+                * post_organisation_group.group_id
+        """
+        return self.cms.get("organisation_group", None)
+
+    def get_cms_person(self):
+        """
+            Which field to use for the Author of Posts:
+                * None
+                * created_by
+                * person_id
+        """
+        return self.cms.get("person", "created_by")
+
     def get_cms_richtext(self):
         """
             Whether to use RichText editor in News feed
         """
         return self.cms.get("richtext", False)
 
+    def get_cms_show_events(self):
+        """
+            Whether to show Events in News Feed
+        """
+        return self.cms.get("show_events", False)
+
+    def get_cms_show_links(self):
+        """
+            Whether to show Links (such as Sources) in News Feed
+        """
+        return self.cms.get("show_links", False)
+
     def get_cms_show_tags(self):
         """
             Whether to show Tags in News Feed
         """
         return self.cms.get("show_tags", False)
+
+    def get_cms_show_titles(self):
+        """
+            Whether to show post Titles in News Feed
+        """
+        return self.cms.get("show_titles", False)
 
     # -------------------------------------------------------------------------
     # Deployments
@@ -1575,6 +1635,20 @@ class S3Config(Storage):
         """
         return self.hrm.get("staff_experience", "experience")
 
+    def get_hrm_vol_active(self):
+        """
+            Whether to use a 'Active' field for Volunteers &, if so, whether
+            this is set manually or calculated by a function
+            - options are: False, True or a function
+        """
+        return self.hrm.get("vol_active", False)
+
+    def get_hrm_vol_active_tooltip(self):
+        """
+            The tooltip to show when viewing the Active status in the Volunteer RHeader
+        """
+        return self.hrm.get("vol_active_tooltip", None)
+
     def get_hrm_vol_experience(self):
         """
             Whether to use Experience for Volunteers &, if so, which table to use
@@ -1625,6 +1699,12 @@ class S3Config(Storage):
         """
         return self.hrm.get("use_certificates", True)
 
+    def get_hrm_use_code(self):
+        """
+            Whether Human Resources should use Staff/Volunteer IDs
+        """
+        return self.hrm.get("use_code", False)
+
     def get_hrm_use_credentials(self):
         """
             Whether Human Resources should use Credentials
@@ -1645,7 +1725,7 @@ class S3Config(Storage):
 
     def get_hrm_use_id(self):
         """
-            Whether Human Resources should use Staff ID
+            Whether Human Resources should show ID Tab
         """
         return self.hrm.get("use_id", True)
 
@@ -1843,13 +1923,7 @@ class S3Config(Storage):
         """
             Which extra fields should be returned in S3SiteAutocompleteWidget
         """
-        return self.org.get("site_autocomplete_fields", ["instance_type"])
-
-    def get_org_site_address_autocomplete(self):
-        """
-            Whether site_id Autocomplete fields should search Address fields as well as name
-        """
-        return self.org.get("site_address_autocomplete", False)
+        return self.org.get("site_autocomplete_fields", ("instance_type",))
 
     def get_org_site_last_contacted(self):
         """
@@ -1887,15 +1961,8 @@ class S3Config(Storage):
                     # Admins see all fields unless disabled for all orgs in this deployment
                     enabled = True
                 else:
-                    s3db = current.s3db
-                    otable = s3db.org_organisation
-                    root_org_id = auth.root_org()
-                    root_org = current.db(otable.id == root_org_id).select(otable.name,
-                                                                           limitby=(0, 1),
-                                                                           cache=s3db.cache
-                                                                           ).first()
-                    if root_org:
-                        enabled = root_org.name in org_name_list
+                    root_org = auth.root_org_name()
+                    enabled = root_org in org_name_list
 
         if enable_field:
             field = current.s3db[tablename][fieldname]
@@ -1928,6 +1995,13 @@ class S3Config(Storage):
                 group = "60+"
         return group
 
+    def get_pr_import_update_requires_email(self):
+        """
+            During imports, records are only updated if the import
+            item contains a (matching) email address
+        """
+        return self.pr.get("import_update_requires_email", True)
+
     def get_pr_request_dob(self):
         """ Include Date of Birth in the AddPersonWidget[2] """
         return self.pr.get("request_dob", True)
@@ -1952,12 +2026,11 @@ class S3Config(Storage):
         """
         return self.pr.get("select_existing", True)
 
-    def get_pr_import_update_requires_email(self):
+    def get_pr_search_shows_hr_details(self):
         """
-            During imports, records are only updated if the import
-            item contains a (matching) email address
+            Whether S3PersonAutocompleteWidget results show the details of their HR record
         """
-        return self.pr.get("import_update_requires_email", True)
+        return self.pr.get("search_shows_hr_details", True)
 
     # -------------------------------------------------------------------------
     # Proc

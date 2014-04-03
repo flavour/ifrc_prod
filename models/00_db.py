@@ -50,7 +50,8 @@ if db_string.find("sqlite") != -1:
     db = DAL(db_string,
              check_reserved=check_reserved,
              migrate_enabled = migrate,
-             fake_migrate_all = fake_migrate)
+             fake_migrate_all = fake_migrate,
+             lazy_tables = not migrate)
     # on SQLite 3.6.19+ this enables foreign key support (included in Python 2.7+)
     # db.executesql("PRAGMA foreign_keys=ON")
 else:
@@ -67,14 +68,20 @@ else:
             #    pass
             if check_reserved:
                 check_reserved = ["postgres"]
-            db = DAL(db_string, check_reserved=check_reserved,
-                     pool_size=pool_size, migrate_enabled = migrate)
+            db = DAL(db_string,
+                     check_reserved = check_reserved,
+                     pool_size = pool_size,
+                     migrate_enabled = migrate,
+                     lazy_tables = not migrate)
         else:
             # PostgreSQL
             if check_reserved:
                 check_reserved = ["mysql"]
-            db = DAL(db_string, check_reserved=check_reserved,
-                     pool_size=pool_size, migrate_enabled = migrate)
+            db = DAL(db_string,
+                     check_reserved = check_reserved,
+                     pool_size = pool_size,
+                     migrate_enabled = migrate,
+                     lazy_tables = not migrate)
     except:
         db_type = db_string.split(":", 1)[0]
         db_location = db_string.split("@", 1)[1]
@@ -115,18 +122,18 @@ if update_check_needed:
 else:
     import s3 as s3base
 
-# Use session for persistent per-user variables
-# - beware of a user having multiple tabs open!
-# - don't save callables or class instances as these can't be pickled
-if not session.s3:
-    session.s3 = Storage()
-
 # Set up logger (before any module attempts to use it!)
 import s3log
 s3log.S3Log.setup()
     
 # AAA
 current.auth = auth = s3base.AuthS3()
+
+# Use session for persistent per-user variables
+# - beware of a user having multiple tabs open!
+# - don't save callables or class instances as these can't be pickled
+if not session.s3:
+    session.s3 = Storage()
 
 # Use username instead of email address for logins
 # - would probably require further customisation

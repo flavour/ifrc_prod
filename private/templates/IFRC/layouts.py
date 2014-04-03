@@ -206,7 +206,7 @@ class S3DashBoardMenuLayout(S3NavigationItem):
                           _href=item.url()))
             elif item.opts.text:
                 return LI(A(H2(item.label),
-                          P(item.opts.text),
+                          P(T(item.opts.text)),
                           IMG(_src=URL(c="static", f="themes",
                                        args=["IFRC", "img", item.opts.image]),
                               _alt=item.opts.image),
@@ -266,7 +266,8 @@ class S3OrgMenuLayout(S3NavigationItem):
 
         if not logo:
             # Default to generic IFRC
-            logo = IMG(_src="/eden/static/themes/IFRC/img/dummy_flag.png",
+            logo = IMG(_src="/%s/static/themes/IFRC/img/dummy_flag.png" %
+                            current.request.application,
                        _alt=current.T("Red Cross/Red Crescent"),
                        _width=60,
                        )

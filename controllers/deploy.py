@@ -109,14 +109,16 @@ def mission():
                               # (rheader includes the title)
                               notitle=lambda r: {"title": ""} \
                                              if r.component else None,
-                              rheader=s3db.deploy_rheader)
+                              rheader=s3db.deploy_rheader,
+                              )
 
 # =============================================================================
 def response_message():
     """ RESTful CRUD Controller """
 
     return s3_rest_controller("deploy", "response",
-                              custom_crud_buttons = {"list_btn": None})
+                              custom_crud_buttons = {"list_btn": None},
+                              )
 
 # =============================================================================
 def human_resource():
@@ -153,6 +155,7 @@ def person():
 
     return s3db.hrm_person_controller(replace_option = None,
                                       csv_extra_fields = [
+                                            # CSV column headers, so no T()
                                             dict(label="Deployable",
                                                  value="true"),
                                             # Assume volunteer if not
@@ -508,7 +511,7 @@ def alert():
                               hide_filter={"recipient": False,
                                            "_default": True,
                                           }
-                             )
+                              )
 
 # -----------------------------------------------------------------------------
 def email_inbox():
@@ -598,7 +601,8 @@ def email_channel():
         table = r.table
         tablename = "msg_email_channel"
         s3db.configure(tablename,
-                       deletable=False)
+                       deletable = False,
+                       )
 
         if not r.id:
             # Have we got a channel defined?
@@ -631,11 +635,9 @@ def email_channel():
             s3.crud_strings[tablename] = Storage(
                 title_display = T("Email Settings"),
                 title_list = T("Email Accounts"),
-                title_create = ADD_EMAIL_ACCOUNT,
+                label_create = ADD_EMAIL_ACCOUNT,
                 title_update = T("Edit Email Settings"),
                 label_list_button = T("View Email Accounts"),
-                label_create_button = ADD_EMAIL_ACCOUNT,
-                subtitle_create = T("Add New Email Account"),
                 msg_record_created = T("Account added"),
                 msg_record_deleted = T("Email Account deleted"),
                 msg_list_empty = T("No Accounts currently defined"),

@@ -84,6 +84,15 @@ class S3Report(S3Method):
         resource = self.resource
         get_config = resource.get_config
 
+        show_filter_form = False
+        if r.representation in ("html", "iframe"):
+            filter_widgets = get_config("filter_widgets", None)
+            if filter_widgets and not self.hide_filter:
+                # Apply filter defaults (before rendering the data!)
+                from s3filter import S3FilterForm
+                show_filter_form = True
+                S3FilterForm.apply_filter_defaults(r, resource)
+                
         # Filter
         response = current.response
         s3_filter = response.s3.filter
@@ -158,15 +167,13 @@ class S3Report(S3Method):
             output["title"] = self.crud_string(tablename, "title_report")
 
             # Filter widgets
-            filter_widgets = get_config("filter_widgets", None)
-            if filter_widgets and not self.hide_filter:
+            if show_filter_form:
                 advanced = False
                 for widget in filter_widgets:
                     if "hidden" in widget.opts and widget.opts.hidden:
                         advanced = resource.get_config("report_advanced", True)
                         break
 
-                from s3filter import S3FilterForm
                 filter_formstyle = get_config("filter_formstyle", None)
                 filter_form = S3FilterForm(filter_widgets,
                                            formstyle=filter_formstyle,
@@ -697,6 +704,13 @@ class S3ReportForm(object):
         T = current.T
         RECORDS = T("Records")
         mname = S3PivotTable._get_method_label
+
+        def layer_label(rfield, method):
+            """ Helper to construct a layer label """
+            mlabel = mname(method)
+            flabel = rfield.label if rfield.label != "Id" else RECORDS
+            return T("%s (%s)") % (flabel, mlabel)
+        
         prefix = resource.prefix_selector
         
         layer_opts = []
@@ -751,12 +765,12 @@ class S3ReportForm(object):
                     mopts = ["count", "list"]
                 for method in mopts:
                     if method in methods:
-                        mlabel = mname(method)
-                        flabel = rfield.label if rfield.label != "Id" else RECORDS
-                        label = T("%s (%s)") % (flabel, mlabel)
+                        label = layer_label(rfield, method)
                         layer_opts.append(("%s(%s)" % (method, selector), label))
             else:
                 # Explicit method specified
+                if label is None:
+                    label = layer_label(rfield, m)
                 layer_opts.append(("%s(%s)" % (m, selector), label))
 
         # Get current value

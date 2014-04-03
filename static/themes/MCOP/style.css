@@ -1,5 +1,5 @@
 body {
-    padding: 60px 20px 10px 20px; /* Test this with other templates as this should be sufficient to avoid the top nav menu + give side padding */
+    padding: 60px 20px 10px 20px; /* REVIEW - breaks footer - Test this with other templates as this should be sufficient to avoid the top nav menu + give side padding */
 }
 
 .navbar-inner {
@@ -25,6 +25,11 @@ body {
     float: left
 }
 
+#register-btn {
+    margin-left: 15px !important;
+}
+
+/*
 .btn-login, .btn-register {
     float: right;
     margin-top: 10px !important;
@@ -33,6 +38,7 @@ body {
 .btn-register {
     clear: right;
 }
+*/
 .homepage.row {
     clear: both;
 }
@@ -44,6 +50,10 @@ body {
     /*text-shadow: 2px 2px 1px black;*/
 }
 
+.title .span8 {
+    margin-left: 0;
+}
+
 .title h1, .title h2 {
     background: url('../../img/semi_white_75.png');
     display: table;
@@ -51,13 +61,12 @@ body {
 .title h1 {
     font-size: 50px;
     padding: 15px 10px 5px 10px;
-    margin-bottom: 10px;
 }
 
 .title h2 {
     font-size: 25px;
     padding: 10px 10px 0px 10px;
-    margin-bottom: 10px;
+    margin-top: 0;
 }
 
 h1, h2, h3 {
@@ -76,9 +85,20 @@ h3 {
     font-size: 25px;
     line-height: 35px;
 }
+.title .intro {
+    margin: 10px;
+    padding: 10px;
+    height: 100px; 
+    background: url('../../img/semi_white_75.png');
+}
+
+.homepage .map {
+    margin-bottom: 15px;
+}
+
 .homepage .link {
     padding: 5px 10px 5px 10px;
-    margin: 5px 0;
+    margin-bottom:  10px;
     background: url('../../img/semi_white_75.png');
 }
 
@@ -91,11 +111,9 @@ h3 {
     text-decoration:none;
 }
 
-.dl {
+.homepage .dl {
     padding: 5px 2px;
 }
-
-
 
 .thumbnail {
     background: url('../../img/semi_white_75.png') !important;
@@ -113,10 +131,39 @@ h3 {
 .cms-edit {
     display: none;
 }
+
+/* RSS Feed */
+.gfg-title,
+.gfg-entry,
+.gfg-subtitle {
+    display: none;
+}
+
+
+.gfg-listentry {
+    background: url('../../img/semi_white_75.png');
+    margin-bottom: 5px;
+    padding: 3px;
+}
+
+/* Customise Datalist Cards */
+#cms_post_datalist .card-title, 
+.homepage .card-header > .icon,
+#profile-list-project_project-3 .card-header > .icon,
+#profile-list-org_resource-2 img,
+#profile-list-project_project-3 img, 
+#profile-list-project_task-0 .task_project_title {
+    display: none;
+}
+
+
+
 /***********************************************/
+
+/* Needs fixing - test profile page
 h2, #list-btn-add {
     float: left
-}
+} */
 
 #list-btn-add {
     margin: 15px 0 0 15px;
@@ -127,4 +174,14 @@ h2, #list-btn-add {
 #table-container,
 .form-container {
     clear: both;
+}
+
+.card-holder .location-title {
+    border-left: 1px solid rgba(0, 0, 0, 0.1);
+    margin-left: 10px;
+    padding-bottom: 7px;
+    padding-left: 10px;
+    padding-top: 7px;
+    text-shadow: 0 1px 0 #FFFFFF;
+    width: 10px;
 }
