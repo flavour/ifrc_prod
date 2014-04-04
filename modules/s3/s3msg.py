@@ -1333,6 +1333,7 @@ class S3Msg(object):
                 filename = s3_unicode(a[0][:92]).encode("ascii", "ignore")
                 fp = StringIO()
                 fp.write(a[1])
+                fp.seek(0)
                 newfilename = store(fp, filename)
                 fp.close()
                 document_id = dinsert(name=filename,
