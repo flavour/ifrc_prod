@@ -341,6 +341,7 @@ class S3MessageModel(S3Model):
 
         UNKNOWN_OPT = current.messages.UNKNOWN_OPT
 
+        add_component = self.add_component
         configure = self.configure
         define_table = self.define_table
 
@@ -404,8 +405,11 @@ class S3MessageModel(S3Model):
                                      represent = message_represent,
                                      ondelete = "RESTRICT")
 
-        self.add_component("msg_attachment",
-                           msg_message="message_id")
+        add_component("msg_attachment",
+                      msg_message="message_id")
+
+        add_component("deploy_response",
+                      msg_message="message_id")
 
         # ---------------------------------------------------------------------
         # Outbound Messages
@@ -611,13 +615,11 @@ class S3EmailModel(S3ChannelModel):
                              *s3_meta_fields())
 
         configure(tablename,
+                  orderby = "msg_email.created_on desc",
                   super_entity = "msg_message",
                   )
 
         # Components
-        add_component("deploy_response",
-                      msg_email="message_id")
-
         # Used to link to custom tab deploy_response_select_mission
         add_component("deploy_mission",
                       msg_email=dict(name="select",
