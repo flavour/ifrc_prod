@@ -771,6 +771,7 @@ class S3DeploymentAlertModel(S3Model):
                   context = {"mission": "mission_id"},
                   crud_form = crud_form,
                   list_fields = ["mission_id",
+                                 "contact_method",
                                  "subject",
                                  "body",
                                  "alert_recipient.human_resource_id",
