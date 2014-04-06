@@ -92,6 +92,7 @@ class S3DeploymentModel(S3Model):
                              super_link("doc_id", "doc_entity"),
                              Field("name",
                                    label = T("Name"),
+                                   represent = self.deploy_mission_name_represent,
                                    requires = IS_NOT_EMPTY(),
                                    ),
                              # @ToDo: Link to location via link table
@@ -525,6 +526,21 @@ class S3DeploymentModel(S3Model):
                  _href=r.url(method="create", id=0, vars={}),
                  _class="action-btn",
                  )
+                
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def deploy_mission_name_represent(name):
+
+        table = current.s3db.deploy_mission
+        mission = current.db(table.name == name).select(table.id,
+                                                        limitby=(0, 1)
+                                                        ).first()
+        if not mission:
+            return name
+
+        return A(name,
+                 _href=URL(c="deploy", f="mission",
+                           args=[mission.id, "profile"]))
                 
     # -------------------------------------------------------------------------
     @staticmethod
