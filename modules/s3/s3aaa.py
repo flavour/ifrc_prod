@@ -1267,12 +1267,12 @@ Thank you
             last_name.requires = IS_NOT_EMPTY(error_message=messages.is_empty)
 
         if settings.username_field:
-            table.username.requires = IS_NOT_IN_DB(db,
-                                                   "%s.username" %
-                                                   utable._tablename)
+            utable.username.requires = IS_NOT_IN_DB(db,
+                                                    "%s.username" %
+                                                    utable._tablename)
 
         email = utable.email
-        email.label = T("E-mail") #messages.label_email
+        email.label = T("Email") #messages.label_email
         email.requires = [IS_EMAIL(error_message=messages.invalid_email),
                           IS_LOWER(),
                           IS_NOT_IN_DB(db,
@@ -1307,15 +1307,14 @@ Thank you
         #utable.reset_password_key.label = messages.label_registration_key
 
         # Organisation
-        # @ToDo: Allow Admin to see Org linkage even if Users cannot specify when they register
-        if current.auth.s3_has_role("ADMIN"):         
-            req_org = deployment_settings.get_auth_admin_sees_organisation()
+        if self.s3_has_role("ADMIN"):         
+            show_org = deployment_settings.get_auth_admin_sees_organisation()
         else:
-            req_org = deployment_settings.get_auth_registration_requests_organisation()
-        if req_org:
+            show_org = deployment_settings.get_auth_registration_requests_organisation()
+        if show_org:
             if pe_ids:
                 # Filter orgs to just those belonging to the Org Admin's Org
-                # & Descendants
+                # & Descendants (or realms for which they are Org Admin)
                 filterby = "pe_id"
                 filter_opts = pe_ids
             else:
@@ -1388,16 +1387,16 @@ Thank you
                 field.readable = field.writable = True
                 #field.default = deployment_settings.get_auth_registration_site_id_default()
                 site_required = deployment_settings.get_auth_registration_site_required()
-                if req_org:
+                if show_org:
                     from s3validators import IS_ONE_OF_EMPTY
                     requires = IS_ONE_OF_EMPTY(db, "org_site.site_id",
                                                site_represent,
                                                orderby="org_site.name",
                                                sort=True)
                     if site_required:
-                        site_required = ""
+                        site_optional = ""
                     else:
-                        site_required = ''',
+                        site_optional = ''',
  'optional': true'''
                     current.response.s3.jquery_ready.append('''
 S3OptionsFilter({
@@ -1406,8 +1405,7 @@ S3OptionsFilter({
  'lookupField':'site_id',
  'lookupResource':'site',
  'lookupURL':S3.Ap.concat('/org/sites_for_org/')%s
-})''' % site_required)
-
+})''' % site_optional)
                 else:
                     requires = IS_ONE_OF(db, "org_site.site_id",
                                          site_represent,
@@ -1431,9 +1429,9 @@ S3OptionsFilter({
         if link_user_to_opts:
             link_user_to = utable.link_user_to
             link_user_to_default = deployment_settings.get_auth_registration_link_user_to_default()
-            vars = request.vars
+            req_vars = request.vars
             for type in ["staff", "volunteer", "member"]:
-                if "link_user_to_%s" % type in vars:
+                if "link_user_to_%s" % type in req_vars:
                     link_user_to_default.append(type)
             if link_user_to_default:
                 link_user_to.default = link_user_to_default
