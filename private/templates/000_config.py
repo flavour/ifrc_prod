@@ -72,6 +72,15 @@ settings.base.migrate = True
 # ?debug=1
 settings.base.debug = False
 
+# Configure the log level ("DEBUG", "INFO", "WARNING", "ERROR" or "CRITICAL"), None = turn off logging
+#settings.log.level = "WARNING"
+# Uncomment to write log messages to the console (sys.stderr)
+#settings.log.console = True
+# Configure a log file (file name)
+#settings.log.logfile = None
+# Uncomment to get detailed caller information
+#settings.log.caller_info = True
+
 # Uncomment to use Content Delivery Networks to speed up Internet-facing sites
 #settings.base.cdn = True
 
@@ -148,6 +157,8 @@ settings.frontpage.rss = [
 #settings.gis.api_google = ""
 # Yahoo API Key (for Geocoder)
 #settings.gis.api_yahoo = ""
+# GeoNames username
+#settings.gis.geonames_username = ""
 # GeoServer (Currently used by GeoExplorer. Will allow REST control of GeoServer.)
 # NB Needs to be publically-accessible URL for querying via client JS
 #settings.gis.geoserver_url = "http://localhost/geoserver"
@@ -203,6 +214,9 @@ if os.path.exists(path):
 #        restricted = False,
 #        module_type = 10,
 #    )
+# Disable a module which is nromally used by the template
+# - NB Only templates with adaptive menus will work nicely with this!
+#del settings.modules["irs"]
 
 # After 1st_run, set this for Production to save 1x DAL hit/request
 #settings.base.prepopulate = 0

@@ -39,7 +39,7 @@ class index():
                                     appname
             s3.actions = None
             hospital_box = DIV(H3(T("Hospitals")),
-                               A(T("Add Hospital"),
+                               A(T("Create Hospital"),
                                  _href = URL(c="hms", f="hospital",
                                              args=["create"]),
                                  _id = "add-btn",
@@ -228,7 +228,7 @@ google.setOnLoadCallback(LoadDynamicFeedControl)'''))
                             echo)
         else:
             from gluon.http import HTTP
-            raise HTTP(501, resource.ERROR.BAD_FORMAT)
+            raise HTTP(501, current.ERROR.BAD_FORMAT)
         return items
 
 # END =========================================================================

@@ -36,6 +36,7 @@ from gluon.dal import Table
 #from gluon.dal import Field
 #from gluon.validators import IS_EMPTY_OR
 from gluon.storage import Storage
+from gluon.tools import callback
 
 from s3navigation import S3ScriptItem
 from s3resource import S3Resource
@@ -365,7 +366,7 @@ class S3Model(object):
 
         return S3Resource(tablename, *args, **kwargs)
 
-   # -------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
     @classmethod
     def configure(cls, tablename, **attr):
         """
@@ -422,31 +423,83 @@ class S3Model(object):
         return
 
     # -------------------------------------------------------------------------
+    @classmethod
+    def onaccept(cls, table, record, method="create"):
+        """
+            Helper to run the onvalidation routine for a record
+
+            @param table: the Table
+            @param record: the FORM or the Row to validate
+            @param method: the method
+        """
+
+        if hasattr(table, "_tablename"):
+            tablename = table._tablename
+        else:
+            tablename = table
+
+        onaccept = cls.get_config(tablename, "%s_onaccept" % method,
+                   cls.get_config(tablename, "onaccept"))
+        if "vars" not in record:
+            record = Storage(vars=record, errors=Storage())
+        if onaccept:
+            callback(onaccept, record, tablename=tablename)
+        return
+
+    # -------------------------------------------------------------------------
+    @classmethod
+    def onvalidation(cls, table, record, method="create"):
+        """
+            Helper to run the onvalidation routine for a record
+
+            @param table: the Table
+            @param record: the FORM or the Row to validate
+            @param method: the method
+        """
+
+        if hasattr(table, "_tablename"):
+            tablename = table._tablename
+        else:
+            tablename = table
+
+        onvalidation = cls.get_config(tablename, "%s_onvalidation" % method,
+                       cls.get_config(tablename, "onvalidation"))
+        if "vars" not in record:
+            record = Storage(vars=record, errors=Storage())
+        if onvalidation:
+            callback(onvalidation, record, tablename=tablename)
+        return record.errors
+
+    # -------------------------------------------------------------------------
     # Resource components
     #--------------------------------------------------------------------------
     @classmethod
-    def add_component(cls, table, **links):
+    def add_components(cls, master, **links):
         """
-            Defines a component.
+            Configure component links for a master table.
 
-            @param table: the component table or table name
-            @param links: the component links
+            @param master: the name of the master table
+            @param links: component link configurations
         """
 
         components = current.model.components
 
-        if not links:
-            return
-        tablename = table._tablename if type(table) is Table else table
-        prefix, name = tablename.split("_", 1)
-        for primary in links:
-            hooks = components.get(primary, Storage())
-            l = links[primary]
-            if not isinstance(l, (list, tuple)):
-                l = [l]
-            for link in l:
-                if link is None or isinstance(link, str):
+        master = master._tablename if type(master) is Table else master
+        
+        hooks = components.get(master)
+        if hooks is None:
+            hooks = Storage()
+        for tablename, ll in links.items():
+
+            prefix, name = tablename.split("_", 1)
+            if not isinstance(ll, (tuple, list)):
+                ll = [ll]
+
+            for link in ll:
+                
+                if isinstance(link, str):
                     alias = name
+
                     pkey = None
                     fkey = link
                     linktable = None
@@ -459,33 +512,41 @@ class S3Model(object):
                     multiple = True
                     filterby = None
                     filterfor = None
-                else:
+
+                elif isinstance(link, dict):
                     alias = link.get("name", name)
-                    joinby = link.get("joinby", None)
-                    if joinby is None:
+
+                    joinby = link.get("joinby")
+                    if not joinby:
                         continue
-                    linktable = link.get("link", None)
+
+                    linktable = link.get("link")
                     linktable = linktable._tablename \
                                 if type(linktable) is Table else linktable
-                    pkey = link.get("pkey", None)
+
+                    pkey = link.get("pkey")
                     if linktable is None:
                         lkey = None
                         rkey = None
                         fkey = joinby
                     else:
                         lkey = joinby
-                        rkey = link.get("key", None)
+                        rkey = link.get("key")
                         if not rkey:
                             continue
-                        fkey = link.get("fkey", None)
-                    actuate = link.get("actuate", None)
+                        fkey = link.get("fkey")
+
+                    actuate = link.get("actuate")
                     autodelete = link.get("autodelete", False)
-                    autocomplete = link.get("autocomplete", None)
-                    values = link.get("values", None)
+                    autocomplete = link.get("autocomplete")
+                    values = link.get("values")
                     multiple = link.get("multiple", True)
-                    filterby = link.get("filterby", None)
-                    filterfor = link.get("filterfor", None)
-                    
+                    filterby = link.get("filterby")
+                    filterfor = link.get("filterfor")
+
+                else:
+                    continue
+
                 component = Storage(tablename=tablename,
                                     pkey=pkey,
                                     fkey=fkey,
@@ -498,11 +559,10 @@ class S3Model(object):
                                     values=values,
                                     multiple=multiple,
                                     filterby=filterby,
-                                    filterfor=filterfor
-                                    )
-
+                                    filterfor=filterfor)
                 hooks[alias] = component
-            components[primary] = hooks
+
+        components[master] = hooks
         return
 
     # -------------------------------------------------------------------------
@@ -854,7 +914,8 @@ class S3Model(object):
                                       default=False),
                                 Field("instance_type",
                                       represent = lambda opt: \
-                                        types.get(opt, opt),
+                                        types.get(opt, opt) or \
+                                            current.messages["NONE"],
                                       readable=False,
                                       writable=False),
                                 Field("uuid", length=128,
@@ -876,6 +937,8 @@ class S3Model(object):
 
         if supertable is None and default:
             return default
+        if isinstance(supertable, str):
+            supertable = cls.table(supertable)
         try:
             return supertable._id.name
         except AttributeError:
@@ -983,8 +1046,8 @@ class S3Model(object):
             return False
 
         # Get the record
-        id = record.get("id", None)
-        if not id:
+        record_id = record.get("id", None)
+        if not record_id:
             return False
 
         # Find all super-tables, super-keys and shared fields
@@ -1009,7 +1072,9 @@ class S3Model(object):
             else:
                 shared = dict([(fn, shared[fn])
                                for fn in shared
-                               if fn != key and fn in s.fields and fn in table.fields])
+                               if fn != key and \
+                                  fn in s.fields and \
+                                  shared[fn] in table.fields])
             fields.extend(shared.values())
             fields.append(key)
             updates.append((tn, s, key, shared))
@@ -1021,7 +1086,8 @@ class S3Model(object):
         if has_uuid:
             fields.append("uuid")
         fields = [ogetattr(table, fn) for fn in list(set(fields))]
-        _record = db(table.id == id).select(limitby=(0, 1), *fields).first()
+        _record = db(table.id == record_id).select(limitby=(0, 1),
+                                                   *fields).first()
         if not _record:
             return False
 
@@ -1066,7 +1132,7 @@ class S3Model(object):
 
         # Update the super_keys in the record
         if super_keys:
-            db(table.id == id).update(**super_keys)
+            db(table.id == record_id).update(**super_keys)
 
         record.update(super_keys)
         return True
@@ -1079,27 +1145,69 @@ class S3Model(object):
 
             @param table: the instance table
             @param record: the instance record
+
+            @return: True if successful, otherwise False (caller must
+                     roll back the transaction if False is returned!)
         """
 
-        get_config = cls.get_config
-        supertable = get_config(table._tablename, "super_entity")
-        if not supertable:
-            return True
+        # Must have a record ID
+        record_id = record.get(table._id.name, None)
+        if not record_id:
+            raise RuntimeError("Record ID required for delete_super")
 
-        uid = record.get("uuid", None)
-        if uid:
-            define_resource = current.s3db.resource
-            if not isinstance(supertable, (list, tuple)):
-                supertable = [supertable]
-            for s in supertable:
-                if isinstance(s, str):
-                    s = cls.table(s)
-                if s is None:
-                    continue
-                tn = s._tablename
-                resource = define_resource(tn, uid=uid)
-                ondelete = get_config(tn, "ondelete")
-                resource.delete(ondelete=ondelete, cascade=True)
+        # Get all super-tables
+        get_config = cls.get_config
+        supertables = get_config(table._tablename, "super_entity")
+
+        # None? Ok - done!
+        if not supertables:
+            return True
+        if not isinstance(supertables, (list, tuple)):
+            supertables = [supertables]
+            
+        # Get the keys for all super-tables
+        keys = {}
+        load = {}
+        for sname in supertables:
+            stable = cls.table(sname) if isinstance(sname, str) else sname
+            if stable is None:
+                continue
+            key = stable._id.name
+            if key in record:
+                keys[stable._tablename] = (key, record[key])
+            else:
+                load[stable._tablename] = key
+
+        # If necessary, load missing keys
+        if load:
+            row = current.db(table._id == record_id).select(
+                    table._id, *load.values(), limitby=(0, 1)).first()
+            for sname, key in load.items():
+                keys[sname] = (key, row[key])
+
+        # Delete super-records
+        define_resource = current.s3db.resource
+        update_record = record.update_record
+        for sname in keys:
+            key, value = keys[sname]
+            if not value:
+                # Skip if we don't have a super-key
+                continue
+
+            # Remove the super key
+            update_record(**{key: None})
+
+            # Delete the super record
+            sresource = define_resource(sname, id=value)
+            success = sresource.delete(cascade=True)
+
+            if not success:
+                # Restore the super key
+                # @todo: is this really necessary? => caller must roll back
+                #        anyway in this case, which would automatically restore
+                update_record(**{key: value})
+                return False
+                
         return True
 
     # -------------------------------------------------------------------------

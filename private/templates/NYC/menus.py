@@ -14,9 +14,9 @@ class S3MainMenu(default.S3MainMenu):
         Custom Application Main Menu:
 
         The main menu consists of several sub-menus, each of which can
-        be customized separately as a method of this class. The overall
+        be customised separately as a method of this class. The overall
         composition of the menu is defined in the menu() method, which can
-        be customized as well:
+        be customised as well:
 
         Function        Sub-Menu                Access to (standard)
 
@@ -90,12 +90,12 @@ class S3MainMenu(default.S3MainMenu):
             ),                
             MM("Resources", c="inv", f="index")(
                 MM("Assets", c="asset", f="asset"),
-                MM("Inventory", c="inv", f="inv_item", m="search"),
+                MM("Inventory", c="inv", f="inv_item"),
                 MM("Stock Counts", c="inv", f="adj"),
                 MM("Shipments", c="inv", f="send")
             ),
-             MM("Cases", c="assess", f="building", m="search")(
-                MM("Building Assessments", f="building", m="search"),
+             MM("Cases", c="assess", f="building")(
+                MM("Building Assessments", f="building"),
                 MM("Canvass", f="canvass"), 
             ),  
             MM("Survey", c="survey")(
@@ -241,7 +241,7 @@ class S3OptionsMenu(default.S3OptionsMenu):
         controller, so each controller has its own options menu function
         in this class.
 
-        Each of these option menu functions can be customized separately,
+        Each of these option menu functions can be customised separately,
         by simply overriding (re-defining) the default function. The
         options menu function must return an instance of the item layout.
 
@@ -278,60 +278,60 @@ class S3OptionsMenu(default.S3OptionsMenu):
         return M()(
                     M(settings.get_hrm_staff_label(), c="hrm", f="staff",
                       check=manager_mode)(
-                        M("New", m="create"),
-                        M("List All"),
+                        M("Create", m="create"),
+                        #M("Search"),
                         M("Import", f="person", m="import",
                           vars={"group":"staff"}, p="create"),
                     ),
                     M(teams, c="hrm", f="group",
                       check=[manager_mode, use_teams])(
-                        M("New", m="create"),
-                        M("List All"),
+                        M("Create", m="create"),
+                        #M("Search"),
                     ),
                     M("Facilities", c="org", f="facility", m="summary")(
-                        M("New", m="create"),
-                        M("List All", m="summary"),
+                        M("Create", m="create"),
+                        #M("Search", m="summary"),
                         #M("Review/Approve New", m="review"),
                         M("Import", m="import")
                     ),
                     M("Facility Types", c="org", f="facility_type",
                       restrict=[ADMIN]
                       )(
-                        M("New", m="create"),
-                        M("List All"),
+                        M("Create", m="create"),
+                        #M("Search"),
                     ),
                     M("Organizations", c="org", f="organisation")(
-                        M("New", m="create"),
-                        M("List All"),
+                        M("Create", m="create"),
+                        #M("Search"),
                         M("Review/Approve New", m="review"),
                         M("Import", m="import")
                     ),
                     M("Organization Types", c="org", f="organisation_type",
                       restrict=[ADMIN]
                       )(
-                        M("New", m="create"),
-                        M("List All"),
+                        M("Create", m="create"),
+                        #M("Search"),
                     ),
                     M("Networks", c="org", f="group",
                       #restrict=[ADMIN]
                       )(
-                        M("New", m="create"),
-                        M("List All"),
+                        M("Create", m="create"),
+                        #M("Search"),
                     ),
                     #M("Department Catalog", c="hrm", f="department",
                     #  check=manager_mode)(
-                    #    M("New", m="create"),
-                    #    M("List All"),
+                    #    M("Create", m="create"),
+                    #    M("Search"),
                     #),
                     M("Job Title Catalog", c="hrm", f="job_title",
                       check=manager_mode)(
-                        M("New", m="create"),
-                        M("List All"),
+                        M("Create", m="create"),
+                        #M("Search"),
                     ),
                     M("Skill Catalog", c="hrm", f="skill",
                       check=manager_mode)(
-                        M("New", m="create"),
-                        M("List All"),
+                        M("Create", m="create"),
+                        #M("Search"),
                         #M("Skill Provisions", f="skill_provision"),
                     ),
                     M("Personal Profile", c="hrm", f="person",
@@ -350,20 +350,15 @@ class S3OptionsMenu(default.S3OptionsMenu):
 
         ADMIN = current.session.s3.system_roles.ADMIN
 
-        #current.s3db.inv_recv_crud_strings()
-        #crud_strings = current.response.s3.crud_strings
-        #inv_recv_list = crud_strings.inv_recv.title_list
-        #inv_recv_search = crud_strings.inv_recv.title_search
-
         return M()(
                     M("Facilities", c="inv", f="facility", m="summary")(
-                        M("New", m="create"),
-                        M("List All", m="summary"),
+                        M("Create", m="create"),
+                        #M("Search", m="summary"),
                         M("Import", m="import")
                     ),
                     M("Warehouse Stock", c="inv", f="inv_item")(
-                        M("Search", f="inv_item", m="search"),
-                        #M("Search Shipped Items", f="track_item", m="search"),
+                        #M("Search"),
+                        #M("Search Shipped Items", f="track_item"),
                         M("Stock Count", f="adj"),
                         #M("Kitting", f="kit"),
                         M("Import", f="inv_item", m="import", p="create"),
@@ -371,37 +366,35 @@ class S3OptionsMenu(default.S3OptionsMenu):
                     M("Reports", c="inv", f="inv_item")(
                         M("Warehouse Stock", f="inv_item",m="report"),
                         M("Expiration Report", c="inv", f="track_item",
-                          m="search", vars=dict(report="exp")),
+                          vars=dict(report="exp")),
                         #M("Monetization Report", c="inv", f="inv_item",
-                        #  m="search", vars=dict(report="mon")),
+                        #  vars=dict(report="mon")),
                         #M("Utilization Report", c="inv", f="track_item",
-                        #  m="search", vars=dict(report="util")),
+                        #  vars=dict(report="util")),
                         #M("Summary of Incoming Supplies", c="inv", f="track_item",
-                        #  m="search", vars=dict(report="inc")),
+                        #  vars=dict(report="inc")),
                         #M("Summary of Releases", c="inv", f="track_item",
-                        #  m="search", vars=dict(report="rel")),
+                        #  vars=dict(report="rel")),
                     ),
                     #M(inv_recv_list, c="inv", f="recv")(
-                    #    M("New", m="create"),
-                    #    M("List All"),
-                    #    M("Search", m="search"),
+                    #    M("Create", m="create"),
+                    #    #M("Search"),
                     #),
                     M("Sent Shipments", c="inv", f="send")(
-                        M("New", m="create"),
-                        M("List All"),
-                        M("Search", m="search"),
-                        M("Search Shipped Items", f="track_item", m="search"),
+                        M("Create", m="create"),
+                        #M("Search"),
+                        M("Search Shipped Items", f="track_item"),
                     ),
                     M("Items", c="supply", f="item")(
-                        M("New", m="create"),
-                        M("List All"),
-                        M("Report", m="report2"),
+                        M("Create", m="create"),
+                        #M("Search"),
+                        M("Report", m="report"),
                         M("Import", f="catalog_item", m="import", p="create"),
                     ),
                     M("Item Categories", c="supply", f="item_category",
                       restrict=[ADMIN])(
-                        M("New", m="create"),
-                        M("List All"),
+                        M("Create", m="create"),
+                        #M("Search"),
                     ),
                 )
 
@@ -418,8 +411,8 @@ class S3OptionsMenu(default.S3OptionsMenu):
 
         menu = M(c="project")(
                     M("Projects", f="project")(
-                        M("New", m="create"),
-                        M("List All"),
+                        M("Create", m="create"),
+                        #M("Search"),
                         M("Import", m="import", p="create"),
                     ),
                 )
@@ -442,39 +435,37 @@ class S3OptionsMenu(default.S3OptionsMenu):
                         M("Request Supplies", m="create", vars={"type": 1}),
                         M("Request People", m="create", vars={"type": 3}),
                         M("Fulfill Requests"),
-                        #M("List All"),
                         M("List Recurring Requests", f="req_template"),
-                        #M("Search", m="search"),
                         #M("Map", m="map"),
                         M("Report", m="report"),
-                        M("FEMA Items Required", f="fema", m="search",
+                        M("FEMA Items Required", f="fema",
                           restrict=[SUPER]),
-                        M("Search All Requested Items", f="req_item", m="search"),
-                        M("Search All Requested Skills", f="req_skill", m="search"),
+                        M("Search All Requested Items", f="req_item"),
+                        M("Search All Requested Skills", f="req_skill"),
                     ),
                     #M("Priority Items", f="summary_option")(
-                    #    M("New", m="create"),
-                    #    M("List All"),
+                    #    M("Create", m="create"),
+                    #    M("Search"),
                     #),
                     M("Commitments", f="commit")(
-                        M("List All")
+                        #M("Search")
                     ),
                     M("Sent Shipments", f="send")(
-                        #M("New", m="create"),
-                        M("List All"),
-                        #M("Search Shipped Items", f="track_item", m="search"),
+                        #M("Create", m="create"),
+                        #M("Search"),
+                        #M("Search Shipped Items", f="track_item"),
                     ),
                     M("Items", c="supply", f="item",
                       restrict=[SUPER])(
-                        M("New", m="create"),
-                        M("List All"),
-                        M("Report", m="report2"),
+                        M("Create", m="create"),
+                        #M("Search"),
+                        M("Report", m="report"),
                         M("Import", f="catalog_item", m="import", p="create"),
                     ),
                     M("Item Categories", c="supply", f="item_category",
                       restrict=[SUPER])(
-                        M("New", m="create"),
-                        M("List All"),
+                        M("Create", m="create"),
+                        #M("Search"),
                     ),
                 )
 

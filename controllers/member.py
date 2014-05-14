@@ -10,6 +10,8 @@ resourcename = request.function
 if not settings.has_module(module):
     raise HTTP(404, body="Module disabled: %s" % module)
 
+s3db.hrm_vars()
+
 # =============================================================================
 def index():
     """ Dashboard """
@@ -23,7 +25,7 @@ def index_alt():
     """
 
     # Just redirect to the list of Members
-    redirect(URL(f="membership"))
+    redirect(URL(f="membership", args=["summary"]))
 
 # =============================================================================
 def membership_type():
@@ -77,10 +79,7 @@ def membership():
         return output
     s3.postp = postp
 
-    output = s3_rest_controller(hide_filter = False,
-                                rheader = s3db.member_rheader,
-                                )
-    return output
+    return s3_rest_controller(rheader = s3db.member_rheader)
 
 # =============================================================================
 def person():
@@ -112,9 +111,8 @@ def person():
     # Import pre-process
     def import_prep(data):
         """
-            Deletes all Member records of the organisation
-            before processing a new data import, used for the import_prep
-            hook in s3mgr
+            Deletes all Member records of the organisation/branch
+            before processing a new data import
         """
         resource, tree = data
         xml = current.xml
@@ -139,10 +137,11 @@ def person():
                         query = (otable.name == org_name) & \
                                 (mtable.organisation_id == otable.id)
                         resource = s3db.resource("member_membership", filter=query)
-                        ondelete = s3db.get_config("member_membership", "ondelete")
-                        resource.delete(ondelete=ondelete, format="xml", cascade=True)
+                        # Use cascade=True so that the deletion gets
+                        # rolled back if the import fails:
+                        resource.delete(format="xml", cascade=True)
 
-    s3mgr.import_prep = import_prep
+    s3.import_prep = import_prep
 
     # CRUD pre-process
     def prep(r):
@@ -165,9 +164,7 @@ def person():
                         r.id = r.record.id
                 if not r.record:
                     session.error = T("Record not found")
-                    redirect(URL(f="membership",
-                                #args=["search"]
-                                ))
+                    redirect(URL(f="membership"))
                 member_id = request.get_vars.get("membership.id", None)
                 if member_id and r.component_name == "membership":
                     r.component_id = member_id

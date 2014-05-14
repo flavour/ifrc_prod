@@ -14,7 +14,7 @@ resourcename = request.function
 def s3_menu_postp():
     # @todo: rewrite this for new framework
     menu_selected = []
-    group_id = s3mgr.get_session("pr", "group")
+    group_id = s3base.s3_get_last_record_id("pr_group")
     if group_id:
         group = s3db.pr_group
         query = (group.id == group_id)
@@ -24,7 +24,7 @@ def s3_menu_postp():
             menu_selected.append(["%s: %s" % (T("Group"), name), False,
                                   URL(f="group",
                                       args=[record.id])])
-    person_id = s3mgr.get_session("pr", "person")
+    person_id = s3base.s3_get_last_record_id("pr_person")
     if person_id:
         person = s3db.pr_person
         query = (person.id == person_id)
@@ -52,9 +52,7 @@ def index():
 
     def prep(r):
         if r.representation == "html":
-            if not r.id and not r.method:
-                r.method = "search"
-            else:
+            if r.id or r.method:
                redirect(URL(f="person", args=request.args))
         return True
     s3.prep = prep
@@ -122,8 +120,8 @@ def person():
 
     # Custom Method for Contacts
     s3db.set_method(module, resourcename,
-                    method="contacts",
-                    action=s3db.pr_contacts)
+                    method = "contacts",
+                    action = s3db.pr_contacts)
 
     def prep(r):
         if r.representation == "json" and \
@@ -343,6 +341,17 @@ def person_search():
     return s3_rest_controller(module, "person")
 
 # -----------------------------------------------------------------------------
+def check_duplicates():
+    """
+        Person REST controller
+        - limited to just check_duplicates for use in S3AddPersonWidget2
+        - allows differential access permissions
+    """
+
+    s3.prep = lambda r: r.method == "check_duplicates"
+    return s3_rest_controller(module, "person")
+
+# -----------------------------------------------------------------------------
 def group():
     """ RESTful CRUD controller """
 
@@ -393,6 +402,12 @@ def education():
     s3.prep = prep
 
     return s3_rest_controller("pr", "education")
+
+# -----------------------------------------------------------------------------
+def education_level():
+    """ RESTful CRUD controller """
+
+    return s3_rest_controller("pr", "education_level")
 
 # -----------------------------------------------------------------------------
 #def contact():

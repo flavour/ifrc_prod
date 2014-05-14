@@ -38,7 +38,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
     var cluster_threshold_default = 2;   // minimum # of features to form a cluster
     // Default values if not set by the map
     // Also in modules/s3/s3gis.py
-    var fill_default = '#f5902e';           // fill colour for unclustered Point
+    var fill_default = '#f5902e';          // fill colour for unclustered Point
     var cluster_fill_default = '8087ff';   // fill colour for clustered Point
     var cluster_stroke_default = '2b2f76'; // stroke colour for clustered Point
     var select_fill_default = 'ffdc33';    // fill colour for selected Point
@@ -90,11 +90,16 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
             center.transform(proj4326, projection_current);
         } else {
             // BBOX
-            bounds = OpenLayers.Bounds.fromArray(options.bbox)
-                                      .transform(proj4326, projection_current);
+            bounds = OpenLayers.Bounds.fromArray(options.bbox);
             var center = bounds.getCenterLonLat();
         }
         options.center = center;
+
+        // Configue clustering
+        if (undefined === options.cluster_label) {
+            // Default to on
+            options.cluster_label = true;
+        }
 
         // Build the OpenLayers map
         var map = addMap(map_id, options);
@@ -104,18 +109,63 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
 
         // Add the GeoExt UI
         // @ToDo: Make this optional
-        // @ToDo: Make the map DIV configurable (needed to support >1/page)
-        options.renderTo = 'map_panel';
+        options.renderTo = map_id + '_panel';
         addMapUI(map);
 
         // If we were instantiated with bounds, use these now
         if (bounds) {
+            bounds.transform(proj4326, projection_current);
             map.zoomToExtent(bounds);
         }
+
+        // Listen to Events
+        map.events.on({
+            'movestart': function(event) {
+                // Hide any warnings (e.g. 'Too Many Features')
+                S3.hideAlerts('warning');
+            }
+        });
 
         // Return the map object
         return map;
     };
+
+    /**
+     * Zoom a map to the specified OpenLayers.Bounds (in WGS84: Lat/Lon)
+     * - ensuring a minimal bbox & a little padding
+     */
+    var zoomBounds = function(map, bounds) {
+        var bbox = bounds.toArray();
+        var lon_min = bbox[0],
+            lat_min = bbox[1],
+            lon_max = bbox[2],
+            lat_max = bbox[3];
+        // Ensure a minimal BBOX in case we just have a single data point
+        var min_size = 0.05;
+        var delta = (min_size - (lon_max - lon_min)) / 2;
+        if (delta > 0) {
+            lon_min -= delta;
+            lon_max += delta;
+        }
+        delta = (min_size - (lat_max - lat_min)) / 2;
+        if (delta > 0) {
+            lat_min -= delta;
+            lat_max += delta;
+        }
+        // Add an Inset in order to not have points right at the edges of the map
+        var inset = 0.007;
+        lon_min -= inset;
+        lon_max += inset;
+        lat_min -= inset;
+        lat_max += inset;
+        bounds = new OpenLayers.Bounds(lon_min, lat_min, lon_max, lat_max);
+        bounds.transform(proj4326, map.getProjectionObject());
+        // Zoom to Bounds
+        map.zoomToExtent(bounds);
+    }
+
+    // Pass to Global scope to be called from s3.locationselector.widget2.js
+    S3.gis.zoomBounds = zoomBounds;
 
     /**
      * Callback to Re-cluster Search Results after an AJAX refresh
@@ -129,38 +179,10 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         // Zoom Out to Cluster
         //layer.map.zoomTo(0)
         if (bounds) {
-            // Ensure a minimal BBOX in case we just have a single data point
-            var min_size = 0.05;
-            // Convert to 4326 for standard numbers
+            // Convert to WGS84: Lat/Lon
             var map = layer.map;
-            var current_projection = map.getProjectionObject();
-            bounds.transform(current_projection, proj4326);
-            var bbox = bounds.toArray();
-            var lon_min = bbox[0],
-                lat_min = bbox[1],
-                lon_max = bbox[2],
-                lat_max = bbox[3];
-            var delta = (min_size - (lon_max - lon_min)) / 2;
-            if (delta > 0) {
-                lon_min -= delta;
-                lon_max += delta;
-            }
-            delta = (min_size - (lat_max - lat_min)) / 2;
-            if (delta > 0) {
-                lat_min -= delta;
-                lat_max += delta;
-            }
-            // Add an Inset in order to not have points right at the edges of the map
-            var inset = 0.007;
-            lon_min -= inset;
-            lon_max += inset;
-            lat_min -= inset;
-            lat_max += inset;
-            bounds = new OpenLayers.Bounds(lon_min, lat_min, lon_max, lat_max);
-            // Convert back to Map projection
-            bounds.transform(proj4326, current_projection);
-            // Zoom to Bounds
-            map.zoomToExtent(bounds);
+            bounds.transform(map.getProjectionObject(), proj4326);
+            zoomBounds(map, bounds);
         }
         var strategy,
             strategies = layer.strategies;
@@ -213,7 +235,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                         });
                         strategies = layer.strategies;
                         jlen = strategies.length;
-                        // Disable Clustering to get correct bounds
+                        // Disable BBOX and Clustering to get correct bounds
                         for (j=0; j < jlen; j++) {
                             strategy = strategies[j];
                             if (strategy.CLASS_NAME == 'OpenLayers.Strategy.AttributeCluster') {
@@ -225,8 +247,10 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                             // Reload the layer
                             for (j=0; j < jlen; j++) {
                                 strategy = strategies[j];
-                                if (strategy.CLASS_NAME == 'OpenLayers.Strategy.Refresh') {
-                                    strategy.refresh();
+                                if (strategy.CLASS_NAME == 'OpenLayers.Strategy.BBOX') {
+                                    // Set bounds to maxExtent so that filter doesn't apply
+                                    strategy.bounds = null;
+                                    strategy.triggerRead();
                                     break;
                                 }
                             }
@@ -362,7 +386,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         if (options.legend) {
             if (options.legend == 'float') {
                 // Floating
-                addLegendPanel(map); 
+                var legendPanel = addLegendPanel(map); 
             } else {
                 // Integrated in West Panel
                 var legendPanel = new GeoExt.LegendPanel({
@@ -380,6 +404,8 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                 });
                 west_panel_items.push(legendPanel);
             }
+            // Allow us to retrieve the legendPanel
+            mapPanel.legendPanel = legendPanel;
         }
 
         // Plugins
@@ -928,7 +954,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
             }
             for (dir in folders) {
                 _dir = folders[dir];
-                children = []
+                children = [];
                 // @ToDo: Recursive (currently just 1 layer)
                 for (sub in _dir) {
                     baseAttrs = {
@@ -999,7 +1025,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
             children: nodesArr
         });
 
-        if (i18n.gis_properties || i18n.gis_uploadlayer) {
+        if (i18n.gis_properties || i18n.gis_clearlayers || i18n.gis_uploadlayer) {
             var tbar = new Ext.Toolbar();
         } else {
             var tbar = null;
@@ -1043,6 +1069,10 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         // Layer Properties
         if (i18n.gis_properties) {
             addLayerPropertiesButton(map, layerTree);
+        }
+        // Clear Layers
+        if (i18n.gis_clearlayers) {
+            addClearLayersButton(map, layerTree);
         }
 
         return layerTree;
@@ -1122,9 +1152,123 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         }
     };
     var layer_loadend = function(event) {
-        hideThrobber(event.object);
+        var layer = event.object;
+        hideThrobber(layer);
         if (event.response != undefined && event.response.priv.status == 509) {
             S3.showAlert(i18n.gis_too_many_features, 'warning');
+        } else {
+            // Do we need to re-calculate the style for coloured Polygons?
+            var style = layer.s3_style;
+            if (style && Object.prototype.toString.call(style) === '[object Array]' && style.length == 1) {
+                reStyle(layer);
+            }
+        }
+    };
+
+    /**
+     * Re-style a layer dynamically based on the data contents
+     */
+    var reStyle = function(layer) {
+        var defaults = layer.s3_style[0];
+
+        // Read the data
+        var prop = defaults['prop'];
+        var features = layer.features;
+        var i,
+            features_len = features.length,
+            data = [];
+        for (i = 0; i < features_len; i++) {
+            data.push(features[i].attributes[prop]);
+        }
+
+        // Sort the data
+        data.sort(function(a, b) {
+            return a - b;
+        });
+
+        // How many unique values do we have?
+        var seen = {};
+        $.each(data, function(){
+            seen[this] = 1;
+        });
+
+        // How many classes should we use?
+        // Color schemes from ColorBrewer2.org
+        // YlOrRd sequential schemes from ColorBrewer which are colorblind-safe, print-friendly and photocopy-safe
+        var classes = Object.keys(seen).length;
+        if (classes >= 5) {
+            classes = 5;
+            var colors = ['ffffb2', 'fecc5c', 'fd8d3c', 'f03b20', 'bd0026'];
+        } else if (classes == 4) {
+            var colors = ['ffffb2', 'fecc5c', 'fd8d3c', 'e31a1c'];
+        } else if (classes == 3) {
+            var colors = ['ffeda0', 'feb24c', 'f03b20'];
+        } else if (classes == 2) {
+            var colors = ['ffeda0', 'f03b20'];
+        } else if (classes == 1) {
+            var colors = ['feb24c'];
+        }
+
+        // What is the size of each class?
+        var classSize = Math.round(features_len / classes);
+        var step = classSize;
+
+        // Set first value
+        var breaks = [data[0]];
+        for (i = 1; i < classes; i++) {
+            breaks[i] = data[step] || data[features_len - 1];
+            step += classSize;
+        }
+        // Set last value
+        breaks.push(data[features_len - 1]);
+
+        var low,
+            high,
+            _style,
+            style = [];
+        for (i=0; i < classes; i++) {
+            low = breaks[i];
+            high = breaks[i + 1];
+            _style = $.extend({}, defaults); // Make a copy
+            _style['fill'] = colors[i];
+            _style['low'] = low;
+            _style['high'] = high;
+            if (low == high) {
+                _style['label'] = low.toString();
+            } else {
+                _style['label'] = low + ' - ' + high;
+            }
+            style.push(_style);
+        }
+
+        // Build and apply the new rules
+        var _layer = {'style': style,
+                      'cluster_threshold': 0
+                      };
+        var rules = styleRules(_layer);
+        layer.styleMap.styles['default'].rules = rules;
+
+        // Redraw the features with the new styleMap
+        for (i = 0; i < features_len; i++) {
+            layer.drawFeature(features[i]);
+        }
+
+        // Redraw the Legend
+        var legendPanel = layer.map.s3.mapPanel.legendPanel;
+        if (legendPanel) {
+            // Find the right layerLegend
+            var layerLegend,
+                layerLegends = legendPanel.items.items,
+                s3_layer_id = layer.s3_layer_id;
+            var layerLegends_len = layerLegends.length;
+            for (i=0; i < layerLegends_len; i++) {
+                layerLegend = layerLegends[i];
+                if (layerLegend.layer.s3_layer_id == s3_layer_id) {
+                    layerLegend.rules = rules;
+                    layerLegend.update();
+                    break;
+                }
+            }
         }
     };
 
@@ -1478,7 +1622,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
             // No Marker for Polygons
             var marker;
         } else {
-            // Marker for 
+            // Marker for Points
             var marker = options.marker_default;
         }
         // Styling
@@ -3516,7 +3660,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         } catch(e) {}
         
         // Search box
-        if (i18n.gis_search) {
+        if (options.geonames) {
             if (false === options.nav) {
                 // LocationSelector has fewer toolbar buttons, so can handle a greater width
                 // & this functionality is very useful here
@@ -3533,7 +3677,8 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                 minChars: 2,
                 // @ToDo: Restrict to the Country if using a Country config
                 //countryString: ,
-                emptyText: i18n.gis_search
+                emptyText: i18n.gis_search,
+                username: options.geonames
             });
             toolbar.addSeparator();
             toolbar.add(mapSearch);
@@ -3871,7 +4016,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
     };
 
     // Legend Panel as floating DIV
-    var addLegendPanel = function(map, legendPanel) {
+    var addLegendPanel = function(map) {
         var map_id = map.s3.id;
         var div = '<div class="map_legend_div"><div class="map_legend_tab right"></div><div class="map_legend_panel"></div></div>';
         $('#' + map_id).append(div);
@@ -3894,6 +4039,8 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                 showLegend(map);
             }
         });
+
+        return legendPanel;
     };
     var hideLegend = function(map) {
         var map_id = map.s3.id;
@@ -4011,6 +4158,12 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                     // Clear the one from the Current Location in S3LocationSelector
                     draftLayer.features[0].destroy();
                 }
+
+                if (undefined != map.s3.pointPlaced) {
+                    // Call Custom Call-back
+                    map.s3.pointPlaced(feature);
+                }
+
                 // Prepare in case user draws a new line
                 map.s3.lastDraftFeature = feature;
             }
@@ -4085,6 +4238,17 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                         wkt_search_field.val(WKT).trigger('change');
                     }
                 }
+
+                if (undefined != map.s3.pointPlaced) {
+                    // Call Custom Call-back
+                    map.s3.pointPlaced(feature);
+                }
+
+                if (undefined != map.s3.pointPlaced) {
+                    // Call Custom Call-back
+                    map.s3.pointPlaced(feature);
+                }
+
                 // Prepare in case user draws a new polygon
                 map.s3.lastDraftFeature = feature;
             }
@@ -4732,6 +4896,25 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         toolbar.add(layerPropertiesButton);
     };
 
+    // Clear Layers control
+    var addClearLayersButton = function(map, layerTree) {
+        var clearLayersButton = new Ext.Toolbar.Button({
+            iconCls: 'icon-clearlayers',
+            tooltip: i18n.gis_clearlayers,
+            handler: function() {
+                layers = map.layers;
+                for (i=0, len=layers.length; i < len; i++) {
+                    layer = layers[i];
+                    if (!layer.isBaseLayer) {
+                        layer.setVisibility(false);
+                    }
+                }
+            }
+        });
+        var toolbar = layerTree.getTopToolbar();
+        toolbar.add(clearLayersButton);
+    };
+
     /**
      * Create a StyleMap
      * - called by addGeoJSONLayer, addKMLLayer & addWFSLayer
@@ -4758,6 +4941,12 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         // Default to opaque if undefined
         var opacity = layer.opacity || 1;
         var style = layer.style;
+        // If there is a style, is this common to all features or variable?
+        if (Object.prototype.toString.call(style) === '[object Array]') {
+            var style_array = true;
+        } else {
+            var style_array = false;
+        }
 
         // Scale Marker Images if they are too large for this map
         // - especially useful if they are loaded from remote servers (e.g. KML)
@@ -4817,11 +5006,12 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                     } else if (feature.attributes.marker_width) {
                         // Use marker_width from feature
                         pix = feature.attributes.marker_width;
-                    } else {
-                        if (undefined != marker_width) {
+                    } else if (style && !style_array && undefined == style.externalGraphic && undefined == marker_width && feature.geometry.CLASS_NAME == 'OpenLayers.Geometry.Point') {
+                        // Use Default Marker
+                        pix =  options.marker_default.w;
+                    } else if (undefined != marker_width) {
                             // per-Layer Marker for Unclustered Point
                             pix = marker_width;
-                        }
                     }
                     return pix;
                 },
@@ -4834,11 +5024,12 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                     } else if (feature.attributes.marker_height) {
                         // Use marker_height from feature (Query)
                         pix = feature.attributes.marker_height;
-                    } else {
-                        if (undefined != marker_height) {
-                            // per-Layer Marker for Unclustered Point
-                            pix = marker_height;
-                        }
+                    } else if (style && !style_array && undefined == style.externalGraphic && undefined == marker_height && feature.geometry.CLASS_NAME == 'OpenLayers.Geometry.Point') {
+                        // Use Default Marker
+                        pix =  options.marker_default.h;
+                    } else if (undefined != marker_height) {
+                        // per-Layer Marker for Unclustered Point
+                        pix = marker_height;
                     }
                     return pix;
                 },
@@ -4851,11 +5042,12 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                     } else if (feature.attributes.marker_width) {
                         // Use marker_width from feature (e.g. FeatureQuery)
                         pix = -(feature.attributes.marker_width / 2);
-                    } else {
-                        if (undefined != marker_width) {
-                            // per-Layer Marker for Unclustered Point
-                            pix = -(marker_width / 2);
-                        }
+                    } else if (style && !style_array && undefined == style.externalGraphic && undefined == marker_width && feature.geometry.CLASS_NAME == 'OpenLayers.Geometry.Point') {
+                        // Use Default Marker
+                        pix =  -(options.marker_default.w / 2);
+                    } else if (undefined != marker_width) {
+                        // per-Layer Marker for Unclustered Point
+                        pix = -(marker_width / 2);
                     }
                     return pix;
                 },
@@ -4868,11 +5060,12 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                     } else if (feature.attributes.marker_height) {
                         // Use marker_height from feature (e.g. FeatureQuery)
                         pix = -feature.attributes.marker_height;
-                    } else {
-                        if (undefined != marker_height) {
-                            // per-Layer Marker for Unclustered Point
-                            pix = -marker_height;
-                        }
+                    } else if (style && !style_array && undefined == style.externalGraphic && undefined == marker_height && feature.geometry.CLASS_NAME == 'OpenLayers.Geometry.Point') {
+                        // Use Default Marker
+                        pix =  -options.marker_default.h;
+                    } else if (undefined != marker_height) {
+                        // per-Layer Marker for Unclustered Point
+                        pix = -marker_height;
                     }
                     return pix;
                 },
@@ -4913,6 +5106,14 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                             // Common Style for all features in layer
                             if (undefined != style.externalGraphic) {
                                 url = S3.Ap.concat('/static/' + style.externalGraphic);
+                            } else if (feature.geometry.CLASS_NAME == 'OpenLayers.Geometry.Point') {
+                                if (marker_url) {
+                                    // Use Layer Marker
+                                    return marker_url;
+                                } else {
+                                    // Use Default Marker
+                                    url = marker_url_path + options.marker_default.i;
+                                }
                             }
                         } else {
                             // Lookup from rule
@@ -5088,7 +5289,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                     var label;
                     // Label For Clustered Point
                     if (feature.cluster) {
-                        if (feature.attributes.count > 1) {
+                        if (options.cluster_label && feature.attributes.count > 1) {
                             label = feature.attributes.count;
                         }
                     } else if (feature.layer && (undefined != feature.layer.s3_style)) {
@@ -5113,129 +5314,9 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
             styleOptions
         );
 
-        // If there is a style, is this common to all features or variable?
-        if (Object.prototype.toString.call(style) === '[object Array]') {
-            var style_array = true;
-        } else {
-            var style_array = false;
-        }
-
         if (style_array) {
             // Style Features according to rules in JSON style (currently Feature, Shapefile or Theme Layer)
-            // Needs to be uniquely instantiated
-            var rules = [];
-            var prop, rule, symbolizer, value,
-                elseFilter, externalGraphic, graphicHeight,
-                graphicWidth, graphicXOffset, graphicYOffset,
-                fill, fillOpacity, size, strokeOpacity, strokeWidth;
-            $.each(style, function(index, elem) {
-                var options = {};
-                if (undefined != elem.fallback) {
-                    // Fallback Rule
-                    options.title = elem.fallback;
-                    elsefilter = options.elseFilter = true;
-                } else {
-                    if (undefined != elem.prop) {
-                        prop = elem.prop;
-                    } else {
-                        // Default (e.g. for Theme/Stats Layers)
-                        prop = 'value';
-                    }
-                    if (undefined != elem.cat) {
-                        // Category-based style
-                        value = elem.cat;
-                        options.title = elem.label || value;
-                        options.filter = new OpenLayers.Filter.Comparison({
-                            type: OpenLayers.Filter.Comparison.EQUAL_TO,
-                            property: prop,
-                            value: value
-                        });
-                    } else {
-                        // Range-based Style
-                        options.title = elem.label || (elem.low + '-' + elem.high);
-                        options.filter = new OpenLayers.Filter.Comparison({
-                            type: OpenLayers.Filter.Comparison.BETWEEN,
-                            property: prop,
-                            lowerBoundary: elem.low,
-                            upperBoundary: elem.high
-                        });
-                    }
-                }
-                if (undefined != elem.externalGraphic) {
-                    externalGraphic = S3.Ap.concat('/static/' + elem.externalGraphic);
-                    var image = new Image();
-                    //image.onload = scaleImage;
-                    image.src = externalGraphic;
-                    graphicHeight = image.height;
-                    graphicWidth = image.width;
-                    graphicXOffset = -(graphicWidth / 2);
-                    graphicYOffset = -graphicHeight;
-                } else {
-                    externalGraphic = '';
-                    graphicHeight = 1;
-                    graphicWidth = 1;
-                    graphicXOffset = -1;
-                    graphicYOffset = -1;
-                }
-                if (undefined != elem.fill) {
-                    // Polygon/Point
-                    fill = '#' + elem.fill;
-                } else if (undefined != elem.stroke) {
-                    // LineString
-                    fill = '#' + elem.stroke;
-                }
-                if (undefined != elem.fillOpacity) {
-                    fillOpacity = elem.fillOpacity;
-                } else {
-                    fillOpacity = opacity;
-                }
-                if (undefined != elem.strokeOpacity) {
-                    strokeOpacity = elem.strokeOpacity;
-                } else {
-                    strokeOpacity = 1;
-                }
-                if (undefined != elem.graphic) {
-                    graphic = elem.graphic;
-                } else {
-                    // Square better for Legend with Polygons
-                    graphic = 'square';
-                }
-                if (undefined != elem.size) {
-                    size = elem.size;
-                } else {
-                    size = 10;
-                }
-                if (undefined != elem.strokeWidth) {
-                    strokeWidth = elem.strokeWidth;
-                } else {
-                    strokeWidth = 2;
-                }
-                options.symbolizer = {
-                    externalGraphic: externalGraphic,
-                    fillColor: fill, // Used for Legend on LineStrings
-                    fillOpacity: fillOpacity,
-                    strokeColor: fill,
-                    strokeOpacity: strokeOpacity,
-                    strokeWidth: strokeWidth,
-                    graphicName: graphic,
-                    graphicHeight: graphicHeight,
-                    graphicWidth: graphicWidth,
-                    graphicXOffset: graphicXOffset,
-                    graphicYOffset: graphicYOffset,
-                    pointRadius: size
-                }
-
-                rule = new OpenLayers.Rule(options);
-                rules.push(rule);
-            });
-            if (!elseFilter && (layer.cluster_threshold != 0)) {
-                // Default Rule (e.g. for Clusters)
-                rule = new OpenLayers.Rule({
-                    elseFilter: true,
-                    title: ' '
-                });
-                rules.push(rule);
-            }
+            var rules = styleRules(layer);
             featureStyle.addRules(rules);
         }
 
@@ -5257,6 +5338,132 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
             'select': selectStyle
         });
         return [featureStyleMap, marker_url];
+    };
+
+    /**
+     * Create a set of Style Rules
+     * 
+     * Parameters:
+     * layer - {Array} (not an OpenLayers.Layer!)
+     *
+     * Returns:
+     * rules - {Array of OpenLayers.Rule}
+     */
+    var styleRules = function(layer) {
+        var style = layer.style;
+        var rules = [];
+        var prop, rule, value, elseFilter, fill, fillOpacity, size,
+            externalGraphic, graphicHeight, graphicWidth,
+            graphicXOffset, graphicYOffset, strokeOpacity, strokeWidth;
+        $.each(style, function(index, elem) {
+            var options = {};
+            if (undefined != elem.fallback) {
+                // Fallback Rule
+                options.title = elem.fallback;
+                elsefilter = options.elseFilter = true;
+            } else {
+                if (undefined != elem.prop) {
+                    prop = elem.prop;
+                } else {
+                    // Default (e.g. for Theme/Stats Layers)
+                    prop = 'value';
+                }
+                if (undefined != elem.cat) {
+                    // Category-based style
+                    value = elem.cat;
+                    options.title = elem.label || value;
+                    options.filter = new OpenLayers.Filter.Comparison({
+                        type: OpenLayers.Filter.Comparison.EQUAL_TO,
+                        property: prop,
+                        value: value
+                    });
+                } else {
+                    // Range-based Style
+                    options.title = elem.label || (elem.low + '-' + elem.high);
+                    options.filter = new OpenLayers.Filter.Comparison({
+                        type: OpenLayers.Filter.Comparison.BETWEEN,
+                        property: prop,
+                        lowerBoundary: elem.low,
+                        upperBoundary: elem.high
+                    });
+                }
+            }
+            if (undefined != elem.externalGraphic) {
+                externalGraphic = S3.Ap.concat('/static/' + elem.externalGraphic);
+                var image = new Image();
+                //image.onload = scaleImage;
+                image.src = externalGraphic;
+                graphicHeight = image.height;
+                graphicWidth = image.width;
+                graphicXOffset = -(graphicWidth / 2);
+                graphicYOffset = -graphicHeight;
+            } else {
+                externalGraphic = '';
+                graphicHeight = 1;
+                graphicWidth = 1;
+                graphicXOffset = -1;
+                graphicYOffset = -1;
+            }
+            if (undefined != elem.fill) {
+                // Polygon/Point
+                fill = '#' + elem.fill;
+            } else if (undefined != elem.stroke) {
+                // LineString
+                fill = '#' + elem.stroke;
+            }
+            if (undefined != elem.fillOpacity) {
+                fillOpacity = elem.fillOpacity;
+            } else {
+                fillOpacity = layer.opacity || 1;
+            }
+            if (undefined != elem.strokeOpacity) {
+                strokeOpacity = elem.strokeOpacity;
+            } else {
+                strokeOpacity = 1;
+            }
+            if (undefined != elem.graphic) {
+                graphic = elem.graphic;
+            } else {
+                // Square better for Legend with Polygons
+                graphic = 'square';
+            }
+            if (undefined != elem.size) {
+                size = elem.size;
+            } else {
+                size = 10;
+            }
+            if (undefined != elem.strokeWidth) {
+                strokeWidth = elem.strokeWidth;
+            } else {
+                strokeWidth = 2;
+            }
+            options.symbolizer = {
+                externalGraphic: externalGraphic,
+                fillColor: fill, // Used for Legend on LineStrings
+                fillOpacity: fillOpacity,
+                strokeColor: fill,
+                strokeOpacity: strokeOpacity,
+                strokeWidth: strokeWidth,
+                graphicName: graphic,
+                graphicHeight: graphicHeight,
+                graphicWidth: graphicWidth,
+                graphicXOffset: graphicXOffset,
+                graphicYOffset: graphicYOffset,
+                pointRadius: size
+            };
+
+            rule = new OpenLayers.Rule(options);
+            rules.push(rule);
+        });
+        if (!elseFilter && (layer.cluster_threshold != 0)) {
+            // Default Rule (e.g. for Clusters)
+            rule = new OpenLayers.Rule({
+                elseFilter: true,
+                title: ' '
+            });
+            rules.push(rule);
+        }
+        return rules;
     };
 
 }());

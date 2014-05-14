@@ -2,7 +2,7 @@
 
 """ S3 Data Views
 
-    @copyright: 2009-2013 (c) Sahana Software Foundation
+    @copyright: 2009-2014 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -33,7 +33,6 @@
 
 import datetime
 import sys
-import time
 
 from itertools import product, islice
 
@@ -52,7 +51,7 @@ from gluon.languages import lazyT
 from gluon.storage import Storage
 from gluon.validators import IS_EMPTY_OR, IS_IN_SET
 
-from s3utils import s3_flatlist, s3_has_foreign_key, s3_orderby_fields, s3_truncate, s3_unicode, S3MarkupStripper
+from s3utils import s3_flatlist, s3_has_foreign_key, s3_orderby_fields, s3_truncate, s3_unicode, S3MarkupStripper, s3_represent_value
 from s3validators import IS_NUMBER
 
 DEBUG = False
@@ -243,7 +242,7 @@ class S3DataTable(object):
                    '''i18n.sLast="%s"''' % T("Last"),
                    '''i18n.sNext="%s"''' % T("Next"),
                    '''i18n.sPrevious="%s"''' % T("Previous"),
-                   '''i18n.sEmptyTable="%s"''' % T("No data available in table"),
+                   '''i18n.sEmptyTable="%s"''' % T("No records found"), #T("No data available in table"),
                    '''i18n.sInfo="%s"''' % T("Showing _START_ to _END_ of _TOTAL_ entries"),
                    '''i18n.sInfoEmpty="%s"''' % T("Showing 0 to 0 of 0 entries"),
                    '''i18n.sInfoFiltered="%s"''' % T("(filtered from _MAX_ total entries)"),
@@ -554,15 +553,15 @@ class S3DataTable(object):
 
         from s3crud import S3CRUD
 
+        s3 = current.response.s3
         auth = current.auth
-        actions = current.response.s3.actions
+        actions = s3.actions = None
 
         table = resource.table
-        actions = None
         has_permission = auth.s3_has_permission
         ownership_required = auth.permission.ownership_required
 
-        labels = current.manager.LABEL
+        labels = s3.crud_labels
         args = ["[id]"]
 
         # Choose controller/function to link to
@@ -683,8 +682,7 @@ class S3DataTable(object):
         config.lengthMenu = attr.get("dt_lengthMenu",
                                      [[ 25, 50, -1], [ 25, 50, str(current.T("All"))]]
                                      )
-        config.displayLength = attr.get("dt_displayLength",
-                                        current.manager.ROWSPERPAGE)
+        config.displayLength = attr.get("dt_displayLength", s3.ROWSPERPAGE)
         config.sDom = attr.get("dt_sDom", 'fril<"dataTable_table"t>pi')
         config.pagination = attr.get("dt_pagination", "true")
         config.paginationType = attr.get("dt_pagination_type", "full_numbers")
@@ -894,8 +892,8 @@ class S3DataTable(object):
         structure["iTotalDisplayRecords"] = displayrows
         structure["sEcho"] = sEcho
         if stringify:
-            from gluon.serializers import json
-            return json(structure)
+            from gluon.serializers import json as jsons
+            return jsons(structure)
         else:
             return structure
 
@@ -992,6 +990,11 @@ class S3DataList(object):
 
         records = self.records
         if records is not None:
+
+            # Call prep if present
+            if hasattr(render, "prep"):
+                render.prep(resource, records)
+
             items = [
                 DIV(T("Total Records: %(numrows)s") % {"numrows": self.total},
                     _class="dl-header",
@@ -1373,7 +1376,8 @@ class S3PivotTable(object):
                 axisfilter = None
                 
             dataframe = []
-            insert = dataframe.append
+            extend = dataframe.extend
+            #insert = dataframe.append
             expand = self._expand
 
             for _id in records:
@@ -1383,7 +1387,7 @@ class S3PivotTable(object):
                     item[rows_colname] = row[rows_colname]
                 if cols_colname:
                     item[cols_colname] = row[cols_colname]
-                dataframe.extend(expand(item, axisfilter=axisfilter))
+                extend(expand(item, axisfilter=axisfilter))
                 
             self.records = records
 
@@ -1476,7 +1480,7 @@ class S3PivotTable(object):
 
         layers = self.layers
         resource = self.resource
-        tablename = resource.tablename
+        #tablename = resource.tablename
 
         cols = self.cols
         rows = self.rows
@@ -1603,6 +1607,7 @@ class S3PivotTable(object):
         cell_lookup_table = {} # {{}, {}}
         cell_vals = Storage()
 
+        number_represent = IS_NUMBER.represent
         for i in xrange(numrows):
 
             # Initialize row
@@ -1639,14 +1644,14 @@ class S3PivotTable(object):
                             l = ["-"]
                         else:
                             if type(value) in (int, float):
-                                l = IS_NUMBER.represent(value)
+                                l = number_represent(value)
                             else:
                                 l = unicode(value)
                         #add_value(", ".join(l))
                         add_value(UL([LI(v) for v in l]))
                     else:
                         if type(value) in (int, float):
-                            add_value(IS_NUMBER.represent(value))
+                            add_value(number_represent(value))
                         else:
                             add_value(unicode(value))
 
@@ -1659,9 +1664,9 @@ class S3PivotTable(object):
                         field = rfield.field
                         colname = rfield.colname
                         has_fk = field is not None and s3_has_foreign_key(field)
-                        for id in cell.records:
+                        for record_id in cell.records:
 
-                            record = self.records[id]
+                            record = self.records[record_id]
                             try:
                                 fvalue = record[colname]
                             except AttributeError:
@@ -1725,7 +1730,7 @@ class S3PivotTable(object):
             cell_idx = cols_list[j][1]
             col = self.col[cell_idx]
             totals = get_total(col, layers, append=add_col_total)
-            add_total(TD(IS_NUMBER.represent(totals)))
+            add_total(TD(number_represent(totals)))
 
         # Grand total
         if cols is not None:
@@ -1806,7 +1811,7 @@ class S3PivotTable(object):
         rfields = self.rfields
         resource = self.resource
 
-        tablename = resource.tablename
+        #tablename = resource.tablename
 
         T = current.T
         OTHER = "__other__"
@@ -1867,7 +1872,7 @@ class S3PivotTable(object):
             self._sortdim(rows, rfields[rows_dim])
             if rtail[1] is not None:
                 rows.append((OTHER, rtail[1], Storage(value=None, text=others)))
-            row_indices = [i[0] for i in rows]
+            #row_indices = [i[0] for i in rows]
 
             # Group and sort the cols
             is_numeric = None
@@ -1879,15 +1884,15 @@ class S3PivotTable(object):
                 if not is_numeric:
                     total = len(icol["records"])
                 header = Storage(value = icol.value,
-                                text = icol.text if "text" in icol
-                                                 else col_repr(icol.value))
+                                 text = icol.text if "text" in icol
+                                                  else col_repr(icol.value))
                 cols.append((i, total, header))
             if maxcols is not None:
                 ctail = self._tail(cols, maxcols, least=least, method=hmethod)
             self._sortdim(cols, rfields[cols_dim])
             if ctail[1] is not None:
                 cols.append((OTHER, ctail[1], Storage(value=None, text=others)))
-            col_indices = [i[0] for i in cols]
+            #col_indices = [i[0] for i in cols]
 
             rothers = rtail[0] or []
             cothers = ctail[0] or []
@@ -2334,8 +2339,8 @@ class S3PivotTable(object):
         if method not in self.METHODS:
             raise SyntaxError("Unsupported aggregation method: %s" % method)
 
-        items = self.records
-        rfields = self.rfields
+        #items = self.records
+        #rfields = self.rfields
         rows = self.row
         cols = self.col
         records = self.records
@@ -2630,7 +2635,7 @@ class S3PivotTable(object):
         self.dfields = dfields
 
         # rfields (resource-fields): dfields resolved into a ResourceFields map
-        rfields, joins, left, distinct = resource.resolve_selectors(dfields)
+        rfields = resource.resolve_selectors(dfields)[0]
         rfields = Storage([(f.selector.replace("~", alias), f) for f in rfields])
         self.rfields = rfields
 
@@ -2657,8 +2662,8 @@ class S3PivotTable(object):
 
             if rfield.field:
                 def repr_method(value):
-                    return current.manager.represent(rfield.field, value,
-                                                     strip_markup=True)
+                    return s3_represent_value(rfield.field, value,
+                                              strip_markup=True)
 
             elif rfield.virtual:
                 stripper = S3MarkupStripper()
@@ -2691,15 +2696,16 @@ class S3PivotTable(object):
         """
 
         totals = []
+        number_represent = IS_NUMBER.represent
         for layer in layers:
-            f, m = layer
+            m = layer[1]
             value = values[layer]
 
             if m == "list":
                 value = value and len(value) or 0
             if not len(totals) and append is not None:
                 append(value)
-            totals.append(s3_unicode(IS_NUMBER.represent(value)))
+            totals.append(s3_unicode(number_represent(value)))
         totals = " / ".join(totals)
         return totals
 
@@ -2736,8 +2742,7 @@ class S3PivotTable(object):
         for colname in self.gfields.values():
             if not colname:
                 continue
-            else:
-                value = row[colname]
+            value = row[colname]
             if type(value) is list:
                 if axisfilter and colname in axisfilter:
                     p = [(colname, v) for v in value

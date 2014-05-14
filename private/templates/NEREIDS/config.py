@@ -10,10 +10,10 @@ except:
 from gluon import current, URL
 from gluon.html import *
 from gluon.storage import Storage
-from gluon.validators import IS_NULL_OR
+from gluon.validators import IS_EMPTY_OR
 
 from s3.s3fields import S3Represent
-from s3.s3resource import S3FieldSelector
+from s3.s3query import FS
 from s3.s3utils import S3DateTime, s3_auth_user_represent_name, s3_avatar_represent, s3_unicode
 from s3.s3validators import IS_INT_AMOUNT, IS_LOCATION_SELECTOR2, IS_ONE_OF
 from s3.s3widgets import S3LocationSelectorWidget2
@@ -46,9 +46,6 @@ settings.auth.registration_roles = {"organisation_id": ["USER"],
 settings.auth.show_utc_offset = False
 
 settings.auth.show_link = False
-
-settings.auth.record_approval = False
-settings.auth.record_approval_required_for = ["org_organisation"]
 
 # -----------------------------------------------------------------------------
 # Security Policy
@@ -132,6 +129,9 @@ settings.gis.check_within_parent_boundaries = False
 
 # Hide unnecessary Toolbar items
 settings.gis.nav_controls = False
+
+# GeoNames username
+settings.gis.geonames_username = "nereids"
 
 # -----------------------------------------------------------------------------
 # Finance settings
@@ -367,7 +367,7 @@ def render_events(list_id, item_id, resource, rfields, record):
 
     raw = record._row
     name = record["event_event.name"]
-    date = record["event_event.zero_hour"]
+    date = record["event_event.start_date"]
     closed = raw["event_event.closed"]
     event_type = record["event_event_type.name"]
     event_url = URL(c="event", f="event",
@@ -411,7 +411,7 @@ def render_events(list_id, item_id, resource, rfields, record):
     tally_reports = 0
     db = current.db
     s3db = current.s3db
-    ltable = s3db.event_event_post
+    ltable = s3db.event_post
     table = db.cms_post
     stable = db.cms_series
     types = ["Alert", "Incident", "Assessment", "Activity", "Report"]
@@ -1580,22 +1580,18 @@ def render_resources(list_id, item_id, resource, rfields, record):
     return item
 
 # -----------------------------------------------------------------------------
-def customize_cms_post_fields():
+def customise_cms_post_fields():
     """
-        Customize cms_post fields for it's own controller & for Profile pages
+        Customise cms_post fields for it's own controller & for Profile pages
     """
 
     s3db = current.s3db
-
-    # Hide Labels when just 1 column in inline form
-    s3db.doc_document.file.label = ""
-    s3db.event_event_post.event_id.label = ""
 
     table = s3db.cms_post
     field = table.location_id
     field.label = ""
     field.represent = s3db.gis_LocationRepresent(sep=" | ")
-    field.requires = IS_NULL_OR(
+    field.requires = IS_EMPTY_OR(
                         IS_LOCATION_SELECTOR2(levels=("L1", "L2", "L3"))
                      )
     field.widget = S3LocationSelectorWidget2(levels=("L1", "L2", "L3"),
@@ -1626,7 +1622,7 @@ def customize_cms_post_fields():
 # -----------------------------------------------------------------------------
 def cms_post_popup(r):
     """
-        Customized Map popup for cms_post resource
+        Customised Map popup for cms_post resource
         - style like the cards
         - currently unused
     """
@@ -1808,10 +1804,7 @@ def cms_post_popup(r):
     return item
     
 # -----------------------------------------------------------------------------
-def customize_cms_post(**attr):
-    """
-        Customize cms_post controller
-    """
+def customise_cms_post_controller(**attr):
 
     s3 = current.response.s3
 
@@ -1827,7 +1820,7 @@ def customize_cms_post(**attr):
 
         if r.interactive:
             from s3.s3forms import S3SQLCustomForm, S3SQLInlineComponent
-            table = customize_cms_post_fields()
+            table = customise_cms_post_fields()
 
             get_vars = current.request.get_vars
 
@@ -1881,7 +1874,7 @@ def customize_cms_post(**attr):
                     ),
                 )
                 def create_onaccept(form):
-                    table = current.s3db.event_event_post
+                    table = current.s3db.event_post
                     table.insert(event_id=event_id, post_id=form.vars.id)
 
                 s3db.configure("cms_post",
@@ -1898,14 +1891,14 @@ def customize_cms_post(**attr):
                         #label = T("Disaster(s)"),
                         label = T("Disaster"),
                         multiple = False,
-                        fields = ["event_id"],
+                        fields = [("", "event_id")],
                         orderby = "event_id$name",
                     ),
                     S3SQLInlineComponent(
                         "document",
                         name = "file",
                         label = T("Files"),
-                        fields = ["file",
+                        fields = [("", "file"),
                                   #"comments",
                                   ],
                     ),
@@ -1950,8 +1943,7 @@ def customize_cms_post(**attr):
                            list_fields = list_fields,
                            )
 
-        elif r.representation == "plain" and \
-             r.method != "search":
+        elif r.representation == "plain":
             # Map Popups
             s3db = current.s3db
             table = r.table
@@ -1985,8 +1977,7 @@ def customize_cms_post(**attr):
                 output["form"].add_class("cms_post")
             elif "item" in output and hasattr(output["item"], "add_class"):
                 output["item"].add_class("cms_post")
-        elif r.representation == "plain" and \
-             r.method != "search":
+        elif r.representation == "plain":
             # Map Popups
             #output = cms_post_popup(r)
             pass
@@ -1996,12 +1987,12 @@ def customize_cms_post(**attr):
 
     return attr
 
-settings.ui.customize_cms_post = customize_cms_post
+settings.customise_cms_post_controller = customise_cms_post_controller
 
 # -----------------------------------------------------------------------------
-def customize_event_event(**attr):
+def customise_event_event_controller(**attr):
     """
-        Customize event_event controller
+        Customise event_event controller
         - Profile Page
     """
 
@@ -2013,14 +2004,11 @@ def customize_event_event(**attr):
         if r.interactive:
             ADD_EVENT = T("New Disaster")
             s3.crud_strings["event_event"] = Storage(
-                title_create = ADD_EVENT,
+                label_create = ADD_EVENT,
                 title_display = T("Disaster Details"),
                 title_list = T("Disasters"),
                 title_update = T("Edit Disaster"),
-                title_search = T("Search Disasters"),
-                subtitle_create = T("Add New Disaster"),
                 label_list_button = T("List Disasters"),
-                label_create_button = ADD_EVENT,
                 label_delete_button = T("Delete Disaster"),
                 msg_record_created = T("Disaster added"),
                 msg_record_modified = T("Disaster updated"),
@@ -2034,7 +2022,7 @@ def customize_event_event(**attr):
             table = s3db.event_event
 
             table.exercise.label = T("Is this an Exercise?")
-            table.zero_hour.label = T("Start Time")
+            table.start_date.label = T("Start Time")
 
             if r.method =="datalist":
                 # Disaster selection page
@@ -2044,7 +2032,7 @@ def customize_event_event(**attr):
 
             elif r.method == "profile":
                 # Customise the cms_post table as that is used for the widgets
-                customize_cms_post_fields()
+                customise_cms_post_fields()
 
                 gtable = db.gis_location
                 ltable = db.event_event_location
@@ -2077,12 +2065,12 @@ def customize_event_event(**attr):
                                   bbox = bbox,
                                   )
                 alerts_widget = dict(label = "Alerts",
-                                     title_create = "Add New Alert",
+                                     label_create = "Add New Alert",
                                      type = "datalist",
                                      tablename = "cms_post",
                                      context = "event",
                                      default = default,
-                                     filter = S3FieldSelector("series_id$name") == "Alert",
+                                     filter = FS("series_id$name") == "Alert",
                                      icon = "icon-alert",
                                      layer = "Alerts",
                                      # provided by Catalogue Layer
@@ -2090,12 +2078,12 @@ def customize_event_event(**attr):
                                      list_layout = render_posts,
                                      )
                 incidents_widget = dict(label = "Incidents",
-                                        title_create = "Add New Incident",
+                                        label_create = "Create Incident",
                                         type = "datalist",
                                         tablename = "cms_post",
                                         context = "event",
                                         default = default,
-                                        filter = S3FieldSelector("series_id$name") == "Incident",
+                                        filter = FS("series_id$name") == "Incident",
                                         icon = "icon-incident",
                                         layer = "Incidents",
                                         # provided by Catalogue Layer
@@ -2103,12 +2091,12 @@ def customize_event_event(**attr):
                                         list_layout = render_posts,
                                         )
                 assessments_widget = dict(label = "Assessments",
-                                          title_create = "Add New Assessment",
+                                          label_create = "Add New Assessment",
                                           type = "datalist",
                                           tablename = "cms_post",
                                           context = "event",
                                           default = default,
-                                          filter = S3FieldSelector("series_id$name") == "Assessment",
+                                          filter = FS("series_id$name") == "Assessment",
                                           icon = "icon-assessment",
                                           layer = "Assessments",
                                           # provided by Catalogue Layer
@@ -2116,12 +2104,12 @@ def customize_event_event(**attr):
                                           list_layout = render_posts,
                                           )
                 activities_widget = dict(label = "Activities",
-                                         title_create = "Add New Activity",
+                                         label_create = "Create Activity",
                                          type = "datalist",
                                          tablename = "cms_post",
                                          context = "event",
                                          default = default,
-                                         filter = S3FieldSelector("series_id$name") == "Activity",
+                                         filter = FS("series_id$name") == "Activity",
                                          icon = "icon-activity",
                                          layer = "Activities",
                                          # provided by Catalogue Layer
@@ -2129,12 +2117,12 @@ def customize_event_event(**attr):
                                          list_layout = render_posts,
                                          )
                 reports_widget = dict(label = "Reports",
-                                      title_create = "Add New Report",
+                                      label_create = "Add New Report",
                                       type = "datalist",
                                       tablename = "cms_post",
                                       context = "event",
                                       default = default,
-                                      filter = S3FieldSelector("series_id$name") == "Report",
+                                      filter = FS("series_id$name") == "Report",
                                       icon = "icon-report",
                                       layer = "Reports",
                                       # provided by Catalogue Layer
@@ -2183,12 +2171,12 @@ def customize_event_event(**attr):
             represent = S3Represent(lookup="gis_location")
             location_field.represent = represent
             # L1s only
-            location_field.requires = IS_NULL_OR(
+            location_field.requires = IS_EMPTY_OR(
                                         IS_ONE_OF(db, "gis_location.id",
                                                   represent,
                                                   sort = True,
                                                   filterby = "level",
-                                                  filter_opts = ["L1"]
+                                                  filter_opts = ("L1",)
                                                   )
                                         )
             # Don't add new Locations here
@@ -2201,7 +2189,7 @@ def customize_event_event(**attr):
                     "name",
                     "event_type_id",
                     "exercise",
-                    "zero_hour",
+                    "start_date",
                     "closed",
                     S3SQLInlineComponent(
                         "event_location",
@@ -2254,12 +2242,12 @@ def customize_event_event(**attr):
 
     return attr
 
-settings.ui.customize_event_event = customize_event_event
+settings.customise_event_event_controller = customise_event_event_controller
 
 # -----------------------------------------------------------------------------
-def customize_gis_location(**attr):
+def customise_gis_location_controller(**attr):
     """
-        Customize gis_location controller
+        Customise gis_location controller
         - Profile Page
     """
 
@@ -2299,9 +2287,9 @@ def customize_gis_location(**attr):
             elif r.method == "profile":
         
                 # Customise tables used by widgets
-                customize_cms_post_fields()
-                customize_org_resource_fields("profile")
-                customize_project_project_fields()
+                customise_cms_post_fields()
+                customise_org_resource_fields("profile")
+                customise_project_project_fields()
 
                 # gis_location table (Sub-Locations)
                 table.parent.represent = s3db.gis_LocationRepresent(sep=" | ")
@@ -2326,7 +2314,7 @@ def customize_gis_location(**attr):
                                   )
                 #locations_widget = dict(label = "Locations",
                 #                        insert = False,
-                #                        #title_create = "Add New Location",
+                #                        #label_create = "Create Location",
                 #                        type = "datalist",
                 #                        tablename = "gis_location",
                 #                        context = "location",
@@ -2336,7 +2324,7 @@ def customize_gis_location(**attr):
                 #                        list_layout = render_locations_profile,
                 #                        )
                 resources_widget = dict(label = "Resources",
-                                        title_create = "Add New Resource",
+                                        label_create = "Create Resource",
                                         type = "datalist",
                                         tablename = "org_resource",
                                         context = "location",
@@ -2346,12 +2334,12 @@ def customize_gis_location(**attr):
                                         list_layout = render_resources,
                                         )
                 incidents_widget = dict(label = "Incidents",
-                                        title_create = "Add New Incident",
+                                        label_create = "Create Incident",
                                         type = "datalist",
                                         tablename = "cms_post",
                                         context = "location",
                                         default = default,
-                                        filter = (S3FieldSelector("series_id$name") == "Incident") & (S3FieldSelector("expired") == False),
+                                        filter = (FS("series_id$name") == "Incident") & (FS("expired") == False),
                                         icon = "icon-incident",
                                         layer = "Incidents",
                                         # provided by Catalogue Layer
@@ -2359,12 +2347,12 @@ def customize_gis_location(**attr):
                                         list_layout = render_posts,
                                         )
                 reports_widget = dict(label = "Reports",
-                                      title_create = "Add New Report",
+                                      label_create = "Add New Report",
                                       type = "datalist",
                                       tablename = "cms_post",
                                       context = "location",
                                       default = default,
-                                      filter = S3FieldSelector("series_id$name") == "Report",
+                                      filter = FS("series_id$name") == "Report",
                                       icon = "icon-report",
                                       layer = "Reports",
                                       # provided by Catalogue Layer
@@ -2372,7 +2360,7 @@ def customize_gis_location(**attr):
                                       list_layout = render_posts,
                                       )
                 projects_widget = dict(label = "Projects",
-                                       title_create = "Add New Project",
+                                       label_create = "Create Project",
                                        type = "datalist",
                                        tablename = "project_project",
                                        context = "location",
@@ -2382,12 +2370,12 @@ def customize_gis_location(**attr):
                                        list_layout = render_projects,
                                        )
                 activities_widget = dict(label = "Activities",
-                                         title_create = "Add New Activity",
+                                         label_create = "Create Activity",
                                          type = "datalist",
                                          tablename = "cms_post",
                                          context = "location",
                                          default = default,
-                                         filter = S3FieldSelector("series_id$name") == "Activity",
+                                         filter = FS("series_id$name") == "Activity",
                                          icon = "icon-activity",
                                          layer = "Activities",
                                          # provided by Catalogue Layer
@@ -2453,12 +2441,12 @@ def customize_gis_location(**attr):
 
     return attr
 
-settings.ui.customize_gis_location = customize_gis_location
+settings.customise_gis_location_controller = customise_gis_location_controller
 
 # -----------------------------------------------------------------------------
-def customize_hrm_human_resource_fields():
+def customise_hrm_human_resource_fields():
     """
-        Customize hrm_human_resource for Profile widgets and 'more' popups
+        Customise hrm_human_resource for Profile widgets and 'more' popups
     """
 
     s3db = current.s3db
@@ -2485,9 +2473,9 @@ def customize_hrm_human_resource_fields():
                    )
 
 # -----------------------------------------------------------------------------
-def customize_hrm_human_resource(**attr):
+def customise_hrm_human_resource_controller(**attr):
     """
-        Customize hrm_human_resource controller
+        Customise hrm_human_resource controller
         - used for 'more' popups
     """
 
@@ -2503,7 +2491,7 @@ def customize_hrm_human_resource(**attr):
                 return False
 
         if r.method == "datalist":
-            customize_hrm_human_resource_fields()
+            customise_hrm_human_resource_fields()
             current.s3db.configure("hrm_human_resource",
                                    # Don't include a Create form in 'More' popups
                                    listadd = False,
@@ -2515,13 +2503,10 @@ def customize_hrm_human_resource(**attr):
 
     return attr
 
-settings.ui.customize_hrm_human_resource = customize_hrm_human_resource
+settings.customise_hrm_human_resource_controller = customise_hrm_human_resource_controller
 
 # -----------------------------------------------------------------------------
-def customize_hrm_job_title(**attr):
-    """
-        Customize hrm_job_title controller
-    """
+def customise_hrm_job_title_controller(**attr):
 
     s3 = current.response.s3
 
@@ -2598,12 +2583,12 @@ def customize_hrm_job_title(**attr):
 
     return attr
 
-settings.ui.customize_hrm_job_title = customize_hrm_job_title
+settings.customise_hrm_job_title_controller = customise_hrm_job_title_controller
 
 # -----------------------------------------------------------------------------
-def customize_org_office_fields():
+def customise_org_office_fields():
     """
-        Customize org_office for Profile widgets and 'more' popups
+        Customise org_office for Profile widgets and 'more' popups
     """
 
     s3db = current.s3db
@@ -2627,10 +2612,7 @@ def customize_org_office_fields():
                    )
 
 # -----------------------------------------------------------------------------
-def customize_org_office(**attr):
-    """
-        Customize org_office controller
-    """
+def customise_org_office_controller(**attr):
 
     s3 = current.response.s3
     s3db = current.s3db
@@ -2646,7 +2628,7 @@ def customize_org_office(**attr):
                 return False
 
         if r.method == "datalist":
-            customize_org_office_fields()
+            customise_org_office_fields()
             s3db.configure("org_office",
                            # Don't include a Create form in 'More' popups
                            listadd = False,
@@ -2755,12 +2737,12 @@ def customize_org_office(**attr):
 
     return attr
 
-settings.ui.customize_org_office = customize_org_office
+settings.customise_org_office_controller = customise_org_office_controller
 
 # -----------------------------------------------------------------------------
-def customize_org_organisation(**attr):
+def customise_org_organisation_controller(**attr):
     """
-        Customize org_organisation controller
+        Customise org_organisation controller
         - Profile Page
     """
 
@@ -2778,14 +2760,11 @@ def customize_org_organisation(**attr):
         if r.interactive:
             ADD_ORGANISATION = T("New Stakeholder")
             s3.crud_strings["org_organisation"] = Storage(
-                title_create = ADD_ORGANISATION,
+                label_create = ADD_ORGANISATION,
                 title_display = T("Stakeholder Details"),
                 title_list = T("Stakeholders"),
                 title_update = T("Edit Stakeholder"),
-                title_search = T("Search Stakeholders"),
-                subtitle_create = T("Add New Stakeholder"),
                 label_list_button = T("List Stakeholders"),
-                label_create_button = ADD_ORGANISATION,
                 label_delete_button = T("Delete Stakeholder"),
                 msg_record_created = T("Stakeholder added"),
                 msg_record_modified = T("Stakeholder updated"),
@@ -2801,14 +2780,14 @@ def customize_org_organisation(**attr):
             s3db = current.s3db
             if r.method == "profile":
                 # Customise tables used by widgets
-                customize_cms_post_fields()
-                customize_hrm_human_resource_fields()
-                customize_org_office_fields()
-                customize_org_resource_fields("profile")
-                customize_project_project_fields()
+                customise_cms_post_fields()
+                customise_hrm_human_resource_fields()
+                customise_org_office_fields()
+                customise_org_resource_fields("profile")
+                customise_project_project_fields()
 
                 contacts_widget = dict(label = "Contacts",
-                                       title_create = "Add New Contact",
+                                       label_create = "Create Contact",
                                        type = "datalist",
                                        tablename = "hrm_human_resource",
                                        context = "organisation",
@@ -2826,7 +2805,7 @@ def customize_org_organisation(**attr):
                                   width = 568,
                                   )
                 offices_widget = dict(label = "Offices",
-                                      title_create = "Add New Office",
+                                      label_create = "Create Office",
                                       type = "datalist",
                                       tablename = "org_office",
                                       context = "organisation",
@@ -2837,7 +2816,7 @@ def customize_org_organisation(**attr):
                                       list_layout = render_offices,
                                       )
                 resources_widget = dict(label = "Resources",
-                                        title_create = "Add New Resource",
+                                        label_create = "Create Resource",
                                         type = "datalist",
                                         tablename = "org_resource",
                                         context = "organisation",
@@ -2846,7 +2825,7 @@ def customize_org_organisation(**attr):
                                         list_layout = render_resources,
                                         )
                 projects_widget = dict(label = "Projects",
-                                       title_create = "Add New Project",
+                                       label_create = "Create Project",
                                        type = "datalist",
                                        tablename = "project_project",
                                        context = "organisation",
@@ -2855,11 +2834,11 @@ def customize_org_organisation(**attr):
                                        list_layout = render_projects,
                                        )
                 activities_widget = dict(label = "Activities",
-                                         title_create = "Add New Activity",
+                                         label_create = "Create Activity",
                                          type = "datalist",
                                          tablename = "cms_post",
                                          context = "organisation",
-                                         filter = S3FieldSelector("series_id$name") == "Activity",
+                                         filter = FS("series_id$name") == "Activity",
                                          icon = "icon-activity",
                                          layer = "Activities",
                                          # provided by Catalogue Layer
@@ -2867,11 +2846,11 @@ def customize_org_organisation(**attr):
                                          list_layout = render_posts,
                                          )
                 reports_widget = dict(label = "Reports",
-                                      title_create = "Add New Report",
+                                      label_create = "Add New Report",
                                       type = "datalist",
                                       tablename = "cms_post",
                                       context = "organisation",
-                                      filter = S3FieldSelector("series_id$name") == "Report",
+                                      filter = FS("series_id$name") == "Report",
                                       icon = "icon-report",
                                       layer = "Reports",
                                       # provided by Catalogue Layer
@@ -2879,11 +2858,11 @@ def customize_org_organisation(**attr):
                                       list_layout = render_posts,
                                       )
                 assessments_widget = dict(label = "Assessments",
-                                          title_create = "Add New Assessment",
+                                          label_create = "Add New Assessment",
                                           type = "datalist",
                                           tablename = "cms_post",
                                           context = "organisation",
-                                          filter = S3FieldSelector("series_id$name") == "Assessment",
+                                          filter = FS("series_id$name") == "Assessment",
                                           icon = "icon-assessment",
                                           layer = "Assessments",
                                           # provided by Catalogue Layer
@@ -2926,12 +2905,13 @@ def customize_org_organisation(**attr):
                 national = current.db(query).select(ottable.id,
                                                     limitby=(0, 1)
                                                     ).first().id
-                s3db.add_component("org_office",
-                                   org_organisation=dict(name="nat_office",
-                                                         joinby="organisation_id",
-                                                         filterby="office_type_id",
-                                                         filterfor=[national],
-                                                         ))
+                s3db.add_components("org_organisation",
+                                    org_office={"name": "nat_office",
+                                                "joinby": "organisation_id",
+                                                "filterby": "office_type_id",
+                                                "filterfor": (national,),
+                                               },
+                                   )
                 list_fields.append("nat_office.location_id$addr_street")
 
             # Represent used in rendering
@@ -2974,7 +2954,7 @@ def customize_org_organisation(**attr):
                                                 vars={"refresh": "datalist"}),
                                       _class="btn btn-primary s3_modal",
                                       _role="button",
-                                      _title=T("Add New Organization"),
+                                      _title=T("Create Organization"),
                                       )
 
         # Call standard postp
@@ -2986,12 +2966,12 @@ def customize_org_organisation(**attr):
 
     return attr
 
-settings.ui.customize_org_organisation = customize_org_organisation
+settings.customise_org_organisation_controller = customise_org_organisation_controller
 
 # -----------------------------------------------------------------------------
-def customize_org_resource_fields(method):
+def customise_org_resource_fields(method):
     """
-        Customize org_resource fields for Profile widgets and 'more' popups
+        Customise org_resource fields for Profile widgets and 'more' popups
     """
 
     s3db = current.s3db
@@ -3018,10 +2998,7 @@ def customize_org_resource_fields(method):
                    )
 
 # -----------------------------------------------------------------------------
-def customize_org_resource(**attr):
-    """
-        Customize org_resource controller
-    """
+def customise_org_resource_controller(**attr):
 
     s3 = current.response.s3
     s3db = current.s3db
@@ -3037,7 +3014,7 @@ def customize_org_resource(**attr):
                 return False
 
         if r.interactive or r.representation == "aadata":
-            customize_org_resource_fields(r.method)
+            customise_org_resource_fields(r.method)
     
             # Configure fields
             #table.site_id.readable = table.site_id.readable = False
@@ -3062,7 +3039,7 @@ def customize_org_resource(**attr):
                                                     S3Represent(lookup="gis_location"),
                                                     sort = True,
                                                     filterby = "level",
-                                                    filter_opts = ["L1"]
+                                                    filter_opts = ("L1",)
                                                     )
                 # Don't add new Locations here
                 location_field.comment = None
@@ -3154,13 +3131,10 @@ def customize_org_resource(**attr):
 
     return attr
 
-settings.ui.customize_org_resource = customize_org_resource
+settings.customise_org_resource_controller = customise_org_resource_controller
 
 # -----------------------------------------------------------------------------
-def customize_pr_person(**attr):
-    """
-        Customize pr_person controller
-    """
+def customise_pr_person_controller(**attr):
 
     s3db = current.s3db
     s3 = current.response.s3
@@ -3185,16 +3159,13 @@ def customize_pr_person(**attr):
         if r.interactive or r.representation == "aadata":
             from s3.s3forms import S3SQLCustomForm, S3SQLInlineComponent
             # CRUD Strings
-            ADD_CONTACT = T("Add New Contact")
+            ADD_CONTACT = T("Create Contact")
             s3.crud_strings[tablename] = Storage(
-                title_create = T("Add Contact"),
+                label_create = T("Create Contact"),
                 title_display = T("Contact Details"),
                 title_list = T("Contact Directory"),
                 title_update = T("Edit Contact Details"),
-                title_search = T("Search Contacts"),
-                subtitle_create = ADD_CONTACT,
                 label_list_button = T("List Contacts"),
-                label_create_button = ADD_CONTACT,
                 label_delete_button = T("Delete Contact"),
                 msg_record_created = T("Contact added"),
                 msg_record_modified = T("Contact details updated"),
@@ -3215,9 +3186,9 @@ def customize_pr_person(**attr):
             from s3layouts import S3AddResourceLink
             site_field.comment = S3AddResourceLink(c="org", f="office",
                                                    vars={"child": "site_id"},
-                                                   label=T("Add New Office"),
+                                                   label=T("Create Office"),
                                                    title=T("Office"),
-                                                   tooltip=T("If you don't see the Office in the list, you can add a new one by clicking link 'Add New Office'."))
+                                                   tooltip=T("If you don't see the Office in the list, you can add a new one by clicking link 'Create Office'."))
 
             # Best to have no labels when only 1 field in the row
             s3db.pr_contact.value.label = ""
@@ -3401,12 +3372,12 @@ def customize_pr_person(**attr):
 
     return attr
 
-settings.ui.customize_pr_person = customize_pr_person
+settings.customise_pr_person_controller = customise_pr_person_controller
 
 # -----------------------------------------------------------------------------
-def customize_project_project_fields():
+def customise_project_project_fields():
     """
-        Customize project_project fields for Profile widgets and 'more' popups
+        Customise project_project fields for Profile widgets and 'more' popups
     """
 
     format = "%d/%m/%y"
@@ -3443,10 +3414,7 @@ def customize_project_project_fields():
                    )
 
 # -----------------------------------------------------------------------------
-def customize_project_project(**attr):
-    """
-        Customize project_project controller
-    """
+def customise_project_project_controller(**attr):
 
     s3 = current.response.s3
     s3db = current.s3db
@@ -3465,7 +3433,7 @@ def customize_project_project(**attr):
                 return False
 
         if r.method == "datalist":
-            customize_project_project_fields()
+            customise_project_project_fields()
             s3db.configure("project_project",
                            # Don't include a Create form in 'More' popups
                            listadd = False,
@@ -3547,7 +3515,7 @@ def customize_project_project(**attr):
                                                     S3Represent(lookup="gis_location"),
                                                     sort = True,
                                                     filterby = "level",
-                                                    filter_opts = ["L1"]
+                                                    filter_opts = ("L1",)
                                                     )
                 # Don't add new Locations here
                 location_field.comment = None
@@ -3694,7 +3662,7 @@ def customize_project_project(**attr):
 
     return attr
 
-settings.ui.customize_project_project = customize_project_project
+settings.customise_project_project_controller = customise_project_project_controller
 
 # =============================================================================
 # Template Modules

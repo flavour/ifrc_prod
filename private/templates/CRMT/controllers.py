@@ -16,7 +16,7 @@ from gluon.html import *
 #from gluon.storage import Storage
 
 from s3.s3filter import S3FilterForm, S3FilterString, S3OptionsFilter
-from s3.s3resource import S3FieldSelector, S3URLQuery
+from s3.s3query import FS, S3URLQuery
 from s3.s3summary import S3Summary
 from s3.s3utils import s3_auth_user_represent_name, S3CustomController
 
@@ -47,11 +47,10 @@ class index(S3CustomController):
             org_group_id = auth.user.org_group_id
             if org_group_id:
                 # Lookup Coalition Name
-                db = current.db
                 table = s3db.org_group
-                query = (table.id == org_group_id)
-                row = db(query).select(table.name,
-                                       limitby=(0, 1)).first()
+                row = db(table.id == org_group_id).select(table.name,
+                                                          limitby=(0, 1)
+                                                          ).first()
                 if row:
                     callback = '''S3.gis.show_map();
 var layer,layers=S3.gis.maps.default_map.layers;
@@ -78,7 +77,7 @@ for(var i=0,len=layers.length;i<len;i++){
                            )
         output["map"] = map
 
-        # Description of available Modules
+        # Description of available data
         from s3db.cms import S3CMS
         for item in response.menu:
             item["cms"] = S3CMS.resource_content(module = item["c"], 
@@ -86,7 +85,7 @@ for(var i=0,len=layers.length;i<len;i++){
 
         # Site Activity Log
         resource = s3db.resource("s3_audit")
-        resource.add_filter(S3FieldSelector("~.method") != "delete")
+        resource.add_filter(FS("~.method") != "delete")
         orderby = "s3_audit.timestmp desc"
         list_fields = ["id",
                        "method",
@@ -94,7 +93,7 @@ for(var i=0,len=layers.length;i<len;i++){
                        "tablename",
                        "record_id",
                        ]
-        #current.deployment_settings.ui.customize_s3_audit()
+        #current.deployment_settings.ui.customise_s3_audit()
         db.s3_audit.user_id.represent = s3_auth_user_represent_name
         list_id = "log"
         datalist, numrows, ids = resource.datalist(fields=list_fields,
@@ -143,6 +142,7 @@ for(var i=0,len=layers.length;i<len;i++){
                                                   options = {"*": T("All"),
                                                              org_group_id: T("My Community"),
                                                              },
+                                                  cols = 2,
                                                   multiple = False,
                                                   ),
                                   ]
@@ -227,7 +227,7 @@ class filters(S3CustomController):
         s3 = current.response.s3
 
         # Filter
-        f = S3FieldSelector("pe_id") == pe_id
+        f = FS("pe_id") == pe_id
         s3.filter = f
 
         # List Fields

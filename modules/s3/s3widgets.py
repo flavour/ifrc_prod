@@ -4,7 +4,7 @@
 
     @requires: U{B{I{gluon}} <http://web2py.com>}
 
-    @copyright: 2009-2013 (c) Sahana Software Foundation
+    @copyright: 2009-2014 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -45,6 +45,7 @@ __all__ = ["S3ACLWidget",
            "S3GroupedOptionsWidget",
            #"S3RadioOptionsWidget",
            "S3HiddenWidget",
+           "S3HierarchyWidget",
            "S3HumanResourceAutocompleteWidget",
            "S3ImageCropWidget",
            "S3InvBinWidget",
@@ -62,16 +63,12 @@ __all__ = ["S3ACLWidget",
            "S3PersonAutocompleteWidget",
            "S3PentityAutocompleteWidget",
            "S3PriorityListWidget",
-           "S3SelectChosenWidget",
            "S3SiteAutocompleteWidget",
-           "S3SiteAddressAutocompleteWidget",
            "S3SliderWidget",
            "S3TimeIntervalWidget",
            #"S3UploadWidget",
            "CheckboxesWidgetS3",
-           "s3_checkboxes_widget",
            "s3_comments_widget",
-           "s3_grouped_checkboxes_widget",
            "s3_richtext_widget",
            "search_ac",
            ]
@@ -109,6 +106,7 @@ from gluon import *
 #from gluon.http import HTTP
 #from gluon.validators import *
 from gluon.html import BUTTON
+from gluon.languages import lazyT
 from gluon.sqlhtml import *
 from gluon.storage import Storage
 
@@ -118,6 +116,9 @@ from s3validators import *
 
 ogetattr = object.__getattribute__
 repr_select = lambda l: len(l.name) > 48 and "%s..." % l.name[:44] or l.name
+
+# Compact JSON encoding
+SEPARATORS = (",", ":")
 
 # =============================================================================
 class S3ACLWidget(CheckboxesWidget):
@@ -511,6 +512,7 @@ class S3AddPersonWidget(FormWidget):
         if settings.get_pr_request_gender():
             fields.append(ptable.gender)
 
+        # Determine validation rule for email address
         if controller == "hrm":
             emailRequired = settings.get_hrm_email_required()
         elif controller == "vol":
@@ -519,62 +521,59 @@ class S3AddPersonWidget(FormWidget):
         else:
             emailRequired = False
         if emailRequired:
-            validator = IS_EMAIL()
+            email_requires = IS_EMAIL()
         else:
-            validator = IS_NULL_OR(IS_EMAIL())
+            email_requires = IS_EMPTY_OR(IS_EMAIL())
 
+        # Determine validation rule for mobile phone number
+        mobile_phone_requires = IS_EMPTY_OR(IS_PHONE_NUMBER(
+                                                international = True))
+
+        # Add fields for email and mobile phone number
         fields.extend([Field("email",
                              notnull=emailRequired,
-                             requires=validator,
+                             requires=email_requires,
                              label=T("Email Address")),
                        Field("mobile_phone",
                              label=T("Mobile Phone Number"),
-                             # requires=None to work around a web2py bug
-                             requires=None)
+                             requires=mobile_phone_requires),
                        ])
 
         labels, required = s3_mark_required(fields)
         if required:
             s3.has_required = True
 
-        if request.env.request_method == "POST" and not value:
-            # Read the POST vars:
-            post_vars = request.post_vars
-            values = Storage(ptable._filter_fields(post_vars))
-            values["email"] = post_vars["email"]
-            values["mobile_phone"] = post_vars["mobile_phone"]
+        record_id = value if value else 0
 
-            # Use the validators to convert the POST vars into
-            # internal format (not validating here):
-            data = Storage()
-            for f in fields:
-                fname = f.name
-                if fname in values:
-                    v, error = values[fname], None
-                    requires = f.requires
-                    if requires:
-                        if not isinstance(requires, (list, tuple)):
-                            requires = [requires]
-                        for validator in requires:
-                            v, error = validator(v)
-                            if error:
-                                break
-                    if not error:
-                        data[fname] = v
-
-            record_id = 0
-        else:
-            data = None
-            record_id = value
-
+        # Generate embedded form
+        formname = "person_embedded"
         form = SQLFORM.factory(table_name="pr_person",
-                               record=data,
                                labels=labels,
                                formstyle=formstyle,
                                upload="default/download",
                                separator = "",
                                record_id = record_id,
                                *fields)
+                               
+        if request.env.request_method == "POST":
+            # Read POST data
+            post_vars = request.post_vars
+            values = Storage(ptable._filter_fields(post_vars))
+            values["email"] = post_vars["email"]
+            values["mobile_phone"] = post_vars["mobile_phone"]
+            # Validate form
+            values["_formname"] = formname
+            valid = form.validate(request_vars=values,
+                                  session=None,
+                                  keepvalues=True,
+                                  hideerror=False,
+                                  formname=formname,
+                                  onsuccess=None,
+                                  onfailure=None,
+                                  onchange=None)
+
+        # Re-package the child elements of the FORM into a DIV,
+        # so that they can get embedded as widget in the outer FORM
         trs = []
         for tr in form[0]:
             if "_id" in tr.attributes:
@@ -624,10 +623,12 @@ class S3AddPersonWidget2(FormWidget):
         with an embedded Autocomplete to select existing people.
 
         It relies on JS code in static/S3/s3.add_person.js
+        and s3validators.IS_ADD_PERSON_WIDGET2
 
-        @ToDo: get working in a non-Bootstrap formstyle
         @ToDo: get working AC/validator for human_resource_id
                - perhaps re-implement as S3SQLFormElement
+        @ToDo: provide option for entering data in 2-3 separate name fields
+               instead of all in 1 field
     """
 
     def __init__(self,
@@ -639,24 +640,25 @@ class S3AddPersonWidget2(FormWidget):
 
     def __call__(self, field, value, **attributes):
 
-        controller = self.controller
-
-        T = current.T
-        request = current.request
-        s3 = current.response.s3
-        formstyle = s3.crud.formstyle
-        settings = current.deployment_settings
-
         default = dict(_type = "text",
                        value = (value != None and str(value)) or "")
         attr = StringWidget._attributes(field, default, **attributes)
         attr["_class"] = "hide"
 
-        fieldname = str(field).replace(".", "_")
+        request = current.request
+        if not value and request.env.request_method == "POST":
+            # Read the POST vars:
+            values = request.post_vars
+            # @ToDo: Format these for Display?
+            if values.get(str(field).split(".", 1)[1], None) and \
+               "full_name" not in values:
+                # We selected an existing user...this would fail as the non-existent gender would fail to validate
+                # and we can optimise by simply returning the simple widget
+                return INPUT(**attr)
+        else:
+            values = {}
 
         s3db = current.s3db
-        ptable = s3db.pr_person
-
         field_type = field.type[10:]
         if field_type == "pr_person":
             # person_id
@@ -669,7 +671,37 @@ class S3AddPersonWidget2(FormWidget):
             htable = s3db.hrm_human_resource
             organisation_id = htable.organisation_id
         else:
-            raise UnsupportedError
+            # Unsupported
+            raise
+
+        s3 = current.response.s3
+
+        #bootstrap = settings.ui.formstyle == "bootstrap"
+        #if bootstrap:
+        #    # We need to make the HTML markup compliant with this CSS framework
+        #    # @ToDo: This should now be possible by calling the formstyle as-normal
+        #    # No need to test this formstyle as we know it up-front
+        #    tuple_rows = False
+        #else:
+        # Test the formstyle
+        formstyle = s3.crud.formstyle
+        row = formstyle("test", "test", "test", "test")
+        if isinstance(row, tuple):
+            # Formstyle with separate row for label (e.g. default Eden formstyle)
+            tuple_rows = True
+        else:
+            # Formstyle with just a single row (e.g. Bootstrap, Foundation or DRRPP)
+            tuple_rows = False
+            #if "form-row" in row["_class"]:
+            #    # Foundation formstyle
+            #    foundation = True
+            #else:
+            #    foundation = False
+
+        controller = self.controller or request.controller
+        settings = current.deployment_settings
+
+        ptable = s3db.pr_person
 
         if settings.get_pr_request_dob():
             date_of_birth = ptable.date_of_birth
@@ -681,11 +713,6 @@ class S3AddPersonWidget2(FormWidget):
             gender = None
 
         req_home_phone = settings.get_pr_request_home_phone()
-
-        if self.controller is None:
-            controller = request.controller
-        else:
-            controller = self.controller
 
         if controller == "hrm":
             emailRequired = settings.get_hrm_email_required()
@@ -703,7 +730,6 @@ class S3AddPersonWidget2(FormWidget):
             emailRequired = False
             occupation = None
 
-        values = {}
         if value:
             db = current.db
             fields = [ptable.first_name,
@@ -780,51 +806,55 @@ class S3AddPersonWidget2(FormWidget):
             values["email"] = email
             values["mobile_phone"] = mobile_phone
 
-        elif request.env.request_method == "POST":
-            # Read the POST vars:
-            values = request.post_vars
-            # @ToDo: Format these for Display?
-
         # Output
+        T = current.T
         rows = DIV()
+        fieldname = str(field).replace(".", "_")
 
         # Section Title
         id = "%s_title" % fieldname
         label = field.label
+        label = LABEL(label, _for=id)
         # @ToDo: Style these icons in non-Bootstrap themes
         # @ToDo: Check Permissions for existing person records to know whether we can edit the person or simply select a different one
-        widget= DIV(A(I(" ", _class="icon icon-edit"),
-                      _title=T("Edit Entry"), # "Edit Selection"
-                      ),
-                    A(I(" ", _class="icon icon-remove"),
-                      _title=T("Revert Entry"), # "Clear Selection"
-                      ),
-                    _class="add_person_edit_bar hide",
-                    _id="%s_edit_bar" % fieldname,
-                    )
+        widget = DIV(A(I(" ", _class="icon icon-edit"),
+                       _title=T("Edit Entry"), # "Edit Selection"
+                       ),
+                     A(I(" ", _class="icon icon-remove"),
+                       _title=T("Revert Entry"), # "Clear Selection"
+                       ),
+                     _class="add_person_edit_bar hide",
+                     _id="%s_edit_bar" % fieldname,
+                     )
         comment = ""
-        if formstyle == "bootstrap":
-            # We would like to hide the whole original control-group & append rows, but that can't be done directly within a Widget
-            # -> Elements moved via JS after page load
-            label = LABEL(label, _class="control-label", _for=id)
-            _controls = DIV(widget, _class="controls")
-            row = DIV(label, _controls,
-                      _class="control-group hide box_top",
-                      _id="%s__row" % id,
-                      )
-        elif callable(formstyle):
-            # @ToDo: Complete (not currently working)
-            row = formstyle(id, label, widget, comment)
-            if isinstance(row, DIV):
-                row.add_class("box_top")
-            else:
-                row[0].add_class("box_top")
-                for i in range(1, len(row)):
-                    row[i].add_class("box_middle")
+        #if bootstrap:
+        #    # We would like to hide the whole original control-group & append rows, but that can't be done directly within a Widget
+        #    # -> Elements moved via JS after page load
+        #    label.add_class("control-label")
+        #    _controls = DIV(widget, _class="controls")
+        #    row = DIV(label, _controls,
+        #              _class="control-group hide box_top",
+        #              _id="%s__row" % id,
+        #              )
+        #    rows.append(row)
+        #else:
+        if tuple_rows:
+            # We want label & widget in 1 row, so position abnormally
+            # We also want to put a margin on top of the box, which isn't possible with a TD
+            row = TR(TD(DIV(label,
+                            widget,
+                            _class="box_top_inner",
+                            ),
+                        _class="box_top_td",
+                        _colspan=2,
+                        ),
+                     _id="%s__row" % id,
+                     )
+            rows.append(row)
         else:
-            # Unsupported
-            raise
-        rows.append(row)
+            row = formstyle("%s__row" % id, label, widget, comment)
+            row.add_class("box_top hide")
+            rows.append(row)
 
         # Fields
         # (id, label, widget, required)
@@ -832,88 +862,100 @@ class S3AddPersonWidget2(FormWidget):
                  "_data-f": fn,
                  }
         fields = []
+        fappend = fields.append
 
         if hrm:
-            fields.append(("organisation_id", organisation_id.label,
-                           OptionsWidget.widget(organisation_id, values.get("organisation_id", None),
-                                                _id = "%s_organisation_id" % fieldname),
-                           settings.get_hrm_org_required()))
+            fappend(("organisation_id", organisation_id.label,
+                     OptionsWidget.widget(organisation_id, values.get("organisation_id", None),
+                                          _id = "%s_organisation_id" % fieldname),
+                     settings.get_hrm_org_required()))
 
         # Name field
         # - can search for an existing person
         # - can create a new person
         # - multiple names get assigned to first, middle, last
-        fields.append(("full_name", T("Name"), INPUT(**fattr), True))
+        fappend(("full_name", T("Name"), INPUT(**fattr), True))
 
         if date_of_birth:
-            fields.append(("date_of_birth", date_of_birth.label,
-                           date_of_birth.widget(date_of_birth, values.get("date_of_birth", None),
-                                                _id = "%s_date_of_birth" % fieldname),
-                           False))
+            fappend(("date_of_birth", date_of_birth.label,
+                     date_of_birth.widget(date_of_birth, values.get("date_of_birth", None),
+                                          _id = "%s_date_of_birth" % fieldname),
+                     False))
         if gender:
-            fields.append(("gender", gender.label,
-                           OptionsWidget.widget(gender, values.get("gender", None),
-                                                _id = "%s_gender" % fieldname),
-                           False))
+            fappend(("gender", gender.label,
+                     OptionsWidget.widget(gender, values.get("gender", None),
+                                          _id = "%s_gender" % fieldname),
+                     False))
 
         if occupation:
-            fields.append(("occupation", occupation.label, INPUT(), False))
+            fappend(("occupation", occupation.label, INPUT(), False))
 
-        fields.append(("mobile_phone", settings.get_ui_label_mobile_phone(), INPUT(), False))
-        fields.append(("email", T("Email"), INPUT(), emailRequired))
+        fappend(("mobile_phone", settings.get_ui_label_mobile_phone(), INPUT(), False))
+        fappend(("email", T("Email"), INPUT(), emailRequired))
 
         if req_home_phone:
-            fields.append(("home_phone", T("Home Phone"), INPUT(), False))
+            fappend(("home_phone", T("Home Phone"), INPUT(), False))
 
         for f in fields:
             fname = f[0]
             id = "%s_%s" % (fieldname, fname)
             label = f[1]
+            if f[3]:
+                # Mark Required
+                label = DIV("%s:" % label,
+                            SPAN(" *", _class="req"))
+            else:
+                label = "%s:" % label
+            label = LABEL(label, _for=id)
             widget = f[2]
             if fname not in ("date_of_birth", "gender"):
                 widget["_id"] = id
                 widget["_name"] = fname
                 widget["_value"] = values.get(fname, "")
-            if formstyle == "bootstrap":
-                # We would like to hide the whole original control-group & append rows, but that can't be done directly within a Widget
-                # -> Elements moved via JS after page load
-                if f[3]:
-                    label = DIV("%s:" % label,
-                                SPAN(" *", _class="req"))
-                else:
-                    label = "%s:" % label
-                label = LABEL(label, _class="control-label", _for=id)
-                if fname == "date_of_birth":
-                    widget = widget[0]
-                    widget.remove_class("string")
-                widget.add_class("input-xlarge")
-                _controls = DIV(widget, _class="controls")
-                row = DIV(label, _controls,
-                          _class="control-group hide box_middle",
-                          _id="%s__row" % id,
-                          )
-            elif callable(formstyle):
-                # @ToDo: Test
-                row = formstyle(id, label, widget, comment, hidden=False)
-                if isinstance(row, DIV):
-                    row.add_class("box_middle")
-                else:
-                    for i in range(0, len(row)):
-                        row[i].add_class("box_middle")
+            #if bootstrap:
+            #    # We would like to hide the whole original control-group & append rows, but that can't be done directly within a Widget
+            #    # -> Elements moved via JS after page load
+            #    label.add_class("control-label")
+            #    if fname == "date_of_birth":
+            #        widget = widget[0]
+            #        widget.remove_class("string")
+            #    widget.add_class("input-xlarge")
+            #    _controls = DIV(widget, _class="controls")
+            #    row = DIV(label, _controls,
+            #              _class="control-group hide box_middle",
+            #              _id="%s__row" % id,
+            #              )
+            #    rows.append(row)
+            #else:
+            row = formstyle("%s__row" % id, label, widget, comment)
+            if tuple_rows:
+                row[0].add_class("box_middle")
+                row[1].add_class("box_middle")
+                rows.append(row[0])
+                rows.append(row[1])
             else:
-                # Unsupported
-                raise
-            rows.append(row)
+                row.add_class("box_middle hide")
+                rows.append(row)
 
         # Divider
-        divider = DIV(_id="%s_box_bottom" % fieldname,
+        if tuple_rows:
+            # Assume TR-based
+            row = formstyle("%s_box_bottom" % fieldname, "", "", "")
+            row = row[0]
+            row.add_class("box_bottom")
+        else:
+            # Assume div-based (Bootstrap/Foundation)
+            row = DIV(_id="%s_box_bottom" % fieldname,
                       _class="box_bottom hide",
                       )
-        if formstyle == "bootstrap":
-            divider.add_class("control-group")
-        rows.append(divider)
+            #if bootstrap:
+            if settings.ui.formstyle == "bootstrap":
+                # Need to add custom classes to core HTML markup
+                row.add_class("control-group")
+        rows.append(row)
 
         # JS
+        lookup_duplicates = settings.get_pr_lookup_duplicates()
         if s3.debug:
             script = "/%s/static/scripts/S3/s3.add_person.js" % request.application
         else:
@@ -921,8 +963,26 @@ class S3AddPersonWidget2(FormWidget):
         scripts = s3.scripts
         if script not in scripts:
             scripts.append(script)
-        s3.jquery_ready.append('''S3.addPersonWidget('%s')''' % fieldname)
-        s3.js_global.append('''i18n.none_of_the_above="%s"''' % T("None of the above"))
+            i18n = \
+'''i18n.none_of_the_above="%s"''' % T("None of the above")
+            if lookup_duplicates:
+                i18n = \
+'''%s
+i18n.Yes="%s"
+i18n.No="%s"
+i18n.dupes_found="%s"''' % (i18n,
+                            T("Yes"),
+                            T("No"),
+                            T("_NUM_ duplicates found"),
+                            )
+            s3.js_global.append(i18n)
+        if lookup_duplicates:
+            script = '''S3.addPersonWidget('%s',1)''' % fieldname
+        else:
+            script = '''S3.addPersonWidget('%s')''' % fieldname
+        jquery_ready = s3.jquery_ready
+        if script not in jquery_ready: # Prevents loading twice when form has errors
+            jquery_ready.append(script)
 
         # Overall layout of components
         return TAG[""](DIV(INPUT(**attr), # Real input, hidden
@@ -960,6 +1020,7 @@ class S3AutocompleteWidget(FormWidget):
 
     def __call__(self, field, value, **attributes):
 
+        s3 = current.response.s3
         default = dict(
             _type = "text",
             value = (value != None and str(value)) or "",
@@ -1003,7 +1064,7 @@ class S3AutocompleteWidget(FormWidget):
                 dict(postprocess = post_process)
 
         script = '''%s%s)''' % (script, options)
-        current.response.s3.jquery_ready.append(script)
+        s3.jquery_ready.append(script)
 
         if value:
             try:
@@ -1016,6 +1077,8 @@ class S3AutocompleteWidget(FormWidget):
             represent = text
         else:
             represent = ""
+
+        s3.js_global.append('''i18n.none_of_the_above="%s"''' % current.T("None of the above"))
 
         return TAG[""](INPUT(_id=dummy_input,
                              _class="string",
@@ -1091,151 +1154,6 @@ $('#%s').click(function(){
                        )
 
 # =============================================================================
-class S3CheckboxesWidget(OptionsWidget):
-    """
-        Generates a TABLE tag with <num_column> columns of INPUT
-        checkboxes (multiple allowed)
-
-        help_lookup_table_name_field will display tooltip help
-
-        :param lookup_table_name: int -
-        :param lookup_field_name: int -
-        :param multple: int -
-
-        :param options: list - optional -
-        value,text pairs for the Checkboxs -
-        If options = None,  use options from requires.options().
-        This argument is useful for displaying a sub-set of the requires.options()
-
-        :param num_column: int -
-
-        :param help_lookup_field_name: string - optional -
-
-        :param help_footer: string -
-
-        Currently unused
-    """
-
-    def __init__(self,
-                 lookup_table_name = None,
-                 lookup_field_name = None,
-                 multiple = False,
-                 options = None,
-                 num_column = 1,
-                 help_lookup_field_name = None,
-                 help_footer = None
-                 ):
-
-        self.lookup_table_name = lookup_table_name
-        self.lookup_field_name =  lookup_field_name
-        self.multiple = multiple
-        self.options = options
-        self.num_column = num_column
-        self.help_lookup_field_name = help_lookup_field_name
-        self.help_footer = help_footer
-
-    # -------------------------------------------------------------------------
-    def widget(self,
-               field,
-               value = None
-               ):
-
-        if current.db:
-            db = current.db
-        else:
-            db = field._db
-
-        lookup_table_name = self.lookup_table_name
-        lookup_field_name = self.lookup_field_name
-        if lookup_table_name and lookup_field_name:
-            table = db[lookup_table_name]
-            requires = IS_NULL_OR(IS_IN_DB(db,
-                                   table.id,
-                                   "%(" + lookup_field_name + ")s",
-                                   multiple = multiple))
-        else:
-            requires = self.requires
-
-        options = self.options
-        if not options:
-            if hasattr(requires, "options"):
-                options = requires.options()
-            else:
-                raise SyntaxError, "widget cannot determine options of %s" % field
-
-        values = s3_split_multi_value(value)
-
-        attr = OptionsWidget._attributes(field, {})
-
-        num_column = self.num_column
-        num_row  = len(options) / num_column
-        # Ensure division  rounds up
-        if len(options) % num_column > 0:
-             num_row = num_row +1
-
-        t = TABLE(_id = str(field).replace(".", "_"))
-        append = t.append
-        for i in range(0, num_row):
-            table_row = TR()
-            for j in range(0, num_column):
-                # Check that the index is still within options
-                index = num_row * j + i
-                if index < len(options):
-                    input_options = {}
-                    input_options = dict(requires = attr.get("requires", None),
-                                         _value = str(options[index][0]),
-                                         value = values,
-                                         _type = "checkbox",
-                                         _name = field.name,
-                                         hideerror = True
-                                        )
-                    tip_attr = {}
-                    help_text = ""
-                    if self.help_lookup_field_name:
-                        help_lookup_field_name = self.help_lookup_field_name
-                        row = db(table.id == options[index][0]).select(table[help_lookup_field_name],
-                                                                       limitby=(0, 1)).first()
-                        if row:
-                            help_text = str(P(row[help_lookup_field_name]))
-                    if self.help_footer:
-                        help_text = help_text + str(self.help_footer)
-                    if help_text:
-                        tip_attr = dict(_class = "s3_checkbox_label",
-                                        #_title = options[index][1] + "|" + help_text
-                                        _rel =  help_text
-                                        )
-
-                    #table_row.append(TD(A(options[index][1],**option_attr )))
-                    table_row.append(TD(INPUT(**input_options),
-                                        SPAN(options[index][1], **tip_attr)
-                                        )
-                                    )
-            append(table_row)
-        if self.multiple:
-            append(TR(I("(Multiple selections allowed)")))
-        return t
-
-    # -------------------------------------------------------------------------
-    def represent(self, value):
-
-        db = current.db
-        table = db[self.lookup_table_name]
-        lookup_field_name = self.lookup_field_name
-        list = []
-        lappend = list.append
-        # @ToDo: Optimise if widget ever used! Use belongs
-        for id in s3_split_multi_value(value):
-            if id:
-                row = db(table.id == id).select(table[lookup_field_name],
-                                                limitby=(0, 1)).first()
-                if row:
-                    lappend(row[lookup_field_name])
-        if list and not None in list:
-            return ", ".join(list)
-        else:
-            return None
-
-# =============================================================================
 class S3ColorPickerWidget(FormWidget):
     """
         Displays an <input type="color"> widget to allow the user to pick a
@@ -1277,7 +1195,7 @@ class S3ColorPickerWidget(FormWidget):
         s3.jquery_ready.append('''
 var sp_options=%s
 sp_options.change=function(color){this.value=color.toHex()}
-$('.color').spectrum(sp_options)''' % json.dumps(self.options) if self.options else "")
+$('.color').spectrum(sp_options)''' % json.dumps(self.options, separators=SEPARATORS) if self.options else "")
 
         attr = self._attributes(field, {"_class": "color",
                                         "_value": value
@@ -1311,6 +1229,31 @@ class S3DateWidget(FormWidget):
         if not error:
             value = v.isoformat()
 
+        request = current.request
+        s3 = current.response.s3
+        jquery_ready = s3.jquery_ready
+        language = current.session.s3.language
+        if language in settings.date_formats:
+            # Localise if we have configured a Date Format and we have a jQueryUI options file
+            # Do we have a suitable locale file?
+            if language in ("prs", "ps"):
+                # Dari & Pashto use Farsi
+                language = "fa"
+            #elif language == "ur":
+            #    # Urdu uses Arabic
+            #    language = "ar"
+            elif "-" in language:
+                parts = language.split("_", 1)
+                language = "%s-%s" % (parts[0], parts[1].upper())
+            path = os.path.join(request.folder, "static", "scripts", "i18n", "jquery.ui.datepicker-%s.js" % language)
+            if os.path.exists(path):
+                lscript = "/%s/static/scripts/i18n/jquery.ui.datepicker-%s.js" % (request.application, language)
+                if lscript not in s3.scripts:
+                    # 1st Datepicker
+                    s3.scripts.append(lscript)
+                    script = '''$.datepicker.setDefaults($.datepicker.regional["%s"])''' % language
+                    jquery_ready.append(script)
+
         if self.format:
             # default: "yy-mm-dd"
             format = str(self.format)
@@ -1332,7 +1275,6 @@ class S3DateWidget(FormWidget):
             selector = str(field).replace(".", "_")
 
         # Convert to Days
-        request = current.request
         now = current.request.utcnow
         past = self.past
         if past:
@@ -1358,31 +1300,17 @@ class S3DateWidget(FormWidget):
             maxDate = "+0"
 
         script = \
-'''$('#%(selector)s').datepicker('option',{
+'''$('#%(selector)s').datepicker('option',{yearRange:'c-100:c+100',
+ dateFormat:'%(format)s',
  minDate:%(past)s,
- maxDate:%(future)s,
- yearRange:'c-100:c+100',
- dateFormat:'%(format)s'})''' % \
-        dict(selector = selector,
-             past = minDate,
-             future = maxDate,
-             format = format)
+ maxDate:%(future)s})''' % dict(selector = selector,
+                                format = format,
+                                past = minDate,
+                                future = maxDate,
+                                )
 
-        s3 = current.response.s3
-        language = current.session.s3.language
-        if language != settings.get_L10n_default_language():
-            # Do we have a suitable locale file?
-            path = os.path.join(request.folder, "static", "scripts", "i18n", "jquery.ui.datepicker-%s.js" % language)
-            if os.path.exists(path):
-                lscript = "/%s/static/scripts/i18n/jquery.ui.datepicker-%s.js" % (request.application, language)
-                if lscript not in s3.scripts:
-                    s3.scripts.append(lscript)
-                script = '''%s
-$('#%s').datepicker('option',$.datepicker.regional['%s'])''' % (script,
-                                                                selector,
-                                                                language)
-
-        s3.jquery_ready.append(script)
+        if script not in jquery_ready: # Prevents loading twice when form has errors
+            jquery_ready.append(script)
 
         return TAG[""](widget, requires = field.requires)
 
@@ -1483,6 +1411,31 @@ class S3DateTimeWidget(FormWidget):
                              settings.get_L10n_datetime_separator())
         datetime_format = "%s%s%s" % (date_format, separator, time_format)
 
+        request = current.request
+        s3 = current.response.s3
+        jquery_ready = s3.jquery_ready
+        language = current.session.s3.language
+        if language in settings.date_formats:
+            # Localise if we have configured a Date Format and we have a jQueryUI options file
+            # Do we have a suitable locale file?
+            if language in ("prs", "ps"):
+                # Dari & Pashto use Farsi
+                language = "fa"
+            #elif language == "ur":
+            #    # Urdu uses Arabic
+            #    language = "ar"
+            elif "-" in language:
+                parts = language.split("_", 1)
+                language = "%s-%s" % (parts[0], parts[1].upper())
+            path = os.path.join(request.folder, "static", "scripts", "i18n", "jquery.ui.datepicker-%s.js" % language)
+            if os.path.exists(path):
+                lscript = "/%s/static/scripts/i18n/jquery.ui.datepicker-%s.js" % (request.application, language)
+                if lscript not in s3.scripts:
+                    # 1st Datepicker
+                    s3.scripts.append(lscript)
+                    script = '''$.datepicker.setDefaults($.datepicker.regional["%s"])''' % language
+                    jquery_ready.append(script)
+
         # Option to hide the time slider
         hide_time = opts.get("hide_time", False)
         if hide_time:
@@ -1495,7 +1448,6 @@ class S3DateTimeWidget(FormWidget):
             dtformat = datetime_format
 
         # Limits
-        request = current.request
         now = request.utcnow
         timedelta = datetime.timedelta
         offset = S3DateTime.get_offset_value(current.session.s3.utc_offset)
@@ -1598,10 +1550,10 @@ class S3DateTimeWidget(FormWidget):
  useLocalTimezone:true,
  defaultValue:'%(default)s',
  onClose:%(onclose)s
-});
-var clear_button=$('<input id="%(selector)s_clear" type="button" value="%(clear)s"/>').click(function(){
- $('#%(selector)s').val('');%(onclear)s
-});
+})
+var clear_button=$('<button id="%(selector)s_clear" class="btn date-clear-btn" type="button">%(clear)s</button>').click(function(){
+ $('#%(selector)s').val('');%(onclear)s;$('#%(selector)s').closest('.filter-form').trigger('optionChanged')
+})
 if($('#%(selector)s_clear').length==0){
  $('#%(selector)s').after(clear_button)
 }''' %  dict(selector=selector,
@@ -1616,30 +1568,17 @@ if($('#%(selector)s_clear').length==0){
              firstDOW=firstDOW,
              year_range=year_range,
              minute_step=minute_step,
-             limit=limit,
-             earliest=earliest.strftime(ISO),
-             latest=latest.strftime(ISO),
+             limit = limit,
+             earliest = earliest.strftime(ISO),
+             latest = latest.strftime(ISO),
              default=default,
              clear=current.T("clear"),
              onclose=onclose,
              onclear=onclear,
              )
 
-        s3 = current.response.s3
-        language = current.session.s3.language
-        if language != settings.get_L10n_default_language():
-            # Do we have a suitable locale file?
-            path = os.path.join(request.folder, "static", "scripts", "i18n", "jquery.ui.datepicker-%s.js" % language)
-            if os.path.exists(path):
-                lscript = "/%s/static/scripts/i18n/jquery.ui.datepicker-%s.js" % (request.application, language)
-                if lscript not in s3.scripts:
-                    s3.scripts.append(lscript)
-                script = '''%s
-$('#%s').datepicker('option',$.datepicker.regional['%s'])''' % (script,
-                                                                selector,
-                                                                language)
-
-        s3.jquery_ready.append(script)
+        if script not in jquery_ready: # Prevents loading twice when form has errors
+            jquery_ready.append(script)
 
         return
 
@@ -1820,7 +1759,8 @@ class S3EmbedComponentWidget(FormWidget):
         table = DIV(*trs)
 
         # Divider
-        divider = TR(TD(_class="subheading"), TD(), _class="box_bottom embedded")
+        divider = TR(TD(_class="subheading"), TD(),
+                     _class="box_bottom embedded")
 
         # JavaScript
         if s3.debug:
@@ -1974,18 +1914,11 @@ class S3GroupedOptionsWidget(FormWidget):
             attr["_name"] = fieldname
 
         options = self._options(field, value)
-        if "empty" in options:
-            widget = DIV(SPAN(options["empty"],
-                              _class="no-options-available"),
-                         INPUT(_type="hidden",
-                               _name=fieldname,
-                               _value=None),
-                         **attr)
-        else:
+        if self.multiple:
+            attr["_multiple"] = "multiple"
+        widget = SELECT(**attr)
+        if "empty" not in options:
             groups = options["groups"]
-            if self.multiple:
-                attr["_multiple"] = "multiple"
-            widget = SELECT(**attr)
             append = widget.append
             render_group = self._render_group
             for group in groups:
@@ -1993,8 +1926,15 @@ class S3GroupedOptionsWidget(FormWidget):
                 for option in options:
                     append(option)
 
-            script = '''$('#%s').groupedopts({columns:%s})''' % (_id, self.cols)
-            current.response.s3.jquery_ready.append(script)
+        widget.add_class("groupedopts-widget")
+
+        empty_text = current.T("No options available")
+
+        script = '''$('#%s').groupedopts({columns:%s,emptyText:"%s"})''' % \
+                 (_id, self.cols, empty_text)
+        jquery_ready = current.response.s3.jquery_ready
+        if script not in jquery_ready:
+            jquery_ready.append(script)
 
         return widget
 
@@ -2460,6 +2400,7 @@ class S3HumanResourceAutocompleteWidget(FormWidget):
                  min_length = self.min_length,
                  )
         current.response.s3.jquery_ready.append(script)
+
         return TAG[""](INPUT(_id=dummy_input,
                              _class="string",
                              _value=represent.encode("utf-8")),
@@ -2553,7 +2494,7 @@ i18n.cancel_crop="%s"''' % (T("Please select a valid image!"),
             append(INPUT(**attr))
             # Set up the canvas
             canvas = TAG["canvas"](_class="imagecrop-canvas",
-                                   _style="display:none;")
+                                   _style="display:none")
             append(canvas)
 
         else:
@@ -2563,7 +2504,7 @@ i18n.cancel_crop="%s"''' % (T("Please select a valid image!"),
                  T("Select an image to upload. You can crop this later by opening this record."))))
             # Set up the canvas
             canvas = TAG["canvas"](_class="imagecrop-canvas",
-                                   _style="display:none;")
+                                   _style="display:none")
             image_bounds = self.image_bounds
             if image_bounds:
                 canvas.attributes["_width"] = image_bounds[0]
@@ -2642,9 +2583,9 @@ class S3InvBinWidget(FormWidget):
 
         match_lbl = LABEL(T("Select an existing bin"))
         match_div = SELECT(bins,
-                          _id = "%s_%s" % (self.tablename, field.name),
-                          _name = field.name,
-                         )
+                           _id = "%s_%s" % (self.tablename, field.name),
+                           _name = field.name,
+                           )
         new_lbl = LABEL(T("...or add a new bin"))
         return TAG[""](match_lbl,
                        match_div,
@@ -2688,7 +2629,7 @@ class S3KeyValueWidget(ListWidget):
             value = "[]"
         if not isinstance(value, str):
             try:
-                value = json.dumps(value)
+                value = json.dumps(value, separators=SEPARATORS)
             except:
                 raise("Bad value for key-value pair field")
         appname = current.request.application
@@ -2934,7 +2875,7 @@ class S3LocationDropdownWidget(FormWidget):
         attr_dropdown = OptionsWidget._attributes(field, attr)
         requires = IS_IN_SET(locations)
         if empty:
-            requires = IS_NULL_OR(requires)
+            requires = IS_EMPTY_OR(requires)
         attr_dropdown["requires"] = requires
 
         attr_dropdown["represent"] = \
@@ -2986,37 +2927,21 @@ class S3LocationLatLonWidget(FormWidget):
             lat = None
             lon = None
 
-        formstyle = current.response.s3.crud.formstyle
-        if formstyle == "bootstrap":
-            bootstrap = True
-        elif callable(formstyle):
-            bootstrap = False
-            comment = ""
-        else:
-            # Unsupported
-            raise
-
         rows = TAG[""]()
+
+        formstyle = current.response.s3.crud.formstyle
+
+        comment = ""
         selector = str(field).replace(".", "_")
         id = "%s_lat" % selector
         label = T("Latitude")
         widget = S3LatLonWidget("lat").widget(field, lat)
-        if bootstrap:
-            label = LABEL("%s:" % label, _class="control-label",
-                                         _for=id)
-            if not empty:
-                label = DIV(label,
-                            SPAN(" *", _class="req"))
-            #widget.add_class("input-xlarge")
-            _controls = DIV(widget, _class="controls")
-            row = DIV(label, _controls, _class="control-group",
-                                        _id="%s__row" % id)
-        else:
-            label = "%s:" % label
-            if not empty:
-                label = DIV(label,
-                            SPAN(" *", _class="req"))
-            row = formstyle(id, label, widget, comment)
+        label = "%s:" % label
+        if not empty:
+            label = DIV(label,
+                        SPAN(" *", _class="req"))
+        
+        row = formstyle(id, label, widget, comment)
         if isinstance(row, tuple):
             for r in row:
                 rows.append(r)
@@ -3026,22 +2951,11 @@ class S3LocationLatLonWidget(FormWidget):
         id = "%s_lon" % selector
         label = T("Longitude")
         widget = S3LatLonWidget("lon", switch=True).widget(field, lon)
-        if bootstrap:
-            label = LABEL("%s:" % label, _class="control-label",
-                                         _for=id)
-            if not empty:
-                label = DIV(label,
-                            SPAN(" *", _class="req"))
-            #widget.add_class("input-xlarge")
-            _controls = DIV(widget, _class="controls")
-            row = DIV(label, _controls, _class="control-group",
-                                        _id="%s__row" % id)
-        else:
-            label = "%s:" % label
-            if not empty:
-                label = DIV(label,
-                            SPAN(" *", _class="req"))
-            row = formstyle(id, label, widget, comment)
+        label = "%s:" % label
+        if not empty:
+            label = DIV(label,
+                        SPAN(" *", _class="req"))
+        row = formstyle(id, label, widget, comment)
         if isinstance(row, tuple):
             for r in row:
                 rows.append(r)
@@ -3068,7 +2982,7 @@ class S3LocationSelectorWidget(FormWidget):
         It requires the IS_LOCATION_SELECTOR() validator to process Location details upon form submission.
 
         Create form
-            Active Tab: 'Create New Location'
+            Active Tab: 'Create Location'
                 Country Dropdown (to set the Number & Labels of Hierarchy)
                 Building Name (deployment_setting to hide)
                 Street Address (Line1/Line2?)
@@ -3099,7 +3013,7 @@ class S3LocationSelectorWidget(FormWidget):
             Assume location is shared by other resources
                 Active Tab: 'View Location Details' (Fields are read-only)
                 Inactive Tab: 'Edit Location Details' (Fields are writable)
-                @ToDo: Inactive Tab: 'Move Location': Defaults to Searching for an Existing Location, with a button to 'Create New Location'
+                @ToDo: Inactive Tab: 'Move Location': Defaults to Searching for an Existing Location, with a button to 'Create Location'
 
         @see: http://eden.sahanafoundation.org/wiki/BluePrintGISLocationSelector
 
@@ -3151,7 +3065,7 @@ class S3LocationSelectorWidget(FormWidget):
         if request.controller == "appadmin":
             # Don't use this widget in appadmin
             return TAG[""](INPUT(**attr),
-                           requires=IS_NULL_OR(IS_LOCATION()),
+                           requires=IS_EMPTY_OR(IS_LOCATION()),
                            )
 
         # Hide the real field
@@ -3449,7 +3363,7 @@ S3.gis.tab="%s"''' % s3.gis.tab
                         _style="cursor:pointer; cursor:hand",
                         _id="gis_location_edit-btn")
 
-        add_button = A(T("Create New Location"),
+        add_button = A(T("Create Location"),
                        _style="cursor:pointer; cursor:hand",
                        _id="gis_location_add-btn")
 
@@ -3494,8 +3408,8 @@ S3.gis.tab="%s"''' % s3.gis.tab
                                                                value = ""),
                                                           **attributes)
             attr_dropdown["requires"] = \
-                IS_NULL_OR(IS_IN_SET(countries,
-                                     zero = SELECT_COUNTRY))
+                IS_EMPTY_OR(IS_IN_SET(countries,
+                                      zero = SELECT_COUNTRY))
             attr_dropdown["represent"] = \
                 lambda id: gis.get_country(id) or UNKNOWN_OPT
             opts = [OPTION(SELECT_COUNTRY, _value="")]
@@ -3536,7 +3450,7 @@ S3.gis.tab="%s"''' % s3.gis.tab
             POSTCODE_LABEL = settings.get_ui_label_postcode()
         LAT_LABEL = T("Latitude")
         LON_LABEL = T("Longitude")
-        AUTOCOMPLETE_HELP = T("Enter some characters to bring up a list of possible matches")
+        AUTOCOMPLETE_HELP = current.messages.AUTOCOMPLETE_HELP
         NEW_HELP = T("If not found, you can have a new location created.")
         def ac_help_widget(level):
             try:
@@ -3904,35 +3818,34 @@ class S3LocationSelectorWidget2(FormWidget):
         * Uses dropdowns not autocompletes
         * Selection of lower Lx levels only happens when higher-level have been done
 
-        Limitations:
-        * Doesn't support variable Levels by Country
-        * Doesn't allow creation of new Lx Locations
-        * Doesn't allow selection of existing specific Locations
-        * Doesn't support manual entry of LatLons
-
-        May evolve into a replacement in-time if missing features get migrated here.
-
         Implementation Notes:
-        * Should support formstyles (Bootstrap currenty supported)
-        * Should support use in an InlineComponent (not urgent)
-        * Should support multiple on a page (not urgent)
         * Performance: Create JSON for the hierarchy, along with bboxes for the map zoom
                        - load progressively rather than all as 1 big download
         h = {id : {'n' : name,
                    'l' : level,
                    'f' : parent
                    }}
+        * Requires use of the IS_LOCATION_SELECTOR2 validator
+
+        Limitations:
+        * Doesn't support variable Levels by Country
+        * Doesn't allow creation of new Lx Locations
+        * Doesn't allow selection of existing specific Locations
+        * Doesn't support manual entry of LatLons
+        * Should support use in an InlineComponent (not urgent)
+        * Should support multiple on a page (not urgent)
     """
 
     def __init__(self,
-                 levels = ("L1", "L2", "L3"),   # Which levels of the hierarchy to expose?
-                 hide_lx = True,                # Whether to hide lower Lx fields until higher level selected
-                 reverse_lx = False,            # Whether to show Lx fields in the order usually used by Street Addresses
-                 show_address = False,          # Whether to show a field for Street Address
-                 show_postcode = False,         # Whether to show a field for Postcode
-                 show_map = True,               # Whether to show a Map to select specific points
-                 lines = False,                 # Whether the Map uses a Line draw tool instead of Point
-                 polygons = False,              # Whether the Map uses a Polygon draw tool instead of Point
+                 levels = None,          # Which levels of the hierarchy to expose?
+                 hide_lx = True,         # Whether to hide lower Lx fields until higher level selected
+                 reverse_lx = False,     # Whether to show Lx fields in the order usually used by Street Addresses
+                 show_address = False,   # Whether to show a field for Street Address
+                 show_postcode = False,  # Whether to show a field for Postcode
+                 show_map = True,        # Whether to show a Map to select specific points
+                 lines = False,          # Whether the Map uses a Line draw tool instead of Point
+                 polygons = False,       # Whether the Map uses a Polygon draw tool instead of Point
+                 catalog_layers = False, # Whether the Map should display Catalogue Layers or just the default base layer
                  ):
 
         self.levels = levels
@@ -3943,35 +3856,133 @@ class S3LocationSelectorWidget2(FormWidget):
         self.show_map = show_map
         self.lines = lines
         self.polygons = polygons
+        self.catalog_layers = catalog_layers
 
     def __call__(self, field, value, **attributes):
 
+        db = current.db
+        s3db = current.s3db
+        gtable = s3db.gis_location
+
+        request = current.request
+        post_vars = request.post_vars
+
+        settings = current.deployment_settings
+        countries = settings.get_gis_countries()
+
+        gis = current.gis
+
+        # Read the currently active GIS config
+        config = gis.get_config()
+
+        default = field.default
+        if not default:
+            # Check for a default location in the active gis_config
+            default = config.default_location_id
+
+        default_bounds = None
+        if not default:
+            if len(countries) == 1:
+                ttable = s3db.gis_location_tag
+                query = (ttable.tag == "ISO2") & \
+                        (ttable.value == countries[0]) & \
+                        (ttable.location_id == gtable.id)
+                country = db(query).select(gtable.id,
+                                           gtable.lat_min,
+                                           gtable.lon_min,
+                                           gtable.lat_max,
+                                           gtable.lon_max,
+                                           cache=s3db.cache,
+                                           limitby=(0, 1)).first()
+                default = country.id
+                default_bounds = [country.lon_min,
+                                  country.lat_min,
+                                  country.lon_max,
+                                  country.lat_max
+                                  ]
+
+        if value == "dummy":
+            # Validation Error when Creating a specific point
+            # Revert to Parent
+            value = post_vars.parent
+        if not value:
+            value = default
+
+        requires = field.requires
+        if requires:
+            if hasattr(requires, "other"):
+                required = False
+            else:
+                required = True
+        else:
+            required = False
+
+        # Main INPUT, will be hidden
+        defaults = dict(_type = "text",
+                        value = (value != None and str(value)) or "")
+        attr = StringWidget._attributes(field, defaults, **attributes)
+
+        if request.controller == "appadmin":
+            # Don't use this widget/validator in appadmin
+            if required:
+                requires = IS_LOCATION()
+            else:
+                requires = IS_EMPTY_OR(IS_LOCATION())
+            return TAG[""](INPUT(**attr),
+                           requires=requires,
+                           )
+
+        # Read settings
+        T = current.T
+        s3 = current.response.s3
+        location_selector_loaded = s3.gis.location_selector_loaded
+
         levels = self.levels
+        if not levels:
+            # Which levels of Hierarchy are we using?
+            hierarchy = gis.get_location_hierarchy()
+            levels = hierarchy.keys()
+            if len(settings.get_gis_countries()) == 1 or \
+               s3.gis.config.region_location_id:
+                try:
+                    levels.remove("L0")
+                except:
+                    pass
+
         hide_lx = self.hide_lx
         show_address = self.show_address
-        show_postcode = self.show_postcode
+        show_postcode = self.show_postcode and settings.get_gis_postcode_selector()
         show_map = self.show_map
         lines = self.lines
         polygons = self.polygons or lines
 
-        T = current.T
-        db = current.db
-        s3db = current.s3db
-        gis = current.gis
-        settings = current.deployment_settings
-        s3 = current.response.s3
-        location_selector_loaded = s3.gis.location_selector_loaded
-        formstyle = s3.crud.formstyle # Currently only Bootstrap has been tested
-        request = current.request
+        #bootstrap = settings.ui.formstyle == "bootstrap"
+        #if bootstrap:
+        #    # We need to make the HTML markup compliant with this CSS framework
+        #    # @ToDo: This should now be possible by calling the formstyle as-normal
+        #    # No need to test this formstyle as we know it up-front
+        #    tuple_rows = False
+        #else:
+        # Test the formstyle
+        formstyle = s3.crud.formstyle
+        row = formstyle("test", "test", "test", "test")
+        if isinstance(row, tuple):
+            # Formstyle with separate row for label (e.g. default Eden formstyle)
+            tuple_rows = True
+        else:
+            # Formstyle with just a single row (e.g. Bootstrap, Foundation or DRRPP)
+            tuple_rows = False
+            #if "form-row" in row["_class"]:
+            #    # Foundation formstyle
+            #    foundation = True
+            #else:
+            #    foundation = False
 
         # Translate options using gis_location_name?
         translate = settings.get_L10n_translate_gis_location()
         language = current.session.s3.language
         if language == settings.get_L10n_default_language():
             translate = False 
-
-        # Read the currently active GIS config
-        config = gis.get_config()
 
         # Should we use a Geocoder?
         geocoder = config.geocoder and show_address
@@ -3987,23 +3998,12 @@ class S3LocationSelectorWidget2(FormWidget):
             _levels = ("L0", "L1", "L2")
         elif "L1" in levels:
             _levels = ("L0", "L1")
-
-        default = field.default
-        if not default:
-            # Check for a default location in the active gis_config
-            default = config.default_location_id
-
-        requires = field.requires
-        if requires:
-            if hasattr(requires, "other"):
-                required = False
-            else:
-                required = True
+        elif "L0" in levels:
+            _levels = ("L0",)
         else:
-            required = False
+            _levels = ()
 
-        gtable = s3db.gis_location
-
+        # Initialise values array
         values = dict(L0 = 0,
                       L1 = 0,
                       L2 = 0,
@@ -4012,55 +4012,48 @@ class S3LocationSelectorWidget2(FormWidget):
                       L5 = 0,
                       specific = 0,
                       )
-        if default:
-            fields = [gtable.path,
-                      gtable.level,
-                      gtable.lat_min,
-                      gtable.lon_min,
-                      gtable.lat_max,
-                      gtable.lon_max,
-                      ]
-            if not value or value == default:
-                fields += [gtable.parent,
-                           gtable.inherited,
-                           gtable.lat,
-                           gtable.lon,
-                           gtable.wkt,
-                           gtable.addr_street,
-                           gtable.addr_postcode,
-                           ]
-            record = db(gtable.id == default).select(*fields,
-                                                     limitby=(0, 1)).first()
+
+        # Keep the selected Lat/Lon/Address/Postcode during validation errors
+        lat = post_vars.lat
+        lon = post_vars.lon
+        wkt = post_vars.wkt
+        address = post_vars.address
+        postcode = post_vars.postcode
+        if value:
+            record = db(gtable.id == value).select(gtable.path,
+                                                   gtable.parent,
+                                                   gtable.level,
+                                                   gtable.inherited,
+                                                   gtable.lat,
+                                                   gtable.lon,
+                                                   gtable.wkt,
+                                                   gtable.addr_street,
+                                                   gtable.addr_postcode,
+                                                   limitby=(0, 1)).first()
+            if not record:
+                raise ValueError
+
             level = record.level
-            
+            parent = record.parent
             path = record.path.split("/")
-            default_L0_bounds = None
-            default_L1_bounds = None
-            default_L2_bounds = None
-            default_L3_bounds = None
-            default_L4_bounds = None
             path_ok = True
             if level:
                 if len(path) != (int(level[1:]) + 1):
                     # We don't have a full path
                     path_ok = False
-                bounds = [record.lon_min,
-                          record.lat_min,
-                          record.lon_max,
-                          record.lat_max
-                          ]
-                if level == "L0":
-                    default_L0_bounds = [b for b in bounds]
-                elif level == "L1":
-                    default_L1_bounds = [b for b in bounds]
-                elif level == "L2":
-                    default_L2_bounds = [b for b in bounds]
-                elif level == "L3":
-                    default_L3_bounds = [b for b in bounds]
-                elif level == "L4":
-                    default_L4_bounds = [b for b in bounds]
             else:
                 # Specific location
+                # Only use a specific Lat/Lon when they are not inherited
+                if not record.inherited:
+                    if polygons:
+                        wkt = wkt or record.wkt
+                    else:
+                        lat = lat or record.lat
+                        lon = lon or record.lon
+                        wkt = ""
+                address = address or record.addr_street
+                postcode = postcode or record.addr_postcode
+                values["specific"] = value
                 if len(path) < (len(_levels) + 1):
                     # We don't have a full path
                     path_ok = False
@@ -4070,194 +4063,25 @@ class S3LocationSelectorWidget2(FormWidget):
                     l = int(_level[1:])
                     if len(path) > l:
                         id = path[l]
-                        values[_level] = id
-                        if _level == "L0" and not default_L0_bounds or \
-                           _level == "L1" and not default_L1_bounds or \
-                           _level == "L2" and not default_L2_bounds or \
-                           _level == "L3" and not default_L3_bounds or \
-                           _level == "L4" and not default_L4_bounds:
-                            row = db(gtable.id == id).select(gtable.lat_min,
-                                                             gtable.lon_min,
-                                                             gtable.lat_max,
-                                                             gtable.lon_max,
-                                                             limitby=(0, 1)
-                                                             ).first()
-                            if row:
-                                bounds = [row.lon_min,
-                                          row.lat_min,
-                                          row.lon_max,
-                                          row.lat_max
-                                          ]
-                                if _level == "L0":
-                                    default_L0_bounds = [b for b in bounds]
-                                elif _level == "L1":
-                                    default_L1_bounds = [b for b in bounds]
-                                elif _level == "L2":
-                                    default_L2_bounds = [b for b in bounds]
-                                elif _level == "L3":
-                                    default_L3_bounds = [b for b in bounds]
-                                elif _level == "L4":
-                                    default_L4_bounds = [b for b in bounds]
+                        values[_level] = int(id)
             else:
                 # Retrieve all records in the path to match them up to their Lx
                 rows = db(gtable.id.belongs(path)).select(gtable.id,
-                                                          gtable.level,
-                                                          gtable.lat_min,
-                                                          gtable.lon_min,
-                                                          gtable.lat_max,
-                                                          gtable.lon_max,
-                                                          )
+                                                          gtable.level)
                 for row in rows:
-                    level = row.level
-                    bounds = [row.lon_min,
-                              row.lat_min,
-                              row.lon_max,
-                              row.lat_max
-                              ]
-                    if level == "L0":
-                        default_L0_bounds = [b for b in bounds]
-                    elif level == "L1":
-                        default_L1_bounds = [b for b in bounds]
-                    elif level == "L2":
-                        default_L2_bounds = [b for b in bounds]
-                    elif level == "L3":
-                        default_L3_bounds = [b for b in bounds]
-                    elif level == "L4":
-                        default_L4_bounds = [b for b in bounds]
-                    values[level] = row.id
-            default_L0 = values["L0"]
-            default_L1 = values["L1"]
-            default_L2 = values["L2"]
-            default_L3 = values["L3"]
-            default_L4 = values["L4"]
-            default_L5 = values["L5"]
+                    values[row.level] = row.id
         else:
-            default_L0 = 0
-            default_L1 = 0
-            default_L2 = 0
-            default_L3 = 0
-            default_L4 = 0
-            default_L5 = 0
+            parent = None
 
-        if not default_L0:
-            countries = settings.get_gis_countries()
-            if len(countries) == 1:
-                ttable = s3db.gis_location_tag
-                query = (ttable.tag == "ISO2") & \
-                        (ttable.value == countries[0]) & \
-                        (ttable.location_id == gtable.id)
-                country = db(query).select(gtable.id,
-                                           gtable.lat_min,
-                                           gtable.lon_min,
-                                           gtable.lat_max,
-                                           gtable.lon_max,
-                                           limitby=(0, 1)).first()
-                default_L0 = country.id
-                values["L0"] = default_L0
-                default_L0_bounds = [country.lon_min,
-                                     country.lat_min,
-                                     country.lon_max,
-                                     country.lat_max
-                                     ]
-            else:
-                default_L0_bounds = [config.lon_min,
-                                     config.lat_min,
-                                     config.lon_max,
-                                     config.lat_max
-                                     ]
+        L0 = values["L0"]
+        L1 = values["L1"]
+        L2 = values["L2"]
+        L3 = values["L3"]
+        L4 = values["L4"]
+        L5 = values["L5"]
 
-        parent = ""
-        # Keep the selected Lat/Lon/Address/Postcode during validation errors
-        post_vars = request.post_vars
-        lat = post_vars.lat
-        lon = post_vars.lon
-        wkt = post_vars.wkt
-        address = post_vars.address
-        postcode = post_vars.postcode
-        if value == "dummy":
-            # Validation Error when Creating a specific point
-            # Revert to Parent
-            value = post_vars.parent
-        if not value:
-            value = default
-        if value:
-            if value != default:
-                values = dict(L0 = 0,
-                              L1 = 0,
-                              L2 = 0,
-                              L3 = 0,
-                              L4 = 0,
-                              L5 = 0,
-                              specific = 0,
-                              )
-                record = db(gtable.id == value).select(gtable.path,
-                                                       gtable.parent,
-                                                       gtable.level,
-                                                       gtable.inherited,
-                                                       gtable.lat,
-                                                       gtable.lon,
-                                                       gtable.wkt,
-                                                       gtable.addr_street,
-                                                       gtable.addr_postcode,
-                                                       limitby=(0, 1)).first()
-                if not record:
-                    raise ValueError
-                level = record.level
-                path = record.path.split("/")
-                path_ok = True
-                if level:
-                    if len(path) != (int(level[1:]) + 1):
-                        # We don't have a full path
-                        path_ok = False
-                else:
-                    # Specific location
-                    # Only use a specific Lat/Lon when they are not inherited
-                    if not record.inherited:
-                        lat = record.lat
-                        lon = record.lon
-                        wkt = record.wkt if polygons else ""
-                    address = record.addr_street
-                    postcode = record.addr_postcode
-                    values["specific"] = value
-                    if len(path) < (len(_levels) + 1):
-                        # We don't have a full path
-                        path_ok = False
-
-                if path_ok:
-                    for _level in _levels:
-                        l = int(_level[1:])
-                        if len(path) > l:
-                            id = path[l]
-                            values[_level] = id
-                else:
-                    # Retrieve all records in the path to match them up to their Lx
-                    rows = db(gtable.id.belongs(path)).select(gtable.id,
-                                                              gtable.level)
-                    for row in rows:
-                        values[row.level] = row.id
-            elif not level:
-                # Only use a specific Lat/Lon when they are not inherited
-                if not record.inherited:
-                    lat = record.lat
-                    lon = record.lon
-                    wkt = record.wkt if polygons else ""
-                address = record.addr_street
-                postcode = record.addr_postcode
-                values["specific"] = value
-            parent = record.parent
-
+        # HTML Output
         fieldname = str(field).replace(".", "_")
-
-        # Main INPUT, will be hidden
-        defaults = dict(_type = "text",
-                        value = (value != None and str(value)) or "")
-        attr = StringWidget._attributes(field, defaults, **attributes)
-
-        if request.controller == "appadmin":
-            # Don't use this widget in appadmin
-            return TAG[""](INPUT(**attr),
-                           requires=IS_NULL_OR(IS_LOCATION()),
-                           )
 
         # Parent INPUT field, will be hidden
         parent_input = INPUT(_name="parent",
@@ -4289,134 +4113,167 @@ class S3LocationSelectorWidget2(FormWidget):
             lon_input = ""
             wkt_input = ""
 
+        lowest_Lx = None
         if "L0" not in levels and \
-           "L0" in _levels:
+           "L0" in _levels and L0:
             # Have a hidden L0 input
-            # - used for Geocoder
+            # - used for Geocoder & client-side validation
             L0_input = INPUT(_name="L0",
                              _id="%s_L0" % fieldname,
-                             fvalue=default_L0,
+                             fvalue=L0,
                              )
+            if required:
+                L0_input.add_class("required")
         else:
             L0_input = ""
 
         if "L1" not in levels and \
-           "L1" in _levels:
+           "L1" in _levels and L1:
             # Have a hidden L1 input
-            # - used for Geocoder
+            # - used for Geocoder & client-side validation
             L1_input = INPUT(_name="L1",
                              _id="%s_L1" % fieldname,
-                             value=default_L1,
+                             value=L1,
                              )
+            if required:
+                L1_input.add_class("required")
         else:
             L1_input = ""
 
         if "L2" not in levels and \
-           "L2" in _levels:
+           "L2" in _levels and L2:
             # Have a hidden L2 input
-            # - used for Geocoder & to attach Street Addresses to
+            # - used for Geocoder & client-side validation & to attach Street Addresses to
             L2_input = INPUT(_name="L2",
                              _id="%s_L2" % fieldname,
-                             value=default_L2,
+                             value=L2,
                              )
+            if required:
+                L2_input.add_class("required")
         else:
             L2_input = ""
 
         if "L3" not in levels and \
-           "L3" in _levels:
+           "L3" in _levels and L3:
             # Have a hidden L3 input
-            # - used for Geocoder & to attach Street Addresses to
+            # - used for Geocoder & client-side validation & to attach Street Addresses to
             L3_input = INPUT(_name="L3",
                              _id="%s_L3" % fieldname,
-                             value=default_L3,
+                             value=L3,
                              )
+            if required:
+                L3_input.add_class("required")
         else:
             L3_input = ""
 
         if "L4" not in levels and \
-           "L4" in _levels:
+           "L4" in _levels and L4:
             # Have a hidden L4 input
-            # - used for Geocoder & to attach Street Addresses to
+            # - used for Geocoder & client-side validation & to attach Street Addresses to
             L4_input = INPUT(_name="L4",
                              _id="%s_L4" % fieldname,
-                             value=default_L4,
+                             value=L4,
                              )
+            if required:
+                L4_input.add_class("required")
         else:
             L4_input = ""
+
+        if "L5" not in levels and \
+           "L5" in _levels and L5:
+            # Have a hidden L5 input
+            # - used for Geocoder & client-side validation & to attach Street Addresses to
+            L5_input = INPUT(_name="L5",
+                             _id="%s_L5" % fieldname,
+                             value=L5,
+                             )
+            if required:
+                L5_input.add_class("required")
+        else:
+            L5_input = ""
 
         Lx_inputs = TAG[""](L0_input,
                             L1_input,
                             L2_input,
                             L3_input,
                             L4_input,
+                            L5_input,
                             )
 
         if show_address:
             # Street Address
             id = "%s_address" % fieldname
             label = T("Street Address")
+            label = LABEL("%s:" % label, _for=id)
             widget = INPUT(_name="address",
                            _id=id,
                            value=address,
                            )
+            # @ToDo: Option to Flag this as required
+            #widget.add_class("required")
             hidden = not address
-            if formstyle == "bootstrap":
-                # We would like to hide the whole original control-group & append rows, but that can't be done directly within a Widget
-                # -> Elements moved via JS after page load
-                label = LABEL("%s:" % label, _class="control-label",
-                                             _for=id)
-                widget.add_class("input-xlarge")
-                _controls = DIV(widget, _class="controls")
-                # Will unhide if dropdowns open accordingly
-                _class = "control-group hide"
-                address_row = DIV(label, _controls, _class=_class, _id="%s__row" % id)
-            elif callable(formstyle):
-                # @ToDo: Test
-                comment = ""
-                address_row = formstyle(id, label, widget, comment, hidden=True)
+            #if bootstrap:
+            #    # We would like to hide the whole original control-group & append rows, but that can't be done directly within a Widget
+            #    # -> Elements moved via JS after page load
+            #    label.add_class("control-label")
+            #    widget.add_class("input-xlarge")
+            #    _controls = DIV(widget, _class="controls")
+            #    # Will unhide if dropdowns open accordingly
+            #    _class = "control-group hide"
+            #    address_row = DIV(label, _controls, _class=_class, _id="%s__row" % id)
+            #    address_label = ""
+            #else:
+            comment = ""
+            address_row = formstyle("%s__row" % id, label, widget, comment, hidden=hidden)
+            if tuple_rows:
+                address_label = address_row[0]
+                address_row = address_row[1]
             else:
-                # Unsupported
-                raise
+                address_label = ""
         else:
             address_row = ""
+            address_label = ""
 
         if show_postcode:
             # Postcode
             id = "%s_postcode" % fieldname
             label = settings.get_ui_label_postcode()
+            label = LABEL("%s:" % label, _for=id)
             widget = INPUT(_name="postcode",
                            _id=id,
                            value=postcode,
                            )
             hidden = not postcode
-            if formstyle == "bootstrap":
-                # We would like to hide the whole original control-group & append rows, but that can't be done directly within a Widget
-                # -> Elements moved via JS after page load
-                label = LABEL("%s:" % label, _class="control-label",
-                                             _for=id)
-                widget.add_class("input-xlarge")
-                _controls = DIV(widget, _class="controls")
-                # Will unhide if dropdowns open accordingly
-                _class = "control-group hide"
-                postcode_row = DIV(label, _controls, _class=_class, _id="%s__row" % id)
-            elif callable(formstyle):
-                # @ToDo: Test
-                comment = ""
-                postcode_row = formstyle(id, label, widget, comment, hidden=hidden)
+            #if bootstrap:
+            #    # We would like to hide the whole original control-group & append rows, but that can't be done directly within a Widget
+            #    # -> Elements moved via JS after page load
+            #    label.add_class("control-label")
+            #    widget.add_class("input-xlarge")
+            #    _controls = DIV(widget, _class="controls")
+            #    # Will unhide if dropdowns open accordingly
+            #    _class = "control-group hide"
+            #    postcode_row = DIV(label, _controls, _class=_class, _id="%s__row" % id)
+            #    postcode_label = ""
+            #else:
+            comment = ""
+            postcode_row = formstyle("%s__row" % id, label, widget, comment, hidden=hidden)
+            if tuple_rows:
+                postcode_label = postcode_row[0]
+                postcode_row = postcode_row[1]
             else:
-                # Unsupported
-                raise
+                postcode_label = ""
         else:
             postcode_row = ""
+            postcode_label = ""
 
         # Hierarchy Labels
         # @ToDo: Country-specific Translations of Labels
         htable = s3db.gis_hierarchy
         fields = [htable[level] for level in levels if level != "L0"]
         query = (htable.uuid == "SITE_DEFAULT")
-        if default_L0:
+        if L0:
             fields.append(htable.uuid)
-            query |= (htable.location_id == default_L0)
+            query |= (htable.location_id == L0)
             limit = 2
         else:
             limit = 1
@@ -4425,15 +4282,17 @@ class S3LocationSelectorWidget2(FormWidget):
                                 )
         hdict = {}
         labels = {}
-        if default_L0:
+        if L0:
             for row in rows:
                 if row.uuid == "SITE_DEFAULT":
                     d = hdict["d"] = {}
                     for level in levels:
-                        if level != "L0":
+                        if level == "L0":
+                            labels["L0"] = current.messages.COUNTRY
+                        else:
                             d[int(level[1:])] = row[level]
                 else:
-                    h_l0 = hdict[default_L0] = {}
+                    h_l0 = hdict[L0] = {}
                     for level in levels:
                         if level == "L0":
                             labels["L0"] = current.messages.COUNTRY
@@ -4453,83 +4312,124 @@ class S3LocationSelectorWidget2(FormWidget):
                     labels[level] = v
 
         # Lx Dropdowns
+        ui_multiselect_widget = settings.get_ui_multiselect_widget()
         Lx_rows = DIV()
-        # 1st level is always visible (except in Bootstrap where all hidden until moved)
-        hidden = False
+        # 1st level is always hidden until populated
+        hidden = True
+        comment = ""
         for level in levels:
             id = "%s_%s" % (fieldname, level)
-            label = labels[level]
-            widget = SELECT(OPTION(T("Select %(location)s") % dict(location = label),
+            lattr = {"_id" : id}
+            if ui_multiselect_widget:
+                lattr["_multiple"] = "multiple"
+            label = labels.get(level, level)
+            noneSelectedText = T("Select %(location)s") % dict(location = label)
+            widget = SELECT(OPTION(noneSelectedText,
                                    _value=""),
-                            _id=id)
-            #comment = T("Select this %(location)s") % dict(location = label)
-            comment = ""
+                            **lattr)
+            if required:
+                widget.add_class("required")
+                # @ToDo: DRY this setting with s3_mark_required
+                label = DIV("%s:" % label,
+                            SPAN(" *", _class="req"))
+                if (int(level[1:]) + 1) not in levels:
+                    # This is the highest level which is required
+                    required = False
+            label = LABEL(label, _for=id)
             throbber = DIV(_id="%s__throbber" % id,
                            _class="throbber hide"
                            )
-            if formstyle == "bootstrap":
-                # We would like to hide the whole original control-group & append rows, but that can't be done directly within a Widget
-                # -> Elements moved via JS after page load
-                label = LABEL("%s:" % label, _class="control-label",
-                                             _for=id)
-                if required:
-                    label.add_class("required")
-                    # Only top-level required
-                    # @ToDo: More control
-                    required = False
-                widget.add_class("input-xlarge")
-                # Currently unused, so remove if this remains so
-                #from gluon.html import BUTTON
-                #comment = BUTTON(comment,
-                #                 _class="btn btn-primary hide",
-                #                 _id="%s__button" % id
-                #                 )
-                #_controls = DIV(widget, throbber, comment, _class="controls")
-                _controls = DIV(widget, throbber, _class="controls")
-                row = DIV(label, _controls, _class="control-group hide", _id="%s__row" % id)
-            elif callable(formstyle):
-                # @ToDo: Test
-                if required:
-                    # @ToDo: DRY this setting with s3_mark_required
-                    # @ToDo: How to patch row that coems out of formstyle?
-                    #        - this label will get wiped by the L0-specific labels
-                    label = DIV("%s:" % label,
-                                SPAN(" *", _class="req"))
-                    # Only top-level required
-                    # @ToDo: More control
-                    required = False
-                row = formstyle(id, label, widget, comment, hidden=hidden)
+            #if bootstrap:
+            #    # We would like to hide the whole original control-group & append rows, but that can't be done directly within a Widget
+            #    # -> Elements moved via JS after page load
+            #    label.add_class("control-label")
+            #    widget.add_class("input-xlarge")
+            #    _controls = DIV(widget, throbber, _class="controls")
+            #    row = DIV(label, _controls, _class="control-group hide", _id="%s__row" % id)
+            #    Lx_rows.append(row)
+            #else:
+            rows = formstyle("%s__row" % id, label, widget, comment, hidden=hidden)
+            if tuple_rows:
+                Lx_rows.append(rows[0])
+                Lx_rows.append(rows[1])
             else:
-                # Unsupported
-                raise
-            Lx_rows.append(row)
+                Lx_rows.append(rows)
             # Subsequent levels are hidden by default
             # (client-side JS will open when-needed)
             hidden = hide_lx
 
-        if not default_L0:
+        # Build initial location_dict
+        # Read all visible levels
+        if "L0" in levels:
             query = (gtable.level == "L0")
             if len(countries):
                 ttable = s3db.gis_location_tag
                 query &= ((ttable.tag == "ISO2") & \
                           (ttable.value.belongs(countries)) & \
                           (ttable.location_id == gtable.id))
-        elif "L1" in levels:
+            if L0 and "L1" in levels:
+                query |= (gtable.level == "L1") & \
+                         (gtable.parent == L0)
+            if L1 and "L2" in levels:
+                query |= (gtable.level == "L2") & \
+                         (gtable.parent == L1)
+            if L2 and "L3" in levels:
+                query |= (gtable.level == "L3") & \
+                         (gtable.parent == L2)
+            if L3 and "L4" in levels:
+                query |= (gtable.level == "L4") & \
+                         (gtable.parent == L3)
+            if L4 and "L5" in levels:
+                query |= (gtable.level == "L5") & \
+                         (gtable.parent == L4)
+        elif L0 and "L1" in levels:
             query = (gtable.level == "L1") & \
-                    (gtable.parent == default_L0)
-        elif default_L1 and "L2" in levels:
+                    (gtable.parent == L0)
+            if L1 and "L2" in levels:
+                query |= (gtable.level == "L2") & \
+                         (gtable.parent == L1)
+            if L2 and "L3" in levels:
+                query |= (gtable.level == "L3") & \
+                         (gtable.parent == L2)
+            if L3 and "L4" in levels:
+                query |= (gtable.level == "L4") & \
+                         (gtable.parent == L3)
+            if L4 and "L5" in levels:
+                query |= (gtable.level == "L5") & \
+                         (gtable.parent == L4)
+        elif L1 and "L2" in levels:
             query = (gtable.level == "L2") & \
-                    (gtable.parent == default_L1)
-        elif default_L2 and "L3" in levels:
+                    (gtable.parent == L1)
+            if L2 and "L3" in levels:
+                query |= (gtable.level == "L3") & \
+                         (gtable.parent == L2)
+            if L3 and "L4" in levels:
+                query |= (gtable.level == "L4") & \
+                         (gtable.parent == L3)
+            if L4 and "L5" in levels:
+                query |= (gtable.level == "L5") & \
+                         (gtable.parent == L4)
+        elif L2 and "L3" in levels:
             query = (gtable.level == "L3") & \
-                    (gtable.parent == default_L2)
-        elif default_L3 and "L4" in levels:
+                    (gtable.parent == L2)
+            if L3 and "L4" in levels:
+                query |= (gtable.level == "L4") & \
+                         (gtable.parent == L3)
+            if L4 and "L5" in levels:
+                query |= (gtable.level == "L5") & \
+                         (gtable.parent == L4)
+        elif L3 and "L4" in levels:
             query = (gtable.level == "L4") & \
-                    (gtable.parent == default_L3)
-        elif default_L4 and "L5" in levels:
+                    (gtable.parent == L3)
+            if L4 and "L5" in levels:
+                query |= (gtable.level == "L5") & \
+                         (gtable.parent == L4)
+        elif L4 and "L5" in levels:
             query = (gtable.level == "L5") & \
-                    (gtable.parent == default_L4)
+                    (gtable.parent == L4)
+
         query &= (gtable.deleted == False)
+
         fields = [gtable.id,
                   gtable.name,
                   gtable.level,
@@ -4550,9 +4450,54 @@ class S3LocationSelectorWidget2(FormWidget):
             left = None
         locations = db(query).select(*fields,
                                      left=left)
-        top = dict(id = default_L0,
-                   b = default_L0_bounds)
-        location_dict = dict(d=top)
+
+        location_dict = {}
+
+        if default_bounds:
+            # Only L0s get set before here
+            location_dict["d"] = dict(id=L0,
+                                      b=default_bounds)
+            location_dict[L0] = dict(b=default_bounds,
+                                     l=0)
+        elif lowest_Lx:
+            # What is the lowest-level un-selectable Lx?
+            if lowest_Lx == "L0":
+                Lx = L0
+            elif lowest_Lx == "L1":
+                Lx = L1
+            elif lowest_Lx == "L2":
+                Lx = L2
+            elif lowest_Lx == "L3":
+                Lx = L3
+            elif lowest_Lx == "L4":
+                Lx = L4
+            elif lowest_Lx == "L5":
+                Lx = L5
+            record = db(gtable.id == Lx).select(gtable.lat_min,
+                                                gtable.lon_min,
+                                                gtable.lat_max,
+                                                gtable.lon_max,
+                                                cache=s3db.cache,
+                                                limitby=(0, 1)).first()
+            if not record:
+                raise ValueError
+            bounds = [record.lon_min,
+                      record.lat_min,
+                      record.lon_max,
+                      record.lat_max
+                      ]
+            location_dict["d"] = dict(id=Lx,
+                                      b=bounds)
+            location_dict[Lx] = dict(b=bounds,
+                                     l=int(lowest_Lx[1:]))
+        else:
+            default_bounds = [config.lon_min,
+                              config.lat_min,
+                              config.lon_max,
+                              config.lat_max
+                              ]
+            location_dict["d"] = dict(b=default_bounds)
+
         if translate:
             for location in locations:
                 l = location["gis_location"]
@@ -4575,7 +4520,8 @@ class S3LocationSelectorWidget2(FormWidget):
                 if level:
                     level = int(level[1])
                 else:
-                    s3_debug("Location Hierarchy not setup properly")
+                    current.log.warning("S3LocationSelectorWidget2",
+                                        "Location Hierarchy not setup properly")
                     continue
                 data = dict(n=l.name,
                             l=level)
@@ -4589,28 +4535,20 @@ class S3LocationSelectorWidget2(FormWidget):
                                  ]
                 location_dict[int(l.id)] = data
 
-        if default_L0 and default_L0 not in location_dict:
-            location_dict[default_L0] = dict(l=0,
-                                             b=default_L0_bounds)
-        if default_L1 and default_L1 not in location_dict:
-            location_dict[default_L1] = dict(l=1,
-                                             b=default_L1_bounds)
-        if default_L2 and default_L2 not in location_dict:
-            location_dict[default_L2] = dict(l=2,
-                                             b=default_L2_bounds)
-        if default_L3 and default_L3 not in location_dict:
-            location_dict[default_L3] = dict(l=3,
-                                             b=default_L3_bounds)
-        if default_L4 and default_L4 not in location_dict:
-            location_dict[default_L4] = dict(l=4,
-                                             b=default_L4_bounds)
-
         if not location_selector_loaded:
             global_append = s3.js_global.append
-            script = '''l=%s''' % json.dumps(location_dict)
+            # @ToDo: Check whether relevant ls & ds in the previous instance of locationselector or need appending
+            script = '''l=%s''' % json.dumps(location_dict, separators=SEPARATORS)
             global_append(script)
-            script = '''h=%s''' % json.dumps(hdict)
+            script = '''h=%s''' % json.dumps(hdict, separators=SEPARATORS)
             global_append(script)
+            script = '''i18n.select="%s"''' % T("Select")
+            global_append(script)
+            if ui_multiselect_widget:
+                script = '''i18n.allSelectedText="%s"''' % T("All selected")
+                global_append(script)
+                script = '''i18n.selectedText="%s"''' % T("# selected")
+                global_append(script)
 
         # If we need to show the map since we have an existing lat/lon/wkt
         # then we need to launch the client-side JS as a callback to the MapJS loader
@@ -4619,26 +4557,20 @@ class S3LocationSelectorWidget2(FormWidget):
         else:
             use_callback = False
 
-        max_level = levels[len(levels) - 1]
-        L1 = values["L1"]
         specific = values["specific"]
-        args = [default_L0]
+        args = [L0]
         if specific:
             # We need to provide all args
-            args += [L1, values["L2"], values["L3"], values["L4"], values["L5"], specific]
+            args += [L1, L2, L3, L4, L5, specific]
         elif L1:
             # Add only required args
             args.append(L1)
-            L2 = values["L2"]
             if L2:
                 args.append(L2)
-                L3 = values["L3"]
                 if L3:
                     args.append(L3)
-                    L4 = values["L4"]
                     if L4:
                         args.append(L4)
-                        L5 = values["L5"]
                         if L5:
                             args.append(L5)
 
@@ -4651,7 +4583,7 @@ class S3LocationSelectorWidget2(FormWidget):
                      args)
         if show_map and use_callback:
             callback = script
-        elif not location_selector_loaded:
+        elif not location_selector_loaded or not location_selector_loaded[fieldname]:
             s3.jquery_ready.append(script)
 
         if s3.debug:
@@ -4677,6 +4609,7 @@ class S3LocationSelectorWidget2(FormWidget):
                                add_line_active = lines,
                                add_polygon = polygons and not lines,
                                add_polygon_active = polygons and not lines,
+                               catalogue_layers = self.catalog_layers,
                                # Hide controls from toolbar
                                nav = False,
                                area = False,
@@ -4687,9 +4620,15 @@ class S3LocationSelectorWidget2(FormWidget):
                                )
             icon_id = "%s_map_icon" % fieldname
             row_id = "%s_map_icon__row" % fieldname
-            if formstyle == "bootstrap":
+            if polygons:
+                label = T("Draw on Map")
+            else:
+                label = T("Find on Map")
+            if settings.ui.formstyle == "bootstrap":
+                # Need to add custom classes to core HTML markup
                 map_icon = DIV(DIV(BUTTON(I(_class="icon-map"),
-                                          T("Find on Map"),
+                                          label,
+                                          _type="button", # defaults to 'submit' otherwise!
                                           _id=icon_id,
                                           _class="btn gis_loc_select_btn",
                                           ),
@@ -4699,38 +4638,47 @@ class S3LocationSelectorWidget2(FormWidget):
                                _class = "control-group hide",
                                )
             else:
-                # @ToDo: Icon in default CSS
-                # @ToDo: Test
-                label = LABEL(I(_class="icon-map",
-                                _id=icon_id,
-                                ))
-                widget = ""
-                comment = ""
-                map_icon = formstyle(row_id, label, widget, comment)
+                map_icon = DIV(DIV(BUTTON(I(_class="icon-globe"),
+                                          label,
+                                          _type="button", # defaults to 'submit' otherwise!
+                                          _id=icon_id,
+                                          _class="btn gis_loc_select_btn",
+                                          ),
+                                   _class="w2p_fl",
+                                   ),
+                               _id = row_id,
+                               _class = "hide",
+                               )
             if geocoder:
                 if not location_selector_loaded:
                     global_append('''i18n.address_mapped="%s"
 i18n.address_not_mapped="%s"
 i18n.location_found="%s"
 i18n.location_not_found="%s"''' % (T("Address Mapped"),
-                                  T("Address NOT Mapped"),
-                                  T("Location Found"),
-                                  T("Location NOT Found"),
-                                  ))
+                                   T("Address NOT Mapped"),
+                                   T("Address Found"),
+                                   T("Address NOT Found"),
+                                   ))
                 map_icon.append(DIV(DIV(_class="throbber hide"),
                                     DIV(_class="geocode_success hide"),
                                     DIV(_class="geocode_fail hide"),
                                     BUTTON(T("Geocode"),
-                                           _class="hide"),
+                                           _type="button", # defaults to 'submit' otherwise!
+                                          _class="hide",
+                                          ),
                                     _id="%s_geocode" % fieldname,
                                     _class="controls geocode",
                                     ))
-            map = TAG[""](map, map_icon)
+            map_icon.append(map)
         else:
-            map = ""
+            map_icon = ""
 
         # Ensure that we don't insert duplicate scripts on validation errors
-        s3.gis.location_selector_loaded = True
+        if location_selector_loaded:
+            location_selector_loaded[fieldname] = True
+        else:
+            s3.gis.location_selector_loaded = Storage()
+            s3.gis.location_selector_loaded[fieldname] = True
 
         # The overall layout of the components
         return TAG[""](DIV(INPUT(**attr), # Real input, hidden
@@ -4739,11 +4687,14 @@ i18n.location_not_found="%s"''' % (T("Address Mapped"),
                            lon_input,
                            wkt_input,
                            parent_input,
-                           _class="hide"),
+                           _class="hide",
+                           ),
                        Lx_rows,
+                       address_label,
                        address_row,
+                       postcode_label,
                        postcode_row,
-                       map,
+                       map_icon,
                        requires=field.requires
                        )
 
@@ -4756,13 +4707,34 @@ class S3MultiSelectWidget(MultipleOptionsWidget):
     """
 
     def __init__(self,
-                 filter = True, # Only works if header is not False (can be "" though)
+                 filter = "auto",
                  header = True,
+                 multiple = True,
                  selectedList = 3,
-                 noneSelectedText = "Select"
+                 noneSelectedText = "Select",
                  ):
+        """
+            Constructor
+
+            @param filter: show an input field in the widget to filter for options,
+                           can be:
+                                - True (always show filter field)
+                                - False (never show the filter field)
+                                - "auto" (show filter if more than 10 options)
+                                - <number> (show filter if more than <number> options)
+            @param header: show a header for the options list, can be:
+                                - True (show the default Select All/Deselect All header)
+                                - False (don't show a header unless required for filter)
+            @param selectedList: maximum number of individual selected options to show
+                                 on the widget button (before collapsing into "<number>
+                                 selected")
+            @param noneSelectedText: text to show on the widget button when no option is
+                                     selected (automatic l10n, no T() required)
+        """
+                     
         self.filter = filter
         self.header = header
+        self.multiple = multiple
         self.selectedList = selectedList
         self.noneSelectedText = noneSelectedText
 
@@ -4775,27 +4747,7 @@ class S3MultiSelectWidget(MultipleOptionsWidget):
         else:
             selector = field.name.replace(".", "_")
 
-        # Options:
-        # * Show Selected List
-        if self.header is True:
-            header = '''checkAllText:'%s',uncheckAllText:"%s"''' % \
-                (T("Select all"),
-                 T("Clear all"))
-        elif self.header is False:
-            header = '''header:false'''
-        else:
-            header = '''header:"%s"''' % self.header
-        script = '''$('#%s').multiselect({allSelectedText:'%s',selectedText:'%s',%s,height:300,minWidth:0,selectedList:%s,noneSelectedText:'%s'})''' % \
-            (selector,
-             T("All selected"),
-             T("# selected"),
-             header,
-             self.selectedList,
-             T(self.noneSelectedText))
-        if self.filter:
-            script = '''%s.multiselectfilter()''' % script
-        current.response.s3.jquery_ready.append(script)
-
+        # Widget
         _class = attr.get("_class", None)
         if _class:
             if "multiselect-widget" not in _class:
@@ -4803,9 +4755,210 @@ class S3MultiSelectWidget(MultipleOptionsWidget):
         else:
             attr["_class"] = "multiselect-widget"
 
-        return TAG[""](MultipleOptionsWidget.widget(field, value, **attr),
-                       requires = field.requires
-                       )
+        multiple_opt = self.multiple
+        w = MultipleOptionsWidget if multiple_opt else OptionsWidget
+        widget = TAG[""](w.widget(field, value, **attr), requires = field.requires)
+
+        # Filter and header for multiselect options list
+        filter_opt = self.filter 
+        header_opt = self.header
+        if not multiple_opt and header_opt is True:
+            # Select All / Unselect All doesn't make sense if multiple == False
+            header_opt = False
+        if filter_opt == "auto" or isinstance(filter_opt, (int, long)):
+            max_options = 10 if filter_opt == "auto" else filter_opt
+            if len(widget[0]) > max_options:
+                filter_opt = True
+            else:
+                filter_opt = False
+        if filter_opt is True and header_opt is False:
+            # Must have at least "" as header to show the filter
+            header_opt = ""
+            
+        # Other options:
+        # * Show Selected List
+        if header_opt is True:
+            header = '''checkAllText:'%s',uncheckAllText:"%s"''' % \
+                     (T("Select all"),
+                      T("Clear all"))
+        elif header_opt is False:
+            header = '''header:false'''
+        else:
+            header = '''header:"%s"''' % header_opt
+        noneSelectedText = self.noneSelectedText
+        if not isinstance(noneSelectedText, lazyT):
+            noneSelectedText = T(noneSelectedText)
+        script = '''$('#%s').multiselect({allSelectedText:'%s',selectedText:'%s',%s,height:300,minWidth:0,selectedList:%s,noneSelectedText:'%s',multiple:%s})''' % \
+                 (selector,
+                  T("All selected"),
+                  T("# selected"),
+                  header,
+                  self.selectedList,
+                  noneSelectedText,
+                  "true" if multiple_opt else "false",
+                  )
+
+        if filter_opt:
+            script = '''%s.multiselectfilter({label:'',placeholder:'%s'})''' % \
+                (script, T("Search"))
+        jquery_ready = current.response.s3.jquery_ready
+        if script not in jquery_ready: # Prevents loading twice when form has errors
+            jquery_ready.append(script)
+
+        return widget
+
+# =============================================================================
+class S3HierarchyWidget(FormWidget):
+    """ Selector Widget for Hierarchies """
+
+    def __init__(self,
+                 lookup=None,
+                 represent=None,
+                 multiple=True,
+                 leafonly=True,
+                 filter=None,
+                 ):
+        """
+            Constructor
+
+            @param lookup: name of the lookup table (must have a hierarchy
+                           configured)
+            @param represent: alternative representation method (falls back
+                              to the field's represent-method)
+            @param multiple: allow selection of multiple options
+            @param leafonly: True = only leaf nodes can be selected
+                             False = any nodes to be selected independently
+            @param filter: filter query for the lookup table
+        """
+
+        self.lookup = lookup
+        self.represent = represent
+        self.filter = filter
+
+        self.multiple = multiple
+        self.leafonly = leafonly
+
+    # -------------------------------------------------------------------------
+    def __call__(self, field, value, **attr):
+        """
+            Widget renderer
+
+            @param field: the Field
+            @param value: the current value(s)
+            @param attr: additional HTML attributes for the widget
+        """
+
+        if isinstance(field, Field):
+            selector = str(field).replace(".", "_")
+        else:
+            selector = field.name.replace(".", "_")
+
+        # Widget ID
+        widget_id = attr.get("_id")
+        if widget_id == None:
+            widget_id = attr["_id"] = "%s-hierarchy" % selector
+
+        # Get the lookup table
+        lookup = self.lookup
+        if not lookup:
+            lookup = s3_get_foreign_key(field)[0]
+            if not lookup:
+                raise SyntaxError("No lookup table known for %s" % field)
+
+        # Get the representation
+        represent = self.represent
+        if not represent:
+            represent = field.represent
+
+        # Instantiate the hierarchy
+        leafonly = self.leafonly
+        from s3hierarchy import S3Hierarchy
+        h = S3Hierarchy(tablename = lookup,
+                        represent = represent,
+                        leafonly = leafonly,
+                        filter = self.filter,
+                        )
+        if not h.config:
+            raise AttributeError("No hierarchy configured for %s" % lookup)
+
+        # Generate the widget
+        widget = DIV(INPUT(_type = "hidden",
+                           _multiple = "multiple",
+                           _name = field.name,
+                           _id = selector,
+                           _class = "s3-hierarchy-input",
+                           requires = self.parse),
+                     DIV(h.html("%s-tree" % widget_id),
+                         _class = "s3-hierarchy-tree"),
+                     **attr)
+        widget.add_class("s3-hierarchy-widget")
+
+        s3 = current.response.s3
+        scripts = s3.scripts
+        script_dir = "/%s/static/scripts" % current.request.application
+
+        # Currently selected values
+        selected = []
+        append = selected.append
+        if not isinstance(value, (list, tuple, set)):
+            values = [value]
+        else:
+            values = value
+        for v in values:
+            if isinstance(v, (int, long)) or str(v).isdigit():
+                append(v)
+
+        if s3.debug:
+            script = "%s/jquery.jstree.js" % script_dir
+            if script not in scripts:
+                scripts.append(script)
+            script = "%s/S3/s3.jquery.ui.hierarchicalopts.js" % script_dir
+            if script not in scripts:
+                scripts.append(script)
+        else:
+            script = "%s/S3/s3.jstree.min.js" % script_dir
+            if script not in scripts:
+                scripts.append(script)
+
+        T = current.T
+
+        widget_opts = {"selected": selected,
+                       "selectedText": str(T("# selected")),
+                       "noneSelectedText": str(T("Select")),
+                       "multiple": self.multiple,
+                       "leafonly": leafonly,
+                       }
+
+        script = '''$('#%(widget_id)s').hierarchicalopts(%(widget_opts)s)''' % \
+                 {"widget_id": widget_id,
+                  "widget_opts": json.dumps(widget_opts, separators=SEPARATORS),
+                  }
+
+        s3.jquery_ready.append(script)
+
+        return widget
+
+    # -------------------------------------------------------------------------
+    def parse(self, value):
+        """
+            Value parser for the hidden input field of the widget
+
+            @param value: the value received from the client, JSON string
+
+            @return: a list (if multiple=True) or the value
+        """
+
+        default = [] if self.multiple else None
+
+        if value is None:
+            return None, None
+        try:
+            value = json.loads(value)
+        except ValueError:
+            return default, None
+        if not self.multiple and value and isinstance(value, list):
+            value = value[0]
+        return value, None
 
 # =============================================================================
 class S3OptionsMatrixWidget(FormWidget):
@@ -4969,7 +5122,7 @@ class S3OrganisationHierarchyWidget(OptionsWidget):
                     raise SyntaxError, "widget cannot determine options of %s" % field
 
         javascript_array = '''%s_options=%s''' % (name,
-                                                  json.dumps(options))
+                                                  json.dumps(options, separators=SEPARATORS))
         s3 = current.response.s3
         s3.js_global.append(javascript_array)
         s3.scripts.append("/%s/static/scripts/S3/s3.orghierarchy.js" % \
@@ -5059,6 +5212,7 @@ class S3PersonAutocompleteWidget(FormWidget):
 
         script = '''%s%s)''' % (script, options)
         current.response.s3.jquery_ready.append(script)
+
         return TAG[""](INPUT(_id=dummy_input,
                              _class="string",
                              _value=represent),
@@ -5126,14 +5280,14 @@ class S3PentityAutocompleteWidget(FormWidget):
 
         T = current.T
         s3 = current.response.s3
-        script = '''i18n.person="%s"\ni18n.group="%s"''' % (T("Person"),
-                                                            T("Group"),
-                                                            )
+        script = \
+'''i18n.person="%s"\ni18n.group="%s"\ni18n.none_of_the_above="%s"''' % \
+            (T("Person"), T("Group"), T("None of the above"))
         s3.js_global.append(script)
 
         if self.types:
             # Something other than default: ("pr_person", "pr_group")
-            types = json.dumps(self.types)
+            types = json.dumps(self.types, separators=SEPARATORS)
         else:
             types = ""
 
@@ -5209,28 +5363,6 @@ $('#%s').removeClass('list').addClass('prioritylist').prioritylist()''' % \
                        )
 
 # =============================================================================
-class S3SelectChosenWidget(OptionsWidget):
-    """
-        Enhances Select dropdowns:
-        - single selects have an Autocomplete search box 
-        - multi-selects have tag-style selection
-        Uses http://harvesthq.github.io/chosen/
-    """
-
-    def __call__(self, field, value, **attributes):
-        s3 = current.response.s3
-        if s3.debug:
-            script = "chosen.jquery.js"
-        else:
-            script = "chosen.jquery.min.js"
-        s3.scripts.append("/%s/static/scripts/%s" % (current.request.application,
-                                                     script))
-        # @ToDo: Can we not determine a # selector? (faster)
-        script = '''$('[name="%s"]').chosen();''' % field.name
-        s3.jquery_ready.append(script)
-        return OptionsWidget.widget(field, value, **attributes)
-
-# =============================================================================
 class S3SiteAutocompleteWidget(FormWidget):
     """
         Renders an org_site SELECT as an INPUT field with AJAX Autocomplete.
@@ -5284,7 +5416,7 @@ class S3SiteAutocompleteWidget(FormWidget):
         for instance_type in site_types:
             # Change from T()
             site_types[instance_type] = s3_unicode(site_types[instance_type])
-        site_types = '''S3.org_site_types=%s''' % json.dumps(site_types)
+        site_types = '''S3.org_site_types=%s''' % json.dumps(site_types, separators=SEPARATORS)
         js_global = s3.js_global
         if site_types not in js_global:
             js_global.append(site_types)
@@ -5295,70 +5427,6 @@ class S3SiteAutocompleteWidget(FormWidget):
                  min_length = self.min_length,
                  )
         s3.jquery_ready.append(script)
-        return TAG[""](INPUT(_id=dummy_input,
-                             _class="string",
-                             _value=represent),
-                       DIV(_id="%s_throbber" % dummy_input,
-                           _class="throbber input_throbber hide"),
-                       INPUT(**attr),
-                       requires = field.requires
-                       )
-
-# =============================================================================
-class S3SiteAddressAutocompleteWidget(FormWidget):
-    """
-        Renders an org_site SELECT as an INPUT field with AJAX Autocomplete.
-        Differs from the S3AutocompleteWidget in that it searches both name & address fields
-        & uses these in the represent
-    """
-
-    def __init__(self,
-                 post_process = "",
-                 delay = 450, # milliseconds
-                 min_length = 2):
-
-        self.auth = current.auth
-        self.post_process = post_process
-        self.delay = delay
-        self.min_length = min_length
-
-    def __call__(self, field, value, **attributes):
-
-        default = dict(
-            _type = "text",
-            value = (value != None and str(value)) or "",
-            )
-        attr = StringWidget._attributes(field, default, **attributes)
-
-        # Hide the real field
-        attr["_class"] = "%s hide" % attr["_class"]
-
-        if "_id" in attr:
-            real_input = attr["_id"]
-        else:
-            real_input = str(field).replace(".", "_")
-        dummy_input = "dummy_%s" % real_input
-
-        if value:
-            try:
-                value = long(value)
-            except ValueError:
-                pass
-            # Provide the representation for the current/default Value
-            text = s3_unicode(field.represent(value))
-            if "<" in text:
-                text = s3_strip_markup(text)
-            represent = text.encode("utf-8")
-        else:
-            represent = ""
-
-        script = '''S3.autocomplete.site_address('%(input)s',"%(postprocess)s",%(delay)s,%(min_length)s)''' % \
-            dict(input = real_input,
-                 postprocess = self.post_process,
-                 delay = self.delay,
-                 min_length = self.min_length,
-                 )
-        current.response.s3.jquery_ready.append(script)
         return TAG[""](INPUT(_id=dummy_input,
                              _class="string",
                              _value=represent),
@@ -5634,133 +5702,6 @@ class CheckboxesWidgetS3(OptionsWidget):
         return TABLE(*opts, **attr)
 
 # =============================================================================
-def s3_checkboxes_widget(field,
-                         value,
-                         options = None,
-                         cols = 1,
-                         start_at_id = 0,
-                         help_field = None,
-                         **attributes):
-    """
-        Display checkboxes for each value in the table column "field".
-
-        @type cols: int
-        @param cols: spread the input elements into "cols" columns
-
-        @type start_at_id: int
-        @param start_at_id: start input element ids at this number
-
-        @type help_text: string
-        @param help_text: field name string pointing to the field
-                          containing help text for each option
-    """
-
-    values = not isinstance(value, (list, tuple)) and [value] or value
-    values = [str(v) for v in values]
-
-    field_name = field.name
-    attributes["_name"] = "%s_widget" % field_name
-    if "_id" not in attributes:
-        attributes["_id"] = field_name
-    if "_class" not in attributes:
-        attributes["_class"] = "s3-checkboxes-widget"
-
-    if options is None:
-        requires = field.requires
-        if not isinstance(requires, (list, tuple)):
-            requires = [requires]
-
-        if hasattr(requires[0], "options"):
-            options = requires[0].options()
-        else:
-            raise SyntaxError, "widget cannot determine options of %s" % field
-
-    help_text = Storage()
-    if help_field:
-
-        ktablename, pkey, multiple = s3_get_foreign_key(field)
-
-        if isinstance(help_field, dict):
-            # Convert the keys to strings (that's what the options are)
-            for key in help_field.keys():
-                help_text[str(key)] = help_field[key]
-
-        elif hasattr(help_field, "__call__"):
-            # Execute the callable
-            help_field = help_field()
-            # Convert the keys to strings (that's what the options are)
-            for key in help_field.keys():
-                help_text[str(key)] = help_field[key]
-
-        elif ktablename is not None:
-
-            ktable = current.s3db[ktablename]
-            if hasattr(ktable, help_field):
-                keys = [k for k, v in options if str(k).isdigit()]
-                query = ktable[pkey].belongs(keys)
-                rows = current.db(query).select(ktable[pkey],
-                                                ktable[help_field])
-                for row in rows:
-                    help_text[str(row[pkey])] = row[help_field]
-            else:
-                # Error => no comments available
-                pass
-        else:
-            # No lookup table => no comments available
-            pass
-
-    options = [(k, v) for k, v in options if k != ""]
-    options = sorted(options, key=lambda option: s3_unicode(option[1]))
-
-    input_index = start_at_id
-    rows = []
-    rappend = rows.append
-    count = len(options)
-    if count == 0:
-        rows = TR(TD(SPAN(current.T("no options available"),
-                          _class="no-options-available"),
-                     INPUT(_type="hidden",
-                           _name=field.name,
-                           _value=None)))
-    else:
-        mods = count % cols
-        num_of_rows = count / cols
-        if mods:
-            num_of_rows += 1
-
-        for r in range(num_of_rows):
-            cells = []
-            cappend = cells.append
-
-            for k, v in options[r * cols:(r + 1) * cols]:
-                input_id = "id-%s-%s" % (field_name, input_index)
-
-                title = help_text.get(str(k), None)
-                if title:
-                    label_attr = dict(_title=title)
-                else:
-                    label_attr = {}
-
-                cappend(TD(INPUT(_type="checkbox",
-                                _name=field_name,
-                                _id=input_id,
-                                hideerror=True,
-                                _value=s3_unicode(k).encode("utf-8"),
-                                value=(k in values)),
-                        LABEL(v,
-                                _for=input_id,
-                                **label_attr)))
-
-                input_index += 1
-
-            rappend(TR(cells))
-
-        if rows:
-            rows[-1][0][0]["hideerror"] = False
-
-    return TABLE(*rows, **attributes)
-
-# =============================================================================
 def s3_comments_widget(field, value, **attr):
     """
         A smaller-than-normal textarea
@@ -5781,140 +5722,6 @@ def s3_comments_widget(field, value, **attr):
                     _class="comments %s" % (field.type),
                     value=value,
                     requires=field.requires)
-
-# =============================================================================
-def s3_grouped_checkboxes_widget(field,
-                                 value,
-                                 size = 24,
-                                 **attributes):
-    """
-        Displays checkboxes for each value in the table column "field".
-        If there are more than "size" options, they are grouped by the
-        first letter of their label.
-
-        @type field: Field
-        @param field: Field (or Storage) object
-
-        @type value: dict
-        @param value: current value from the form field
-
-        @type size: int
-        @param size: number of input elements for each group
-
-        Used by S3SearchOptionsWidget
-    """
-
-    requires = field.requires
-    if not isinstance(requires, (list, tuple)):
-        requires = [requires]
-
-    if hasattr(requires[0], "options"):
-        options = requires[0].options()
-    else:
-        raise SyntaxError, "widget cannot determine options of %s" \
-            % field
-
-    options = [(k, v) for k, v in options if k != ""]
-
-    total = len(options)
-
-    if total == 0:
-        T = current.T
-        options.append(TR(TD(SPAN(T("no options available"),
-                                  _class="no-options-available"),
-                             INPUT(_type="hide",
-                                   _name=field.name,
-                                   _value=None))))
-
-    if total > size:
-        # Options are put into groups of "size"
-
-        import locale
-
-        letters = []
-        letters_options = {}
-
-        append = letters.append
-        for val, label in options:
-            letter = label
-
-            if letter:
-                letter = s3_unicode(letter).upper()[0]
-                if letter not in letters_options:
-                    append(letter)
-                    letters_options[letter] = [(val, label)]
-                else:
-                    letters_options[letter].append((val, label))
-
-        widget = DIV(_class=attributes.pop("_class",
-                                           "s3-grouped-checkboxes-widget"),
-                     _name = "%s_widget" % field.name)
-
-        input_index = 0
-        group_index = 0
-        group_options = []
-
-        from_letter = u"A"
-        to_letter = letters[0]
-        letters.sort(locale.strcoll)
-
-        lget = letters_options.get
-        for letter in letters:
-            if from_letter is None:
-                from_letter = letter
-
-            group_options += lget(letter, [])
-
-            count = len(group_options)
-
-            if count >= size or letter == letters[-1]:
-                if letter == letters[-1]:
-                    to_letter = u"Z"
-                else:
-                    to_letter = letter
-
-                # Are these options for a single letter or a range?
-                if to_letter != from_letter:
-                    group_label = "%s - %s" % (from_letter, to_letter)
-                else:
-                    group_label = from_letter
-
-                widget.append(DIV(group_label,
-                                  _id="%s-group-label-%s" % (field.name,
-                                                             group_index),
-                                  _class="s3-grouped-checkboxes-widget-label expanded"))
-
-                group_field = field
-                # Can give Unicode issues:
-                #group_field.requires = IS_IN_SET(group_options,
-                #                                 multiple=True)
-
-                letter_widget = s3_checkboxes_widget(group_field,
-                                                     value,
-                                                     options = group_options,
-                                                     start_at_id=input_index,
-                                                     **attributes)
-
-                widget.append(letter_widget)
-
-                input_index += count
-                group_index += 1
-                group_options = []
-                from_letter = None
-
-    else:
-        # not enough options to form groups
-
-        try:
-            widget = s3_checkboxes_widget(field, value, **attributes)
-        except:
-            # some versions of gluon/sqlhtml.py don't support non-integer keys
-            if s3_debug:
-                raise
-            else:
-                return None
-
-    return widget
 
 # =============================================================================
 def s3_richtext_widget(field, value):
@@ -5947,13 +5754,36 @@ def s3_richtext_widget(field, value):
 
 # =============================================================================
 def set_match_strings(matchDict, value):
+    """
+        Helper method for site_search_ac and org_search_ac
+        Find which field the search term matched & where
+
+        @param matchDict: usually the record
+        @param value: the search term
+    """
+
     for key in matchDict:
-        if not isinstance(matchDict[key], str):
+        v = matchDict[key]
+        if not isinstance(v, str):
             continue
-        if matchDict[key][:len(value)].lower() == value:
+        l = len(value)
+        if v[:l].lower() == value:
+            # Match needs to start from beginning
             matchDict["match_type"] = key
-            matchDict["match_string"] = value
-            matchDict["next_string"] = matchDict[key][len(value):]
+            matchDict["match_string"] = v[:l] # Maintain original case
+            next_string = v[l:]
+            if next_string:
+                matchDict["next_string"] = next_string
+            break
+        elif key == "addr" and value in v.lower():
+            # Match can start after the beginning (to allow for house number)
+            matchDict["match_type"] = key
+            pre_string, next_string = v.lower().split(value, 1)
+            if pre_string:
+                matchDict["pre_string"] = v[:len(pre_string)] # Maintain original case
+            if next_string:
+                matchDict["next_string"] = v[(len(pre_string) + l):] # Maintain original case
+            matchDict["match_string"] = v[len(pre_string):][:l] # Maintain original case
             break
 
 # =============================================================================
@@ -5985,8 +5815,8 @@ def search_ac(r, **attr):
 
     limit = int(_vars.limit or 0)
 
-    from s3resource import S3FieldSelector
-    field = S3FieldSelector(fieldname)
+    from s3query import FS
+    field = FS(fieldname)
 
     # Default fields to return
     fields = ["id", fieldname]
@@ -6029,7 +5859,7 @@ def search_ac(r, **attr):
             fq = (linktable[rkey] == table[fkey]) & \
                  (linktable[lkey] == _id)
             linked = current.db(fq).select(table._id)
-            pkey = S3FieldSelector("id")
+            pkey = FS("id")
             exclude = (~(pkey.belongs([r[table._id.name]
                                        for r in linked])))
         except Exception, e:
@@ -6074,9 +5904,9 @@ def search_ac(r, **attr):
         MAX_SEARCH_RESULTS = current.deployment_settings.get_search_max_results()
         if (not limit or limit > MAX_SEARCH_RESULTS) and \
            resource.count() > MAX_SEARCH_RESULTS:
-            output = [dict(id="",
-                           name="Search results are over %d. Please input more characters." \
-                               % MAX_SEARCH_RESULTS)]
+            output = json.dumps([
+                dict(label=str(current.T("There are more than %(max)s results, please input more characters.") % dict(max=MAX_SEARCH_RESULTS)))
+                ], separators=SEPARATORS)
 
     if output is None:
         rows = resource.select(fields,
@@ -6093,6 +5923,6 @@ def search_ac(r, **attr):
             append(record)
 
     current.response.headers["Content-Type"] = "application/json"
-    return json.dumps(output)
+    return json.dumps(output, separators=SEPARATORS)
 
 # END =========================================================================

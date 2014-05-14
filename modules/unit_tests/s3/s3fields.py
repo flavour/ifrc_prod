@@ -312,14 +312,14 @@ class S3ExtractLazyFKRepresentationTests(unittest.TestCase):
     def setUpClass(cls):
 
         db = current.db
-        table = db.define_table(cls.tablename,
-                                Field("location_id",
-                                      "reference gis_location"),
-                                Field("organisation_id",
-                                      "reference org_organisation"),
-                                Field("facility_type_id",
-                                      "list:reference org_facility_type"),
-                                *s3_meta_fields())
+        db.define_table(cls.tablename,
+                        Field("location_id",
+                              "reference gis_location"),
+                        Field("organisation_id",
+                              "reference org_organisation"),
+                        Field("facility_type_id",
+                              "list:reference org_facility_type"),
+                        *s3_meta_fields())
                                 
     # -------------------------------------------------------------------------
     def setUp(self):
@@ -328,9 +328,12 @@ class S3ExtractLazyFKRepresentationTests(unittest.TestCase):
 
         s3db = current.s3db
         table = s3db[tablename]
-        s3db.add_component(tablename,
-                           org_organisation=Storage(name="test",
-                                                    joinby="organisation_id"))
+        s3db.add_components("org_organisation",
+                            **{tablename: {"name": "test",
+                                           "joinby": "organisation_id",
+                                          },
+                              }
+                           )
         current.auth.override = True
 
 
@@ -901,14 +904,14 @@ class S3ExportLazyFKRepresentationTests(unittest.TestCase):
 
         self.tablename = tablename = "export_lazy_fk_represent"
         db = current.db
-        table = db.define_table(tablename,
-                                Field("location_id",
-                                      "reference gis_location"),
-                                Field("organisation_id",
-                                      "reference org_organisation"),
-                                Field("facility_type_id",
-                                      "list:reference org_facility_type"),
-                                *s3_meta_fields())
+        db.define_table(tablename,
+                        Field("location_id",
+                              "reference gis_location"),
+                        Field("organisation_id",
+                              "reference org_organisation"),
+                        Field("facility_type_id",
+                              "list:reference org_facility_type"),
+                        *s3_meta_fields())
 
         current.auth.override = True
 
@@ -952,7 +955,7 @@ class S3ExportLazyFKRepresentationTests(unittest.TestCase):
                         location_id=locations[1].id))
         for i in xrange(len(facs)):
             fac = facs[i]
-            fac_id = table.insert(**fac)
+            fac_id = db[tablename].insert(**fac)
             fac["id"] = fac_id
         self.facs = facs
 
@@ -982,7 +985,7 @@ class S3ExportLazyFKRepresentationTests(unittest.TestCase):
         table.location_id.represent = loc_id_renderer
 
         # Export with IDs
-        current.manager.show_ids = True
+        current.xml.show_ids = True
         tree = resource.export_tree(dereference=False)
         root = tree.getroot()
 

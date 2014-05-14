@@ -193,11 +193,12 @@ def email_outbox():
 
     s3db.configure(tablename,
                    # Permissions-based
-                   #deletable=False,
-                   insertable=False,
-                   listadd=False,
-                   editable=False,
+                   #deletable = False,
+                   editable = False,
+                   insertable = False,
+                   listadd = False,
                    list_fields = ["id",
+                                  "date",
                                   "to_address",
                                   "subject",
                                   "body",
@@ -359,10 +360,23 @@ def email_inbox():
         session.error = T("Requires Login!")
         redirect(URL(c="default", f="user", args="login"))
 
+    s3.filter = (FS("inbound") == True)
+
+    from s3 import S3SQLCustomForm, S3SQLInlineComponent
+    crud_form = S3SQLCustomForm("date",
+                                "subject",
+                                "from_address",
+                                "body",
+                                S3SQLInlineComponent(
+                                    "attachment",
+                                    name = "document_id",
+                                    label = T("Attachments"),
+                                    fields = ["document_id",
+                                              ],
+                                    ),                                                                
+                                )
+
     tablename = "msg_email"
-    table = s3db.msg_email
-    s3.filter = (table.inbound == True)
-    table.inbound.readable = False
 
     # CRUD Strings
     s3.crud_strings[tablename] = Storage(
@@ -375,16 +389,26 @@ def email_inbox():
     )
 
     s3db.configure(tablename,
+                   crud_form = crud_form,
                    # Permissions-based
-                   #deletable=False,
-                   insertable=False,
-                   editable=False,
+                   #deletable = False,
+                   editable = False,
+                   insertable = False,
                    list_fields = ["id",
+                                  "date",
                                   "from_address",
                                   "subject",
                                   "body",
+                                  (T("Attachments"), "attachment.document_id"),
                                   ],
                    )
+
+    def prep(r):
+        s3db.msg_email.inbound.readable = False
+        if r.id:
+            s3db.msg_attachment.document_id.label = ""
+        return True
+    s3.prep = prep
 
     return s3_rest_controller(module, "email")
 
@@ -395,7 +419,7 @@ def rss():
     """
 
     if not auth.s3_has_role(ADMIN):
-        session.error = UNAUTHORISED
+        session.error = ERROR.UNAUTHORISED
         redirect(URL(f="index"))
 
     tablename = "msg_rss"
@@ -653,7 +677,7 @@ def email_channel():
     """
 
     if not auth.s3_has_role(ADMIN):
-        session.error = UNAUTHORISED
+        session.error = ERROR.UNAUTHORISED
         redirect(URL(f="index"))
 
     tablename = "msg_email_channel"
@@ -678,11 +702,9 @@ def email_channel():
     s3.crud_strings[tablename] = Storage(
         title_display = T("Email Settings"),
         title_list = T("Email Accounts"),
-        title_create = ADD_EMAIL_ACCOUNT,
+        label_create = ADD_EMAIL_ACCOUNT,
         title_update = T("Edit Email Settings"),
         label_list_button = T("View Email Accounts"),
-        label_create_button = ADD_EMAIL_ACCOUNT,
-        subtitle_create = T("Add New Email Account"),
         msg_record_created = T("Account added"),
         msg_record_deleted = T("Email Account deleted"),
         msg_list_empty = T("No Accounts currently defined"),
@@ -731,7 +753,7 @@ def mcommons_channel():
     """
 
     if not auth.s3_has_role(ADMIN):
-        session.error = UNAUTHORISED
+        session.error = ERROR.UNAUTHORISED
         redirect(URL(f="index"))
 
     tablename = "msg_mcommons_channel"
@@ -758,10 +780,9 @@ def mcommons_channel():
     s3.crud_strings[tablename] = Storage(
         title_display = T("Mobile Commons Setting Details"),
         title_list = T("Mobile Commons Settings"),
-        title_create = T("Add Mobile Commons Settings"),
+        label_create = T("Add Mobile Commons Settings"),
         title_update = T("Edit Mobile Commons Settings"),
         label_list_button = T("View Mobile Commons Settings"),
-        label_create_button = T("Add Mobile Commons Settings"),
         msg_record_created = T("Mobile Commons Setting added"),
         msg_record_deleted = T("Mobile Commons Setting deleted"),
         msg_list_empty = T("No Mobile Commons Settings currently defined"),
@@ -811,7 +832,7 @@ def rss_channel():
 
     if not auth.s3_has_role(ADMIN):
 
-        session.error = UNAUTHORISED
+        session.error = ERROR.UNAUTHORISED
         redirect(URL(f="index"))
 
     tablename = "msg_rss_channel"
@@ -831,10 +852,9 @@ def rss_channel():
     s3.crud_strings[tablename] = Storage(
         title_display = T("RSS Setting Details"),
         title_list = T("RSS Settings"),
-        title_create = T("Add RSS Settings"),
+        label_create = T("Add RSS Settings"),
         title_update = T("Edit RSS Settings"),
         label_list_button = T("View RSS Settings"),
-        label_create_button = T("Add RSS Settings"),
         msg_record_created = T("Setting added"),
         msg_record_deleted = T("RSS Setting deleted"),
         msg_list_empty = T("No Settings currently defined"),
@@ -842,7 +862,20 @@ def rss_channel():
         )
 
     #response.menu_options = admin_menu_options
-    s3db.configure(tablename, listadd=True, deletable=True)
+    s3db.configure(tablename,
+                   deletable = True,
+                   listadd = True,
+                   )
+
+    def status_represent(v):
+        try:
+            v = int(v)
+        except:
+            # Text
+            return v
+        return "There have been no new entries for %s requests" % v
+
+    s3db.msg_channel_status.status.represent = status_represent
 
     def postp(r, output):
         if r.interactive:
@@ -886,7 +919,7 @@ def twilio_channel():
     """
 
     if not auth.s3_has_role(ADMIN):
-        session.error = UNAUTHORISED
+        session.error = ERROR.UNAUTHORISED
         redirect(URL(f="index"))
 
     tablename = "msg_twilio_channel"
@@ -909,10 +942,9 @@ def twilio_channel():
     s3.crud_strings[tablename] = Storage(
         title_display = T("Twilio Setting Details"),
         title_list = T("Twilio Settings"),
-        title_create = T("Add Twilio Settings"),
+        label_create = T("Add Twilio Settings"),
         title_update = T("Edit Twilio Settings"),
         label_list_button = T("View Twilio Settings"),
-        label_create_button = T("Add Twilio Settings"),
         msg_record_created = T("Twilio Setting added"),
         msg_record_deleted = T("Twilio Setting deleted"),
         msg_list_empty = T("No Twilio Settings currently defined"),
@@ -987,12 +1019,11 @@ def sms_modem_channel():
     # CRUD Strings
     ADD_SETTING = T("Add Setting")
     s3.crud_strings[tablename] = Storage(
-        title_create = ADD_SETTING,
+        label_create = ADD_SETTING,
         title_display = T("Setting Details"),
         title_list = T("Settings"),
         title_update = T("Edit Modem Settings"),
         label_list_button = T("View Settings"),
-        label_create_button = ADD_SETTING,
         msg_record_created = T("Setting added"),
         msg_record_modified = T("Modem settings updated"),
         msg_record_deleted = T("Setting deleted"),
@@ -1261,10 +1292,7 @@ def inject_search_after_save(output):
                       _id="%s__row" % id
                       )
         elif callable(s3_formstyle):
-            row = s3_formstyle(id=id,
-                               label=label,
-                               widget=widget,
-                               comment=comment)
+            row = s3_formstyle(id, label, widget, comment)
         else:
             # Unsupported
             raise
@@ -1354,10 +1382,9 @@ def twitter_search():
     s3.crud_strings[tablename] = Storage(
         title_display = T("Twitter Search Queries"),
         title_list = T("Twitter Search Queries"),
-        title_create = T("Add Twitter Search Query"),
+        label_create = T("Add Twitter Search Query"),
         title_update = T("Edit Twitter Search Query"),
         label_list_button = T("View Queries"),
-        label_create_button = T("Add Query"),
         msg_record_created = T("Query added"),
         msg_record_deleted = T("Query deleted"),
         msg_list_empty = T("No Query currently defined"),
@@ -1442,7 +1469,7 @@ def twitter_result():
     from s3.s3filter import S3DateFilter, S3TextFilter
 
     filter_widgets = [
-        S3DateFilter("created_on",
+        S3DateFilter("date",
                      label=T("Tweeted On"),
                      hide_time=True,
                      _class="date-filter-class",
@@ -1456,7 +1483,7 @@ def twitter_result():
         ]
 
     report_fields = ["search_id",
-                     "created_on",
+                     "date",
                      "lang",
                      ]
 
@@ -1479,7 +1506,7 @@ def twitter_result():
                    report_options=report_options,
                    )
 
-    return s3_rest_controller(hide_filter=False)
+    return s3_rest_controller()
 
 # -----------------------------------------------------------------------------
 def sender():
@@ -1494,10 +1521,9 @@ def sender():
     s3.crud_strings[tablename] = Storage(
         title_display = T("Whitelisted Senders"),
         title_list = T("Whitelisted Senders"),
-        title_create = T("Whitelist a Sender"),
+        label_create = T("Whitelist a Sender"),
         title_update = T("Edit Sender Priority"),
         label_list_button = T("View Sender Priority"),
-        label_create_button = T("Add a Whitelisted Sender"),
         msg_record_created = T("Sender Whitelisted"),
         msg_record_deleted = T("Sender deleted"),
         msg_list_empty = T("No Senders Whitelisted"),
@@ -1532,7 +1558,7 @@ def parser():
     """
 
     if not auth.s3_has_role(ADMIN):
-        session.error = UNAUTHORISED
+        session.error = ERROR.UNAUTHORISED
         redirect(URL(f="index"))
 
     def prep(r):
@@ -1541,10 +1567,9 @@ def parser():
             s3.crud_strings["msg_parser"] = Storage(
                 title_display = T("Parser Connection Details"),
                 title_list = T("Parser Connections"),
-                title_create = T("Connect Parser"),
+                label_create = T("Connect Parser"),
                 title_update = T("Edit Parser Connection"),
                 label_list_button = T("View Parser Connections"),
-                label_create_button = T("Connect New Parser"),
                 msg_record_created = T("Parser connected"),
                 msg_record_deleted = T("Parser connection removed"),
                 msg_record_modified = T("Parser connection updated"),

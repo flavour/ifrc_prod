@@ -72,6 +72,7 @@ input[class*="span"],
 select[class*="span"],
 textarea[class*="span"] {
     width: auto;
+    display: inline-block /*don't wrap help-block*/
 }
 
 /* Web2Py styles Inputs as x-large, which don't match other form inputs */
@@ -111,7 +112,12 @@ div.dl {
 .dl-2-cols {
     margin-left: 0;
 }
-.dl-col-0 {
+.dl-2-cols.dl-col-0,
+.dl-3-cols.dl-col-0,
+.dl-3-cols.dl-col-1,
+.dl-4-cols.dl-col-0,
+.dl-4-cols.dl-col-1,
+.dl-4-cols.dl-col-2 {
     margin-right: 8px;
 }
 
@@ -119,19 +125,24 @@ div.dl {
     margin-bottom: 0;
 }
 
-/* Need long form to override widgets.css on margin */
-.form-container form button.ui-datepicker-trigger {
+/* Need short form for Modals */
+.ui-datepicker-trigger {
     background-image: url(../../img/bootstrap/calendar.gif);
+    background-color: transparent;
+    margin-left: 10px;
+}
+/* Need long form to override widgets.css on normal button margin */
+.form-container form button.ui-datepicker-trigger {
     margin-left: 10px;
 }
 
 /* Match .btn.btn-primary */
 .delete-btn {
-    background-color: #006DCC;
+    background-color: #006dcc;
     border-color: rgba(0, 0, 0, 0.1) rgba(0, 0, 0, 0.1) rgba(0, 0, 0, 0.25);
     border-width: 1px;
     border-radius: 4px 4px 4px 4px;
-    color: #FFFFFF;
+    color: #fff;
     text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.25);
     line-height: 20px;
     padding: 4px 12px;
@@ -165,7 +176,7 @@ div.dl {
     -moz-box-shadow: 0 1px 1px #aaaaa7;
     -webkit-box-shadow: 0 1px 1px #aaaaa7;
     box-shadow: 0 1px 1px #aaaaa7;
-    margin-top: -22px;
+    margin-top: 10px;
     /* restore Bootstrap default to override widgets.css */
     padding: 8px 35px 8px 14px;
 }
@@ -189,6 +200,7 @@ a i.icon.icon-plus-sign.big-add:hover {
 }
 
 #popup.cf .form-horizontal {
+    margin-top: 10px;
     margin-left: -10px;
     padding-left: 0;
 }
@@ -197,7 +209,7 @@ a i.icon.icon-plus-sign.big-add:hover {
     content: "x";
 }
 
-.ui-dialog-titlebar {
+.ui-dialog-titlebar.ui-widget-header {
     text-align: center;
     background-image: -webkit-gradient(linear,50% 0,50% 100%,color-stop(0%,#f9f9fa),color-stop(100%,#e0e2e8)) !important;
     background-image: -webkit-linear-gradient(top,#f9f9fa,#e0e2e8) !important;
@@ -205,26 +217,92 @@ a i.icon.icon-plus-sign.big-add:hover {
     background-image: -o-linear-gradient(top,#f9f9fa,#e0e2e8) !important;
     background-image: -ms-linear-gradient(top,#f9f9fa,#e0e2e8) !important;
     background-image: linear-gradient(top,#f9f9fa,#e0e2e8) !important;
+    border-bottom-right-radius: 0;
+    border-top: none;
+    border-left: none;
+    border-right: none;
 }
 
 .ui-dialog {
-	width: 600px !important;
+	width: 750px !important;
+	padding: 0;
 }
 
-/* Forms */
-form.form-horizontal {  
-    background-color: #fff;
+.popup .form-container form.form-horizontal {
+    border: none;
     box-shadow: none;
-    border-radius: 5px;
-    box-shadow: none;
-    padding-top: 7px;
-    padding-left: 9px;
 }
+
+/* Page Elements */
+.form-container form.form-horizontal,
+#datalist-filter-form,
+#datatable-filter-form,
+#summary-filter-form,
+#summary-sections,
+#datatable_wrapper,
+#pivottable,
+.thumbnail {  
+    background-color: #fff;
+    border-radius: 4px;
+    border: 1px solid #9e9b9b;
+    -moz-box-shadow: 0 -1px 3px #d7d7d6;
+    -webkit-box-shadow: 0 -1px 3px #d7d7d6;
+    box-shadow: 0 -1px 3px #d7d7d6;
+    -moz-box-shadow: 0 1px 1px #aaaaa7;
+    -webkit-box-shadow: 0 1px 1px #aaaaa7;
+    box-shadow: 0 1px 1px #aaaaa7;
+}
+
+div.form-container form.form-horizontal,
+form#datalist-filter-form,
+form#datatable-filter-form {
+    padding: 15px 5px 0 9px;
+}
+
+#list-filter {
+    margin-bottom: 0;
+}
+
+#summary-tabs {
+    margin-top: 10px;
+}
+
+#summary-tab-headers .ui-tabs-nav {
+    border: none;
+    margin: 0 10px;
+}
+
+#summary-tab-headers a {
+    border-color: #b2b2b2;
+}
+
+#summary-tab-headers .ui-tabs-active a {
+    border-bottom: 1px solid white;
+}
+
+#summary-tab-headers li {
+    margin-right: 5px;
+    box-shadow: none;
+}
+
+#summary-tabs.ui-widget-content {
+    background: none;
+    border: none;
+}
+
+/* Fit Summary Map Inside Summary Section */
+#summary-sections .x-panel-body {
+    border: none;
+    border-radius: 4px;
+}
+
+/*
+What is this for? Breaks pop-up
 form.form-horizontal.pr_person,
 form.form-horizontal.org_resource,
 form.form-horizontal.project_project {
     border: 1px solid #b2b2b2;
-}
+}*/
 
 .form-container form fieldset {
     border: none;
@@ -233,17 +311,22 @@ form.form-horizontal.project_project {
 
 /* Override Bootstrap */
 .form-horizontal .control-group {
-    margin-bottom: 5px;
+    margin-bottom: 10px;
 }
 .form-horizontal .control-label {
     font-weight: bold;
-    padding-top: 0;
 }
 body.rtl .form-horizontal .control-label {
     float: right;
 }
 .form-container .tooltip {
     margin-top: 4px;
+}
+
+.form-horizontal div.controls .help-block {
+    display: inline-block;
+    margin-left: 5px;
+    margin-top: 5px;
 }
 
 .form-container .help-block div {
@@ -355,21 +438,23 @@ a.action-btn:hover {
     *background-color: #a9302a;
 }
 
-.ui-datepicker-trigger {
-    margin-left: 10px;
-}
-
 /* Required Fields */
-b.red {
+/* Better solution will be to use inline 'Optional' hints:
+http://www.usabilitycounts.com/2009/11/18/form-design-and-the-fallacy-of-the-required-field/
+http://uxmovement.com/forms/always-mark-optional-form-fields-not-required-ones/ */
+.req_key {
     position: absolute;
     z-index: 1;
-    margin-top: 5px;
     margin-left: 7px;
+    /* This pushed it 'out of the way' on NYC so not easy to see (CRMT just pads it down a little, still looking worse, DRMP looks awful with this)
+    float: right;
+    margin-right: 7px;*/
+    margin-top: 5px;
     font-size: 12px;
 }
 
 #last_update {
-    color: #D35400;
+    color: #d35400;
 }
 
 #markDuplicate {
@@ -381,14 +466,14 @@ b.red {
 }
 
 /* Location Selector */
-form.form-horizontal #map_panel {
+form.form-horizontal .map_wrapper {
     margin-left: 30px;	
     margin-bottom: 10px;
 }
 
 /* Help Tooltips */
 .cluetip-default{
-    background-color: #ffffff;
+    background-color: #fff;
     border: 1px solid #ccc;
     border: 1px solid rgba(0, 0, 0, 0.2);
     -webkit-border-radius: 6px;
@@ -451,17 +536,15 @@ form table.embeddedComponent td {
     border: none;
 }
 
-table.embeddedComponent .edit-row td,
-table.embeddedComponent .read-row td {
+table.embeddedComponent td {
     /* Hide the table */
     border-bottom: none;
     padding: 0;
+    vertical-align: top;
 }
 
 table.embeddedComponent .add-row td {
-    /* Hide the table */
-    border-bottom: none;
-    padding: 0 5px 0 0;
+    padding-top: 5px;
 }
 .inline-add {
     background-image: url(../../img/bootstrap/add.png);
@@ -560,8 +643,8 @@ label.ui-corner-all span {
 }
 
 .ui-widget-header {
-    border-color: #BBBBBB;
-    margin-bottom: 0px;
+    border-color: #bbb;
+    margin-bottom: 0;
     background: none;
     font-weight: normal;
 }
@@ -569,8 +652,26 @@ label.ui-corner-all span {
 .ui-widget-header .ui-icon-check,
 .ui-widget-header .ui-icon-closethick { 
     background: none;
-    height: 0px;
-    width: 0px;
+    height: 0;
+    width: 0;
+}
+
+.ui-multiselect-filter input {
+    width: 160px;
+    margin: 0;
+}
+
+.ui-widget-header.ui-corner-all.ui-multiselect-header.ui-helper-clearfix.ui-multiselect-hasfilter {
+    border: none;
+}
+
+.ui-multiselect-menu .ui-multiselect-checkboxes label {
+    margin-left: 0;
+    padding: 0 5px 6px 5px !important;
+}
+
+.ui-multiselect-checkboxes label.ui-state-hover {
+    border: 1px solid #aaa;
 }
 
 /* Responsive styling */
@@ -619,29 +720,12 @@ label.ui-corner-all span {
 }
 
 /* DataTable Styling */
-
-#datatable.dataTable.display {
-    background-color: #fff;
+#summary-sections #table {
     margin-top: 10px;
 }
 
 #datatable_wrapper {
-    background: rgba(255,255,255,1);
-    background: -moz-linear-gradient(top, rgba(255,255,255,1) 0%, rgba(246,246,246,1) 47%, rgba(237,237,237,1) 100%);
-    background: -webkit-gradient(left top, left bottom, color-stop(0%, rgba(255,255,255,1)), color-stop(47%, rgba(246,246,246,1)), color-stop(100%, rgba(237,237,237,1)));
-    background: -webkit-linear-gradient(top, rgba(255,255,255,1) 0%, rgba(246,246,246,1) 47%, rgba(237,237,237,1) 100%);
-    background: -o-linear-gradient(top, rgba(255,255,255,1) 0%, rgba(246,246,246,1) 47%, rgba(237,237,237,1) 100%);
-    background: -ms-linear-gradient(top, rgba(255,255,255,1) 0%, rgba(246,246,246,1) 47%, rgba(237,237,237,1) 100%);
-    background: linear-gradient(to bottom, rgba(255,255,255,1) 0%, rgba(246,246,246,1) 47%, rgba(237,237,237,1) 100%);
-    filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#ffffff', endColorstr='#ededed', GradientType=0 );	-moz-box-shadow: 0 -1px 3px #d7d7d6;
-    -webkit-box-shadow: 0 -1px 3px #d7d7d6;
-    box-shadow: 0 -1px 3px #d7d7d6;
-    border: 1px solid #9e9b9b;
-    -moz-box-shadow: 0 1px 1px #aaaaa7;
-    -webkit-box-shadow: 0 1px 1px #aaaaa7;
-    box-shadow: 0 1px 1px #aaaaa7;
-    border: 1px solid #b2b2b2;
-    border-radius: 5px;
+    padding-top:10px;
 }
 
 #datatable_filter label {
@@ -653,18 +737,14 @@ label.ui-corner-all span {
     margin-left: 13px;
 }
 
-#datatable_length label select {
-    width: 75px;
-}
-
-#datatable_length label {
-    font-size: 12px;
-    margin-bottom: -1px;
+.dataTables_info {
+    /*
     position: relative;
-    top: 17px;
-}
-
-#datatable_info.dataTables_info {
+    top: 9px;
+    margin-right: 15px;
+    font-size: 13px;
+    color: #666;
+    margin-bottom: 15px;
     font-size: 12px;
     padding-right: 15px;
     color: #D35400;
@@ -672,23 +752,56 @@ label.ui-corner-all span {
     position: relative;
     padding-top: 5px;
     top: 11px;
+    */
 }
 
-#datatable thead tr {
+.dataTables_length label select {
+    width: auto;
+}
+
+.dataTables_info,
+.dataTables_length {
+    float: left !important;
+    font-size: 12px;
+    margin: 0 0 0 20px;
+}
+
+.dataTables_length label {
+    font-size: 12px;
+}
+
+.dataTables_info {
+    margin-top: 7px;
+}
+
+.dataTables_wrapper {
+    clear: none;
+}
+
+.list_formats {
+    margin-right: 20px;
+    top: 10px;
+    font-size: 12px;
+    padding: 0;
+    position: relative;
+    z-index: 1000;
+}
+
+.dataTable thead tr {
     border: none;
 }
 
-#datatable tbody tr.odd {
+.dataTable tbody tr.odd {
     background-color: #eeeeed;
     padding-top: 5px;
 }
 
-#datatable tbody tr.odd td.sorting_1 {
+.dataTable tbody tr.odd td.sorting_1 {
     background-color: rgba(51, 151, 219, 0.35);
     color: #222220;
 }
 
-#datatable tbody tr.even td.sorting_1 {
+. tbody tr.even td.sorting_1 {
     background-color: rgba(51, 151, 219, 0.17);
     color: #222220;
 }
@@ -707,11 +820,11 @@ label.ui-corner-all span {
     font-size: 13px;
 }
 
-#datatable_paginate {
-    margin-top: 15px;
+.dataTables_paginate {
+    margin: 5px 20px 0 0;
 }
 
-#datatable_paginate span a.paginate_button {
+.dataTables_paginate span a.paginate_button {
     background-color: #fff;
     border: 1px solid #b7b7b7;
     border-radius: 4px;
@@ -720,16 +833,16 @@ label.ui-corner-all span {
     
 }
 
-#datatable_paginate span a.paginate_active {
+.dataTables_paginate span a.paginate_active {
     background: #b0cee6;
     font-size: 13px;
     color: #666;
 }
 
-#datatable_previous.previous.paginate_button,
-#datatable_first.first.paginate_button,
-#datatable_last.last.paginate_button,
-#datatable_next.next.paginate_button  {
+.dataTables_paginate .previous.paginate_button,
+.dataTables_paginate .first.paginate_button,
+.dataTables_paginate .paginate_button,
+.dataTables_paginate .next.paginate_button  {
     background-color: #fff;
     border: 1px solid #b7b7b7;
     border-radius: 4px;
@@ -737,13 +850,8 @@ label.ui-corner-all span {
     color: #666;
 }
 
-#datatable_wrapper div.dataTables_info {
-    position: relative;
-    top: 9px;
-    margin-right: 15px;
-    font-size: 13px;
-    color: #666;
-    margin-bottom: 15px;
+#datatable_wrapper {
+    padding-bottom: 40px;
 }
 
 /* Login, Registration & Profile screens */
@@ -844,6 +952,7 @@ a#register-btn.action-lnk {
 
 #auth_user_first_name,
 #auth_user_last_name,
+#auth_user_home,
 #auth_user_mobile,
 #auth_user_language,
 #auth_user_utc_offset {
@@ -853,9 +962,10 @@ a#register-btn.action-lnk {
     margin-bottom: 10px;
 }
 
+/*
 #auth_user_organisation_id__label {
     width: 100px;
-}
+}*/
 
 #auth_user_organisation_id {
     margin-left: 10px;
@@ -898,7 +1008,8 @@ span.toggle-text i {
 /* Used by Autocompletes, map popups, map toolbar, dropdown widgets */
 .throbber,
 .layer_throbber,
-.map_loader {
+.map_loader
+{
     background-image: url(../../img/bootstrap/ajax-loader.gif);
 }
 .throbber,
@@ -910,13 +1021,14 @@ span.toggle-text i {
 }
 
 /* Embed Widget */
+/* Override no-longer needed
 .box_top,
 .box_middle,
 .box_bottom {
    border-left: none;
    border-right: none;
    background: none;
-}
+}*/
 
 .form-horizontal .control-group.box_top,
 .form-horizontal .control-group.box_middle,
@@ -924,15 +1036,24 @@ span.toggle-text i {
     max-width: 500px;
 }
 
-.box_top label.control-label {
-    background-color: white;
-    margin-left: 50px;
+.box_top .control-label {
+    background-color: #ffffff;
     margin-top: -20px;
     padding: 0 10px;
     width: auto;
 }
 
-/*
-[id$=full_name__row].box_middle {
-    margin-top: -15px;
-} */
+/* Report / Pivot Table */
+.pt-form {
+    background-color: white !important;
+    border: none !important;
+    margin-bottom: 0;
+}
+
+#charts {
+    padding: 0 20px;
+}
+
+.pt-form-container {
+    margin-bottom: 0;
+}

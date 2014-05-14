@@ -16,7 +16,7 @@ from gluon.storage import Storage
 
 from s3.s3crud import S3CRUD
 from s3.s3filter import S3DateFilter, S3LocationFilter, S3OptionsFilter, S3TextFilter, S3FilterForm
-from s3.s3resource import S3FieldSelector
+from s3.s3query import FS
 from s3.s3utils import s3_avatar_represent, S3CustomController
 
 THEME = "India"
@@ -52,7 +52,7 @@ class index(S3CustomController):
                        ]
 
         resource = s3db.resource("cms_post")
-        resource.add_filter(S3FieldSelector("series_id$name") == "Event")
+        resource.add_filter(FS("series_id$name") == "Event")
         # Only show Future Events
         resource.add_filter(resource.table.date >= current.request.now)
         # Order with next Event first
@@ -60,7 +60,7 @@ class index(S3CustomController):
         output["events"] = latest_records(resource, layout, list_id, limit, list_fields, orderby)
 
         resource = s3db.resource("cms_post")
-        resource.add_filter(S3FieldSelector("series_id$name") == "Incident")
+        resource.add_filter(FS("series_id$name") == "Incident")
         # Order with most recent Incident first
         orderby = "date desc"
         output["alerts"] = latest_records(resource, layout, list_id, limit, list_fields, orderby)
@@ -143,7 +143,7 @@ def _newsfeed():
             request.get_vars.pop("~.series_id$name")
             request.get_vars["~.series_id__belongs"] = series_id
 
-    current.deployment_settings.ui.customize_cms_post()
+    current.deployment_settings.ui.customise_cms_post()
 
     list_layout = s3.render_posts
 
@@ -267,10 +267,10 @@ def _newsfeed():
         # layout = render_events
         # list_id = "event_datalist"
         # limit = 5
-        # orderby = "zero_hour desc"
+        # orderby = "start_date desc"
         # list_fields = ["name",
                        # "event_type_id$name",
-                       # "zero_hour",
+                       # "start_date",
                        # "closed",
                        # ]
         # output["disasters"] = latest_records(resource, layout, list_id, limit, list_fields, orderby)
@@ -352,7 +352,7 @@ def render_events(list_id, item_id, resource, rfields, record):
 
     raw = record._row
     name = record["event_event.name"]
-    date = record["event_event.zero_hour"]
+    date = record["event_event.start_date"]
     closed = raw["event_event.closed"]
     event_type = record["event_event_type.name"]
 
@@ -593,27 +593,25 @@ class subscriptions(S3CustomController):
         #        must configure fixed options or lookup resources
         #        for filter widgets which need it.
         filters = [S3OptionsFilter("series_id",
-                                   label=T("Subscribe to"),
-                                   represent="%(name)s",
-                                   widget="groupedopts",
-                                   cols=2,
-                                   resource="cms_post",
-                                   _name="type-filter"),
+                                   label = T("Subscribe to"),
+                                   represent = "%(name)s",
+                                   cols = 2,
+                                   resource = "cms_post",
+                                   _name = "type-filter",
+                                   ),
                    S3LocationFilter("location_id",
-                                    label=T("Location(s)"),
-                                    levels=["L1"],
-                                    widget="multiselect",
-                                    cols=3,
-                                    resource="cms_post",
-                                    _name="location-filter"),
+                                    label = T("Location(s)"),
+                                    levels = ("L1",),
+                                    resource = "cms_post",
+                                    _name = "location-filter",
+                                    ),
                    #S3OptionsFilter("created_by$organisation_id",
-                                   #label=T("Filter by Organization"),
-                                   #represent=s3db.org_organisation_represent,
-                                   ##represent="%(name)s",
-                                   #widget="multiselect",
-                                   #cols=3,
-                                   #resource="cms_post",
-                                   #_name="organisation-filter"),
+                   #                label = T("Filter by Organization"),
+                   #                represent = s3db.org_organisation_represent,
+                   #                #represent = "%(name)s",
+                   #                resource = "cms_post",
+                   #                _name = "organisation-filter",
+                   #                ),
                    ]
 
         # Title and view

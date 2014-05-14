@@ -11,8 +11,11 @@ if settings.get_L10n_languages_readonly():
     T.is_writable = False
 
 # Are we running in debug mode?
-s3.debug = request.get_vars.get("debug", None) or \
-           settings.get_base_debug()
+request_debug = request.get_vars.get("debug", None)
+s3.debug = request_debug or settings.get_base_debug()
+if request_debug:
+    # Also override log level:
+    settings.log.level = "debug"
 
 if s3.debug:
     # Reload all modules every request
@@ -47,7 +50,8 @@ if db_string.find("sqlite") != -1:
     db = DAL(db_string,
              check_reserved=check_reserved,
              migrate_enabled = migrate,
-             fake_migrate_all = fake_migrate)
+             fake_migrate_all = fake_migrate,
+             lazy_tables = not migrate)
     # on SQLite 3.6.19+ this enables foreign key support (included in Python 2.7+)
     # db.executesql("PRAGMA foreign_keys=ON")
 else:
@@ -64,14 +68,20 @@ else:
             #    pass
             if check_reserved:
                 check_reserved = ["postgres"]
-            db = DAL(db_string, check_reserved=check_reserved,
-                     pool_size=pool_size, migrate_enabled = migrate)
+            db = DAL(db_string,
+                     check_reserved = check_reserved,
+                     pool_size = pool_size,
+                     migrate_enabled = migrate,
+                     lazy_tables = not migrate)
         else:
             # PostgreSQL
             if check_reserved:
                 check_reserved = ["mysql"]
-            db = DAL(db_string, check_reserved=check_reserved,
-                     pool_size=pool_size, migrate_enabled = migrate)
+            db = DAL(db_string,
+                     check_reserved = check_reserved,
+                     pool_size = pool_size,
+                     migrate_enabled = migrate,
+                     lazy_tables = not migrate)
     except:
         db_type = db_string.split(":", 1)[0]
         db_location = db_string.split("@", 1)[1]
@@ -102,6 +112,9 @@ from gluon.storage import Messages
 messages = Messages(T)
 current.messages = messages
 
+ERROR = Messages(T)
+current.ERROR = ERROR
+
 # Import the S3 Framework
 if update_check_needed:
     # Reload the Field definitions
@@ -109,14 +122,18 @@ if update_check_needed:
 else:
     import s3 as s3base
 
+# Set up logger (before any module attempts to use it!)
+import s3log
+s3log.S3Log.setup()
+    
+# AAA
+current.auth = auth = s3base.AuthS3()
+
 # Use session for persistent per-user variables
 # - beware of a user having multiple tabs open!
 # - don't save callables or class instances as these can't be pickled
 if not session.s3:
     session.s3 = Storage()
-
-# AAA
-current.auth = auth = s3base.AuthS3()
 
 # Use username instead of email address for logins
 # - would probably require further customisation
@@ -150,10 +167,11 @@ from s3.s3data import *
 gis = s3base.GIS()
 current.gis = gis
 
-# S3RequestManager
-s3mgr = s3base.S3RequestManager()
-current.manager = s3mgr
+# s3_request
 s3_request = s3base.s3_request
+
+# Field Selectors
+FS = s3base.FS
 
 # S3XML
 s3xml = s3base.S3XML()
@@ -170,8 +188,8 @@ current.sync = sync
 # -----------------------------------------------------------------------------
 def s3_clear_session():
 
-    # S3ResourceManager last seen records (rcvars)
-    s3mgr.clear_session()
+    # CRUD last opened records (rcvars)
+    s3base.s3_remove_last_record_id()
 
     # Session-owned records
     if "owned_records" in session:

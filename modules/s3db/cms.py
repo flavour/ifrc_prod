@@ -30,12 +30,12 @@
 __all__ = ["S3ContentModel",
            "S3ContentMapModel",
            "S3ContentOrgModel",
-           #"S3ContentOrgGroupModel",
+           "S3ContentOrgGroupModel",
            "S3ContentUserModel",
            "cms_index",
            "cms_rheader",
-           "cms_customize_post_fields",
-           "cms_render_posts",
+           "cms_customise_post_fields",
+           "cms_post_list_layout",
            "S3CMS",
            ]
 
@@ -52,6 +52,9 @@ from gluon.storage import Storage
 from ..s3 import *
 from s3layouts import S3AddResourceLink
 
+# Compact JSON encoding
+SEPARATORS = (",", ":")
+
 # =============================================================================
 class S3ContentModel(S3Model):
     """
@@ -62,7 +65,6 @@ class S3ContentModel(S3Model):
              "cms_post",
              "cms_post_id",
              "cms_post_module",
-             #"cms_post_record",
              "cms_tag",
              "cms_tag_post",
              "cms_comment",
@@ -72,7 +74,7 @@ class S3ContentModel(S3Model):
 
         T = current.T
         db = current.db
-        add_component = self.add_component
+        add_components = self.add_components
         configure = self.configure
         crud_strings = current.response.s3.crud_strings
         define_table = self.define_table
@@ -85,46 +87,46 @@ class S3ContentModel(S3Model):
         #
 
         tablename = "cms_series"
-        table = define_table(tablename,
-                             Field("name",
-                                   length=255,
-                                   notnull=True, unique=True,
-                                   label=T("Name")),
-                             Field("avatar", "boolean",
-                                   default=False,
-                                   represent = s3_yes_no_represent,
-                                   label=T("Show author picture?")),
-                             Field("location", "boolean",
-                                   default=False,
-                                   represent = s3_yes_no_represent,
-                                   label=T("Show Location?")),
-                             Field("richtext", "boolean",
-                                   default=True,
-                                   represent = s3_yes_no_represent,
-                                   label=T("Rich Text?")),
-                             Field("replies", "boolean",
-                                   default=False,
-                                   represent = s3_yes_no_represent,
-                                   label=T("Comments permitted?")),
-                             s3_comments(),
-                             # Multiple Roles (@ToDo: Implement the restriction)
-                             s3_roles_permitted(readable = False,
-                                                writable = False
-                                                ),
-                             *s3_meta_fields())
+        define_table(tablename,
+                     Field("name", length=255, notnull=True, unique=True,
+                           label = T("Name"),
+                           ),
+                     Field("avatar", "boolean",
+                           default = False,
+                           label = T("Show author picture?"),
+                           represent = s3_yes_no_represent,
+                           ),
+                     Field("location", "boolean",
+                           default = False,
+                           label = T("Show Location?"),
+                           represent = s3_yes_no_represent,
+                           ),
+                     Field("richtext", "boolean",
+                           default = True,
+                           label = T("Rich Text?"),
+                           represent = s3_yes_no_represent,
+                           ),
+                     Field("replies", "boolean",
+                           default = False,
+                           label = T("Comments permitted?"),
+                           represent = s3_yes_no_represent,
+                           ),
+                     s3_comments(),
+                     # Multiple Roles (@ToDo: Implement the restriction)
+                     s3_roles_permitted(readable = False,
+                                        writable = False
+                                        ),
+                     *s3_meta_fields())
 
         # CRUD Strings
-        ADD_SERIES = T("Add Series")
+        ADD_SERIES = T("Create Series")
         crud_strings[tablename] = Storage(
-            title_create = ADD_SERIES,
+            label_create = ADD_SERIES,
             title_display = T("Series Details"),
             title_list = T("Series"),
             title_update = T("Edit Series"),
-            title_search = T("Search Series"),
             title_upload = T("Import Series"),
-            subtitle_create = T("Add New Series"),
             label_list_button = T("List Series"),
-            label_create_button = ADD_SERIES,
             msg_record_created = T("Series added"),
             msg_record_modified = T("Series updated"),
             msg_record_deleted = T("Series deleted"),
@@ -133,22 +135,27 @@ class S3ContentModel(S3Model):
         # Reusable field
         translate = settings.get_L10n_translate_cms_series()
         represent = S3Represent(lookup=tablename, translate=translate)
-        series_id = S3ReusableField("series_id", table,
+        series_id = S3ReusableField("series_id", "reference %s" % tablename,
+                                    label = T("Type"), # Even if this isn't always the use-case
+                                    ondelete = "CASCADE",
                                     readable = False,
                                     writable = False,
                                     represent = represent,
-                                    requires = IS_NULL_OR(
+                                    requires = IS_EMPTY_OR(
                                                 IS_ONE_OF(db, "cms_series.id",
                                                           represent)),
-                                    ondelete = "CASCADE")
+                                    )
 
         # Resource Configuration
         configure(tablename,
+                  create_next = URL(f="series", args=["[id]", "post"]),
                   onaccept = self.cms_series_onaccept,
-                  create_next=URL(f="series", args=["[id]", "post"]))
+                  )
 
         # Components
-        add_component("cms_post", cms_series="series_id")
+        add_components(tablename,
+                       cms_post = "series_id",
+                       )
 
         # ---------------------------------------------------------------------
         # Posts
@@ -157,64 +164,67 @@ class S3ContentModel(S3Model):
         #
 
         tablename = "cms_post"
-        table = define_table(tablename,
-                             self.super_link("doc_id", "doc_entity"),
-                             series_id(),
-                             Field("name", #notnull=True,
-                                   comment=T("This isn't visible to the published site, but is used to allow menu items to point to the page"),
-                                   label=T("Name")),
-                             Field("title",
-                                   comment=T("The title of the page, as seen in the browser (optional)"),
-                                   label=T("Title")),
-                             Field("body", "text", notnull=True,
-                                   widget = s3_richtext_widget,
-                                   label=T("Body")),
-                             # @ToDo: Move this to link table?
-                             # - although this makes widget hard!
-                             self.gis_location_id(),
-                             # @ToDo: Move this to link table?
-                             # - although this makes widget hard!
-                             self.pr_person_id(label=T("Contact"),
-                                               # Enable only in certain conditions
-                                               readable = False,
-                                               writable = False,
-                                               ),
-                             Field("avatar", "boolean",
-                                   default=False,
-                                   represent = s3_yes_no_represent,
-                                   label=T("Show author picture?")),
-                             Field("replies", "boolean",
-                                   default=False,
-                                   represent = s3_yes_no_represent,
-                                   label=T("Comments permitted?")),
-                             s3_datetime(default = "now"),
-                             # @ToDo: Also have a datetime for 'Expires On'
-                             Field("expired", "boolean",
-                                   default=False,
-                                   represent = s3_yes_no_represent,
-                                   label=T("Expired?")),
-                             #Field("published", "boolean",
-                             #      default=True,
-                             #      label=T("Published")),
-                             s3_comments(),
-                             # Multiple Roles (@ToDo: Implement the restriction)
-                             s3_roles_permitted(readable = False,
-                                                writable = False
-                                                ),
-                             *s3_meta_fields())
+        define_table(tablename,
+                     self.super_link("doc_id", "doc_entity"),
+                     series_id(),
+                     Field("name", #notnull=True,
+                           comment = T("This isn't visible to the published site, but is used to allow menu items to point to the page"),
+                           label = T("Name"),
+                           ),
+                     Field("title",
+                           comment = T("The title of the page, as seen in the browser (optional)"),
+                           label = T("Title"),
+                           ),
+                     Field("body", "text", notnull=True,
+                           label = T("Body"),
+                           widget = s3_richtext_widget,
+                           ),
+                     # @ToDo: Move this to link table?
+                     # - although this makes widget hard!
+                     self.gis_location_id(),
+                     # @ToDo: Move this to link table?
+                     # - although this makes widget hard!
+                     self.pr_person_id(label = T("Contact"),
+                                       # Enable only in certain conditions
+                                       readable = False,
+                                       writable = False,
+                                       ),
+                     Field("avatar", "boolean",
+                           default = False,
+                           label = T("Show author picture?"),
+                           represent = s3_yes_no_represent,
+                           ),
+                     Field("replies", "boolean",
+                           default = False,
+                           label = T("Comments permitted?"),
+                           represent = s3_yes_no_represent,
+                           ),
+                     s3_datetime(default = "now"),
+                     # @ToDo: Also have a datetime for 'Expires On'
+                     Field("expired", "boolean",
+                           default = False,
+                           label = T("Expired?"),
+                           represent = s3_yes_no_represent,
+                           ),
+                     #Field("published", "boolean",
+                     #      default=True,
+                     #      label=T("Published")),
+                     s3_comments(),
+                     # Multiple Roles (@ToDo: Implement the restriction)
+                     s3_roles_permitted(readable = False,
+                                        writable = False
+                                        ),
+                     *s3_meta_fields())
 
         # CRUD Strings
-        ADD_POST = T("Add Post")
+        ADD_POST = T("Create Post")
         crud_strings[tablename] = Storage(
-            title_create = ADD_POST,
+            label_create = ADD_POST,
             title_display = T("Post Details"),
             title_list = T("Posts"),
             title_update = T("Edit Post"),
-            title_search = T("Search Posts"),
             title_upload = T("Import Posts"),
-            subtitle_create = T("Add New Post"),
             label_list_button = T("List Posts"),
-            label_create_button = ADD_POST,
             msg_record_created = T("Post added"),
             msg_record_modified = T("Post updated"),
             msg_record_deleted = T("Post deleted"),
@@ -222,21 +232,49 @@ class S3ContentModel(S3Model):
 
         # Reusable field
         represent = S3Represent(lookup=tablename)
-        post_id = S3ReusableField("post_id", table,
-                                  label = T("Post"),
-                                  sortby="name",
-                                  requires = IS_NULL_OR(
-                                                IS_ONE_OF(db, "cms_post.id",
-                                                          represent)),
-                                  represent = represent,
+        post_id = S3ReusableField("post_id", "reference %s" % tablename,
                                   comment = S3AddResourceLink(c="cms", f="post",
                                                               title=ADD_POST,
                                                               tooltip=T("A block of rich text which could be embedded into a page, viewed as a complete page or viewed as a list of news items.")),
-                                  ondelete = "CASCADE")
+                                  label = T("Post"),
+                                  ondelete = "CASCADE",
+                                  represent = represent,
+                                  requires = IS_EMPTY_OR(
+                                                IS_ONE_OF(db, "cms_post.id",
+                                                          represent)),
+                                  sortby = "name",
+                                  )
+
+        filter_widgets = [S3TextFilter(["body"],
+                                       label = T("Search"),
+                                       _class = "filter-search",
+                                       #_placeholder = T("Search").upper(),
+                                       ),
+                          S3OptionsFilter("series_id",
+                                          label = T("Type"),
+                                          hidden = True,
+                                          ),
+                          S3LocationFilter("location_id",
+                                           label = T("Location"),
+                                           hidden = True,
+                                           ),
+                          S3OptionsFilter("created_by$organisation_id",
+                                          label = T("Organization"),
+                                          # Can't use this for integers, use field.represent instead
+                                          #represent = "%(name)s",
+                                          hidden = True,
+                                          ),
+                          S3DateFilter("created_on",
+                                       label = T("Date"),
+                                       hide_time = True,
+                                       hidden = True,
+                                       ),
+                          ]
 
         # Resource Configuration
         configure(tablename,
                   context = {"event": "event.id",
+                             "incident": "incident.id",
                              "location": "location_id",
                              "organisation": "created_by$organisation_id",
                              },
@@ -254,16 +292,18 @@ class S3ContentModel(S3Model):
                                      "format": "rss",
                                      },
                                     ],
-                  list_orderby = ~table.created_on,
+                  filter_widgets = filter_widgets,
+                  list_layout = cms_post_list_layout,
+                  list_orderby = "cms_post.created_on desc",
                   onaccept = self.cms_post_onaccept,
-                  orderby = ~table.created_on,
+                  orderby = "cms_post.created_on desc",
                   summary = [{"name": "table",
                               "label": "Table",
                               "widgets": [{"method": "datatable"}]
                               },
                              #{"name": "report",
                              # "label": "Report",
-                             # "widgets": [{"method": "report2",
+                             # "widgets": [{"method": "report",
                              #              "ajax_init": True}]
                              # },
                              {"name": "map",
@@ -276,122 +316,127 @@ class S3ContentModel(S3Model):
                   )
 
         # Components
-        add_component("cms_comment", cms_post="post_id")
+        add_components(tablename,
+                       cms_comment = "post_id",
+                       cms_post_module = "post_id",
+                       cms_post_user = {"name": "bookmark",
+                                        "joinby": "post_id",
+                                        },
+                       cms_tag = {"link": "cms_tag_post",
+                                  "joinby": "post_id",
+                                  "key": "tag_id",
+                                  "actuate": "hide",
+                                  },
 
-        add_component("cms_post_module", cms_post="post_id")
+                       # For filter widget
+                       cms_post_tag = "post_id",
 
-        add_component("cms_post_user", cms_post=dict(name="bookmark",
-                                                     joinby="post_id"))
+                       cms_post_organisation = {"joinby": "post_id",
+                                                # @ToDo: deployment_setting
+                                                "multiple": False,
+                                                },
 
-        add_component("cms_tag", cms_post=dict(link="cms_tag_post",
-                                               joinby="post_id",
-                                               key="tag_id",
-                                               actuate="hide"))
+                       cms_post_organisation_group = {"joinby": "post_id",
+                                                      # @ToDo: deployment_setting
+                                                      "multiple": False,
+                                                      },
 
-        # For FilterWidget
-        add_component("cms_post_tag", cms_post="post_id")
+                       # For InlineForm to tag Posts to Events/Incidents
+                       event_post = (# Events
+                                     {"name": "event_post",
+                                      "joinby": "post_id",
+                                      },
+                                     # Incidents
+                                     {"name": "incident_post",
+                                      "joinby": "post_id",
+                                      }
+                                     ),
 
-        add_component("cms_post_organisation",
-                      cms_post=dict(joinby="post_id",
-                                    # @ToDo: deployment_setting
-                                    multiple=False,
-                                    ))
-
-        # For InlineForm to tag Posts to Events
-        add_component("event_event_post", cms_post="post_id")
-
-        # For Profile to filter appropriately
-        add_component("event_event", cms_post=dict(link="event_event_post",
-                                                   joinby="post_id",
-                                                   key="event_id",
-                                                   actuate="hide"))
+                       # For Profile to filter appropriately
+                       event_event = {"link": "event_post",
+                                      "joinby": "post_id",
+                                      "key": "event_id",
+                                      "actuate": "hide",
+                                      },
+                       event_incident = {"link": "event_post",
+                                         "joinby": "post_id",
+                                         "key": "incident_id",
+                                         "actuate": "hide",
+                                         },
+                       )
 
         # Custom Methods
         set_method("cms", "post",
-                   method="add_tag",
-                   action=self.cms_add_tag)
+                   method = "add_tag",
+                   action = self.cms_add_tag)
 
         set_method("cms", "post",
-                   method="remove_tag",
-                   action=self.cms_remove_tag)
+                   method = "remove_tag",
+                   action = self.cms_remove_tag)
 
         set_method("cms", "post",
-                   method="add_bookmark",
-                   action=self.cms_add_bookmark)
+                   method = "add_bookmark",
+                   action = self.cms_add_bookmark)
 
         set_method("cms", "post",
-                   method="remove_bookmark",
-                   action=self.cms_remove_bookmark)
+                   method = "remove_bookmark",
+                   action = self.cms_remove_bookmark)
 
         # ---------------------------------------------------------------------
         # Modules/Resources <> Posts link table
         #
         tablename = "cms_post_module"
-        table = define_table(tablename,
-                             post_id(empty=False),
-                             Field("module",
-                                   comment=T("If you specify a module then this will be used as the text in that module's index page"),
-                                   label=T("Module")
-                                   ),
-                             Field("resource",
-                                   comment=T("If you specify a resource then this will be used as the text in that resource's summary page"),
-                                   label=T("Resource")
-                                   ),
-                             *s3_meta_fields())
+        define_table(tablename,
+                     post_id(empty=False),
+                     Field("module",
+                           comment = T("If you specify a module then this will be used as the text in that module's index page"),
+                           label = T("Module"),
+                           ),
+                     Field("resource",
+                           comment = T("If you specify a resource then this will be used as the text in that resource's summary page"),
+                           label = T("Resource"),
+                           ),
+                     #Field("record",
+                     #      comment = T("If you specify a record then this will be used as a hyperlink to that resource"),
+                     #      label = T("Record"),
+                     #      ),
+                     *s3_meta_fields())
 
         # CRUD Strings
-        ADD_POST = T("Add Post")
         crud_strings[tablename] = Storage(
-            title_create = ADD_POST,
+            label_create = T("Create Post"),
             title_display = T("Post Details"),
             title_list = T("Posts"),
             title_update = T("Edit Post"),
-            subtitle_create = T("Add New Post"),
             label_list_button = T("List Posts"),
-            label_create_button = ADD_POST,
             msg_record_created = T("Post set as Module/Resource homepage"),
             msg_record_modified = T("Post updated"),
             msg_record_deleted = T("Post removed"),
             msg_list_empty = T("No posts currently set as module/resource homepages"))
 
         # ---------------------------------------------------------------------
-        # Records <> Posts link table
-        # - used to handle record history
-        #
-        #tablename = "cms_post_record"
-        #table = define_table(tablename,
-        #                     post_id(empty=False),
-        #                     Field("tablename"),
-        #                     Field("record", "integer"),
-        #                     Field("url"),
-        #                     *s3_meta_fields())
-
-        # ---------------------------------------------------------------------
         # Tags
         #
         tablename = "cms_tag"
-        table = define_table(tablename,
-                             Field("name",
-                                   label=T("Tag")),
-                             s3_comments(),
-                             # Multiple Roles (@ToDo: Implement the restriction)
-                             #s3_roles_permitted(readable = False,
-                             #                   writable = False
-                             #                   ),
-                             *s3_meta_fields())
+        define_table(tablename,
+                     Field("name",
+                           label = T("Tag"),
+                           ),
+                     s3_comments(),
+                     # Multiple Roles (@ToDo: Implement the restriction)
+                     #s3_roles_permitted(readable = False,
+                     #                   writable = False
+                     #                   ),
+                     *s3_meta_fields())
 
         # CRUD Strings
-        ADD_TAG = T("Add Tag")
         crud_strings[tablename] = Storage(
-            title_create = ADD_TAG,
+            label_create = T("Create Tag"),
             title_display = T("Tag Details"),
             title_list = T("Tags"),
             title_update = T("Edit Tag"),
-            title_search = T("Search Tags"),
             title_upload = T("Import Tags"),
-            subtitle_create = T("Add New Tag"),
             label_list_button = T("List Tags"),
-            label_create_button = ADD_TAG,
             msg_record_created = T("Tag added"),
             msg_record_modified = T("Tag updated"),
             msg_record_deleted = T("Tag deleted"),
@@ -401,23 +446,19 @@ class S3ContentModel(S3Model):
         # Tags <> Posts link table
         #
         tablename = "cms_tag_post"
-        table = define_table(tablename,
-                             post_id(empty=False),
-                             Field("tag_id", "reference cms_tag"),
-                             *s3_meta_fields())
+        define_table(tablename,
+                     post_id(empty=False),
+                     Field("tag_id", "reference cms_tag"),
+                     *s3_meta_fields())
 
         # CRUD Strings
-        ADD_TAG = T("Tag Post")
         crud_strings[tablename] = Storage(
-            title_create = ADD_TAG,
+            label_create = T("Tag Post"),
             title_display = T("Tag Details"),
             title_list = T("Tags"),
             title_update = T("Edit Tag"),
-            title_search = T("Search Tags"),
             title_upload = T("Import Tags"),
-            subtitle_create = T("Add New Tag"),
             label_list_button = T("List Tagged Posts"),
-            label_create_button = ADD_TAG,
             msg_record_created = T("Post Tagged"),
             msg_record_modified = T("Tag updated"),
             msg_record_deleted = T("Tag removed"),
@@ -435,23 +476,26 @@ class S3ContentModel(S3Model):
         #  * hook a new reply into the correct location in the hierarchy
         #
         tablename = "cms_comment"
-        table = define_table(tablename,
-                             Field("parent", "reference cms_comment",
-                                   requires = IS_NULL_OR(
-                                                IS_ONE_OF(db, "cms_comment.id")),
-                                   readable=False),
-                             post_id(empty=False),
-                             Field("body", "text", notnull=True,
-                                   label = T("Comment")),
-                             *s3_meta_fields())
+        define_table(tablename,
+                     Field("parent", "reference cms_comment",
+                           requires = IS_EMPTY_OR(
+                                        IS_ONE_OF(db, "cms_comment.id")),
+                           readable = False,
+                           ),
+                     post_id(empty=False),
+                     Field("body", "text", notnull=True,
+                           label = T("Comment"),
+                           ),
+                     *s3_meta_fields())
 
         # Resource Configuration
         configure(tablename,
-                  list_fields=["id",
-                               "post_id",
-                               "created_by",
-                               "modified_on"
-                               ])
+                  list_fields = ["id",
+                                 "post_id",
+                                 "created_by",
+                                 "modified_on"
+                                 ],
+                  )
 
         # ---------------------------------------------------------------------
         # Pass names back to global scope (s3.*)
@@ -460,23 +504,30 @@ class S3ContentModel(S3Model):
                     )
 
     # -------------------------------------------------------------------------
+    def defaults(self):
+        """
+            Safe defaults for model-global names in case module is disabled
+        """
+        post_id = S3ReusableField("post_id", "integer",
+                                  readable=False, writable=False)
+        return dict(cms_post_id=post_id)
+
+    # -------------------------------------------------------------------------
     @staticmethod
     def cms_series_onaccept(form):
         """
             Cascade values down to all component Posts
         """
 
-        vars = form.vars
+        form_vars = form.vars
 
         db = current.db
         table = db.cms_post
-        query = (table.series_id == vars.id)
-        db(query).update(avatar = vars.avatar,
-                         replies = vars.replies,
-                         roles_permitted = vars.roles_permitted,
+        query = (table.series_id == form_vars.id)
+        db(query).update(avatar = form_vars.avatar,
+                         replies = form_vars.replies,
+                         roles_permitted = form_vars.roles_permitted,
                          )
-
-        return
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -550,7 +601,7 @@ class S3ContentModel(S3Model):
 
         post_id = r.id
         if not post_id or len(r.args) < 3:
-            raise HTTP(501, current.messages.BADMETHOD)
+            raise HTTP(501, current.ERROR.BAD_METHOD)
 
         tag = r.args[2]
         db = current.db
@@ -608,7 +659,7 @@ class S3ContentModel(S3Model):
 
         post_id = r.id
         if not post_id or len(r.args) < 3:
-            raise HTTP(501, current.messages.BADMETHOD)
+            raise HTTP(501, current.ERROR.BAD_METHOD)
 
         tag = r.args[2]
         db = current.db
@@ -627,7 +678,7 @@ class S3ContentModel(S3Model):
                                       limitby=(0, 1)
                                       ).first()
             if exists and not exists.deleted:
-                resource = current.s3db.resource("cms_tag_post", exists.id)
+                resource = current.s3db.resource("cms_tag_post", id=exists.id)
                 resource.delete()
 
         output = current.xml.json_message(True, 200, "Tag Removed")
@@ -647,7 +698,7 @@ class S3ContentModel(S3Model):
         user = current.auth.user
         user_id = user and user.id
         if not post_id or not user_id:
-            raise HTTP(501, current.messages.BADMETHOD)
+            raise HTTP(501, current.ERROR.BAD_METHOD)
 
         db = current.db
         ltable = db.cms_post_user
@@ -689,7 +740,7 @@ class S3ContentModel(S3Model):
         user = current.auth.user
         user_id = user and user.id
         if not post_id or not user_id:
-            raise HTTP(501, current.messages.BADMETHOD)
+            raise HTTP(501, current.ERROR.BAD_METHOD)
 
         db = current.db
         ltable = db.cms_post_user
@@ -700,7 +751,7 @@ class S3ContentModel(S3Model):
                                   limitby=(0, 1)
                                   ).first()
         if exists and not exists.deleted:
-            resource = current.s3db.resource("cms_post_user", exists.id)
+            resource = current.s3db.resource("cms_post_user", id=exists.id)
             resource.delete()
 
         output = current.xml.json_message(True, 200, "Bookmark Removed")
@@ -722,10 +773,10 @@ class S3ContentMapModel(S3Model):
         # Layers <> Posts link table
         #
         tablename = "cms_post_layer"
-        table = self.define_table(tablename,
-                                  self.cms_post_id(empty=False),
-                                  self.super_link("layer_id", "gis_layer_entity"),
-                                  *s3_meta_fields())
+        self.define_table(tablename,
+                          self.cms_post_id(empty=False),
+                          self.super_link("layer_id", "gis_layer_entity"),
+                          *s3_meta_fields())
 
         # ---------------------------------------------------------------------
         # Pass names back to global scope (s3.*)
@@ -747,10 +798,10 @@ class S3ContentOrgModel(S3Model):
         # Organisations <> Posts link table
         #
         tablename = "cms_post_organisation"
-        table = self.define_table(tablename,
-                                  self.cms_post_id(empty=False),
-                                  self.org_organisation_id(empty=False),
-                                  *s3_meta_fields())
+        self.define_table(tablename,
+                          self.cms_post_id(empty=False),
+                          self.org_organisation_id(empty=False),
+                          *s3_meta_fields())
 
         # ---------------------------------------------------------------------
         # Pass names back to global scope (s3.*)
@@ -760,8 +811,7 @@ class S3ContentOrgModel(S3Model):
 # =============================================================================
 class S3ContentOrgGroupModel(S3Model):
     """
-        Link Posts to Organisation Groups (Coalitions)
-        - currently unused
+        Link Posts to Organisation Groups (Coalitions/Networks)
     """
 
     names = ["cms_post_organisation_group",
@@ -773,10 +823,10 @@ class S3ContentOrgGroupModel(S3Model):
         # Organisation Groups <> Posts link table
         #
         tablename = "cms_post_organisation_group"
-        table = self.define_table(tablename,
-                                  self.cms_post_id(empty=False),
-                                  self.org_group_id(empty=False),
-                                  *s3_meta_fields())
+        self.define_table(tablename,
+                          self.cms_post_id(empty=False),
+                          self.org_group_id(empty=False),
+                          *s3_meta_fields())
 
         # ---------------------------------------------------------------------
         # Pass names back to global scope (s3.*)
@@ -969,7 +1019,7 @@ class S3CMS(S3Method):
         """
 
         # Not Implemented
-        r.error(405, r.ERROR.BAD_METHOD)
+        r.error(405, current.ERROR.BAD_METHOD)
 
     # -------------------------------------------------------------------------
     def widget(self, r, method="cms", widget_id=None, **attr):
@@ -1046,7 +1096,7 @@ class S3CMS(S3Method):
         return output
 
 # =============================================================================
-def cms_customize_post_fields():
+def cms_customise_post_fields():
     """
         Customize cms_post fields for the Newsfeed / Home Pages
     """
@@ -1055,45 +1105,40 @@ def cms_customize_post_fields():
     s3 = current.response.s3
     settings = current.deployment_settings
 
-    # Hide Labels when just 1 column in inline form
-    s3db.doc_document.file.label = ""
-    # @ToDo: deployment_setting for Events
-    #s3db.event_event_post.event_id.label = ""
+    org_field = settings.get_cms_organisation()
+    if org_field == "created_by$organisation_id":
+        current.auth.settings.table_user.organisation_id.represent = \
+            s3db.org_organisation_represent
+    elif org_field == "post_organisation.organisation_id":
+        s3db.cms_post_organisation.organisation_id.label = ""
 
-    # @ToDo: deployment_setting
-    #org_field = "created_by$organisation_id"
-    #current.auth.settings.table_user.organisation_id.represent = \
-    #    s3db.org_organisation_represent
-    org_field = "post_organisation.organisation_id"
-    s3db.cms_post_organisation.organisation_id.label = ""
+    org_group_field = settings.get_cms_organisation_group()
+    if org_group_field == "created_by$org_group_id":
+        current.auth.settings.table_user.org_group_id.represent = \
+            s3db.org_organisation_group_represent
+    elif org_group_field == "post_organisation_group.group_id":
+        s3db.cms_post_organisation_group.group_id.label = ""
 
     table = s3db.cms_post
     table.series_id.requires = table.series_id.requires.other
-    # @ToDo: deployment_setting
-    #contact_field = "created_by"
-    #table.created_by.represent = s3_auth_user_represent_name
-    contact_field = "person_id"
-    field = table.person_id
-    field.readable = True
-    field.writable = True
-    field.comment = None
-    field.requires = IS_ADD_PERSON_WIDGET2()
-    field.widget = S3AddPersonWidget2(controller="pr")
 
-    # Which levels of Hierarchy are we using?
-    hierarchy = current.gis.get_location_hierarchy()
-    levels = hierarchy.keys()
-    if len(current.deployment_settings.get_gis_countries()) == 1 or \
-       s3.gis.config.region_location_id:
-        levels.remove("L0")
+    contact_field = settings.get_cms_person()
+    if contact_field == "created_by":
+        table.created_by.represent = s3_auth_user_represent_name
+    elif contact_field == "person_id":
+        field = table.person_id
+        field.readable = True
+        field.writable = True
+        field.comment = None
+        # Default now
+        #field.requires = IS_ADD_PERSON_WIDGET2()
+        field.widget = S3AddPersonWidget2(controller="pr")
 
-    from s3.s3validators import IS_LOCATION_SELECTOR2
-    from s3.s3widgets import S3LocationSelectorWidget2
     field = table.location_id
     field.label = ""
     field.represent = s3db.gis_LocationRepresent(sep=" | ")
-    field.requires = IS_LOCATION_SELECTOR2(levels=levels)
-    field.widget = S3LocationSelectorWidget2(levels=levels)
+    # Required
+    field.requires = IS_LOCATION_SELECTOR2()
 
     if settings.get_cms_richtext():
         table.body.represent = lambda body: XML(body)
@@ -1103,15 +1148,46 @@ def cms_customize_post_fields():
     list_fields = ["series_id",
                    "location_id",
                    "date",
-                   "body",
-                   contact_field,
-                   org_field,
-                   "document.file",
-                   #"event_post.event_id",
                    ]
+    lappend = list_fields.append
+
+    if settings.get_cms_show_titles():
+        lappend("title")
+
+    lappend("body")
+
+    if contact_field:
+        lappend(contact_field)
+    if org_field:
+        lappend(org_field)
+    if org_group_field:
+        lappend(org_group_field)
+
+    lappend("document.file")
+    if settings.get_cms_show_links():
+        lappend("document.url")
+
+    if settings.get_cms_show_events():
+        lappend("event_post.event_id")
+
+    if settings.get_cms_location_click_filters():
+        script = \
+'''S3.filter_location=function(d){var cb
+for(var p in d){cb=$('input[name="multiselect_post-cms_post_location_id-location-filter-L'+p+'"][value="'+d[p]+'"]')
+if(!cb.prop('checked')){cb.click()}}}'''
+        s3.jquery_ready.append(script)
+        # Which levels of Hierarchy are we using?
+        hierarchy = current.gis.get_location_hierarchy()
+        levels = hierarchy.keys()
+        if len(settings.get_gis_countries()) == 1 or \
+           s3.gis.config.region_location_id:
+            levels.remove("L0")
+
+        for level in levels:
+            lappend("location_id$%s" % level)
 
     if settings.get_cms_show_tags():
-        list_fields.append("tag.name")
+        lappend("tag.name")
         if s3.debug:
             s3.scripts.append("/%s/static/scripts/tag-it.js" % current.request.application)
         else:
@@ -1144,9 +1220,9 @@ S3.redraw_fns.push('tagit')''' % (URL(c="cms", f="tag",
     return table
     
 # =============================================================================
-def cms_render_posts(list_id, item_id, resource, rfields, record):
+def cms_post_list_layout(list_id, item_id, resource, rfields, record):
     """
-        Custom dataList item renderer for CMS Posts on the
+        Default dataList item renderer for CMS Posts on the
         Home & News Feed pages.
 
         @param list_id: the HTML ID of the list
@@ -1159,68 +1235,138 @@ def cms_render_posts(list_id, item_id, resource, rfields, record):
     record_id = record["cms_post.id"]
     item_class = "thumbnail"
 
-    # @ToDo: deployment_setting or introspect based on list_fields
-    #org_field = "auth_user.organisation_id"
-    org_field = "cms_post_organisation.organisation_id"
+    db = current.db
+    s3db = current.s3db
+    settings = current.deployment_settings
+
+    org_field = settings.get_cms_organisation()
+    if org_field == "created_by$organisation_id":
+        org_field = "auth_user.organisation_id"
+    elif org_field == "post_organisation.organisation_id":
+        org_field = "cms_post_organisation.organisation_id"
+
+    org_group_field = settings.get_cms_organisation_group()
+    if org_group_field == "created_by$org_group_id":
+        org_group_field = "auth_user.org_group_id"
+    elif org_group_field == "post_organisation_group.group_id":
+        org_group_field = "cms_post_organisation_group.group_id"
 
     raw = record._row
     series_id = raw["cms_post.series_id"]
-    date = record["cms_post.date"]
     body = record["cms_post.body"]
+
+    date = record["cms_post.date"]
+    date = SPAN(date,
+                _class="date-title",
+                )
 
     location_id = raw["cms_post.location_id"]
     if location_id:
         location = record["cms_post.location_id"]
-        location_url = URL(c="gis", f="location", args=[location_id, "profile"])
-        location = SPAN(A(location,
-                          _href=location_url,
-                          ),
-                        _class="location-title",
-                        )
+        if settings.get_cms_location_click_filters():
+            # Which levels of Hierarchy are we using?
+            hierarchy = current.gis.get_location_hierarchy()
+            levels = hierarchy.keys()
+            if len(settings.get_gis_countries()) == 1 or \
+               current.response.s3.gis.config.region_location_id:
+                levels.remove("L0")
+
+            data = {}
+            for level in levels:
+                data[level[1:]] = raw["gis_location.%s" % level]
+            onclick = '''S3.filter_location(%s)''' % json.dumps(data, separators=SEPARATORS)
+            location = SPAN(A(location,
+                              _href="#",
+                              _onclick=onclick,
+                              ),
+                            _class="location-title",
+                            )
+        else:
+            location_url = URL(c="gis", f="location", args=[location_id, "profile"])
+            location = SPAN(A(location,
+                              _href=location_url,
+                              ),
+                            _class="location-title",
+                            )
     else:
         location = ""
 
-    person_id = raw["cms_post.person_id"]
-    if person_id:
-        person = record["cms_post.person_id"]
-        person_url = URL(c="pr", f="person", args=[person_id])
+    person = ""
+    contact_field = settings.get_cms_person()
+    if contact_field == "created_by": 
+        author_id = raw["cms_post.created_by"]
+        person = record["cms_post.created_by"]
+
+        # @ToDo: Bulk lookup
+        ltable = s3db.pr_person_user
+        ptable = db.pr_person
+        query = (ltable.user_id == author_id) & \
+                (ltable.pe_id == ptable.pe_id)
+        row = db(query).select(ptable.id,
+                               limitby=(0, 1)
+                               ).first()
+        if row:
+            person_id = row.id
+        else:
+            person_id = None
+    elif contact_field == "person_id":
+        person_id = raw["cms_post.person_id"]
+        if person_id:
+            person = record["cms_post.person_id"]
+    else:
+        person_id = None
+
+    if person:
+        if person_id:
+            # @ToDo: deployment_setting for controller to use?
+            person_url = URL(c="pr", f="person", args=[person_id])
+        else:
+            person_url = "#"
         person = A(person,
                    _href=person_url,
                    )
-    else:
-        person = ""
 
     avatar = ""
-    db = current.db
 
-    organisation_id = raw[org_field]
-    if organisation_id:
-        organisation = record[org_field]
-        org_url = URL(c="org", f="organisation", args=[organisation_id, "profile"])
-        organisation = A(organisation,
-                         _href=org_url,
-                         _class="card-organisation",
-                         )
+    organisation = ""
+    if org_field:
+        organisation_id = raw[org_field]
+        if organisation_id:
+            organisation = record[org_field]
+            org_url = URL(c="org", f="organisation", args=[organisation_id, "profile"])
+            organisation = A(organisation,
+                             _href=org_url,
+                             _class="card-organisation",
+                             )
 
-        # Avatar
-        # Try Organisation Logo
-        otable = db.org_organisation
-        row = db(otable.id == organisation_id).select(otable.logo,
-                                                      limitby=(0, 1)
-                                                      ).first()
-        if row and row.logo:
-            logo = URL(c="default", f="download", args=[row.logo])
-            avatar = IMG(_src=logo,
-                         _height=50,
-                         _width=50,
-                         _style="padding-right:5px;",
-                         _class="media-object")
-            avatar = A(avatar,
-                       _href=org_url,
-                       _class="pull-left",
-                       )
-    else:
-        organisation = ""
+            # Avatar
+            # Try Organisation Logo
+            otable = db.org_organisation
+            row = db(otable.id == organisation_id).select(otable.logo,
+                                                          limitby=(0, 1)
+                                                          ).first()
+            if row and row.logo:
+                logo = URL(c="default", f="download", args=[row.logo])
+                avatar = IMG(_src=logo,
+                             _height=50,
+                             _width=50,
+                             _style="padding-right:5px;",
+                             _class="media-object")
+                avatar = A(avatar,
+                           _href=org_url,
+                           _class="pull-left",
+                           )
+
+    org_group = ""
+    if org_group_field:
+        org_group_id = raw[org_group_field]
+        if org_group_id:
+            org_group = record[org_group_field]
+            org_group_url = URL(c="org", f="group", args=[org_group_id, "profile"])
+            org_group = A(org_group,
+                          _href=org_group_url,
+                          _class="card-org-group",
+                          )
 
     if not avatar and person_id:
         # Personal Avatar
@@ -1239,6 +1385,12 @@ def cms_render_posts(list_id, item_id, resource, rfields, record):
                           organisation,
                           _class="card-person",
                           )
+    elif person and org_group:
+        card_person = DIV(person,
+                          " - ",
+                          org_group,
+                          _class="card-person",
+                          )
     elif person:
         card_person = DIV(person,
                           _class="card-person",
@@ -1247,12 +1399,15 @@ def cms_render_posts(list_id, item_id, resource, rfields, record):
         card_person = DIV(organisation,
                           _class="card-person",
                           )
+    elif org_group:
+        card_person = DIV(org_group,
+                          _class="card-person",
+                          )
     else:
         card_person = DIV(_class="card-person",
                           )
 
     permit = current.auth.s3_has_permission
-    settings = current.deployment_settings
     table = db.cms_post
     updateable = permit("update", table, record_id=record_id)
 
@@ -1279,21 +1434,22 @@ def cms_render_posts(list_id, item_id, resource, rfields, record):
         series = record["cms_post.series_id"]
         translate = settings.get_L10n_translate_cms_series()
         if translate:
-            title = T(series)
+            series_title = T(series)
         else:
-            title = series
+            series_title = series
     else:
-        title = series = ""
+        series_title = series = ""
 
     # Tool box
     if updateable:
         edit_btn = A(I(" ", _class="icon icon-edit"),
-                     _href=URL(c="cms", f="newsfeed",
+                     _href=URL(c="cms", f="post",
                                args=[record_id, "update.popup"],
                                vars={"refresh": list_id,
-                                     "record": record_id}),
+                                     "record": record_id}
+                               ),
                      _class="s3_modal",
-                     _title=T("Edit %(type)s") % dict(type=title),
+                     _title=T("Edit %(type)s") % dict(type=series_title),
                      )
     else:
         edit_btn = ""
@@ -1305,7 +1461,7 @@ def cms_render_posts(list_id, item_id, resource, rfields, record):
         delete_btn = ""
     user = current.auth.user
     if user and settings.get_cms_bookmarks():
-        ltable = current.s3db.cms_post_user
+        ltable = s3db.cms_post_user
         query = (ltable.post_id == record_id) & \
                 (ltable.user_id == user.id)
         exists = db(query).select(ltable.id,
@@ -1373,27 +1529,57 @@ def cms_render_posts(list_id, item_id, resource, rfields, record):
     else:
         docs = ""
 
+    links = raw["doc_document.url"]
+    if links:
+        if not isinstance(links, list):
+            links = [links]
+        link_list = DIV()
+        for link in links:
+            link_item = DIV(A(I(_class="icon-globe"),
+                              " ",
+                              link,
+                              _href=link,
+                              _target="_blank",
+                              ),
+                            )
+            link_list.append(link_item)
+    else:
+        link_list = ""
+
     request = current.request
     if "profile" in request.args:
         # Single resource list
-        card_label = SPAN(" ", _class="card-title")
+        # - don't show series_title
+        if settings.get_cms_show_titles():
+            title = raw["cms_post.title"] or ""
+        else:
+            title = ""
+        card_label = SPAN(" %s" % title,
+                          _class="card-title")
     else:
         # Mixed resource lists (Home, News Feed)
         icon = series.lower().replace(" ", "_")
-        card_label = TAG[""](I(_class="icon icon-%s" % icon),
-                             SPAN(" %s" % title,
-                                  _class="card-title"))
+        series_title = SPAN(" %s" % series_title,
+                            _class="card-title")
+        if settings.get_cms_show_titles() and raw["cms_post.title"]:
+            title = SPAN(raw["cms_post.title"],
+                         _class="card-title2")
+            card_label = TAG[""](I(_class="icon icon-%s" % icon),
+                                 series_title,
+                                 title)
+        else:
+            card_label = TAG[""](I(_class="icon icon-%s" % icon),
+                                 series_title)
         # Type cards
         if series == "Alert": 
             # Apply additional highlighting for Alerts
             item_class = "%s disaster" % item_class
 
     # Render the item
-    if series == "Event" and "newsfeed" not in request.args:
+    if series == "Event" and "newsfeed" not in request.args: # and request.function != "newsfeed"
         # Events on Homepage have a different header
-        header = DIV(SPAN(date,
-                          _class="date-title event",
-                          ),
+        date.add_class("event")
+        header = DIV(date,
                      location,
                      toolbox,
                      _class="card-header",
@@ -1401,9 +1587,7 @@ def cms_render_posts(list_id, item_id, resource, rfields, record):
     else:
         header = DIV(card_label,
                      location,
-                     SPAN(date,
-                          _class="date-title",
-                          ),
+                     date,
                      toolbox,
                      _class="card-header",
                      )
@@ -1420,6 +1604,7 @@ def cms_render_posts(list_id, item_id, resource, rfields, record):
                    ),
                tags,
                docs,
+               link_list,
                _class=item_class,
                _id=item_id,
                )

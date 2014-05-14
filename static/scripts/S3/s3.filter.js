@@ -70,8 +70,8 @@ S3.search = {};
             $(this).val('');
         });
         form.find('.options-filter, .location-filter').each(function() {
+            $this = $(this);
             if (this.tagName.toLowerCase() == 'select') {
-                $this = $(this)
                 $this.val('');
                 if ($this.hasClass('groupedopts-filter-widget') && typeof $this.groupedopts != 'undefined') {
                     $this.groupedopts('refresh');
@@ -80,12 +80,12 @@ S3.search = {};
                     $this.multiselect('refresh');
                 }
             } else {
-                var id = $(this).attr('id');
+                var id = $this.attr('id');
                 $("input[name='" + id + "']:checked").each(function() {
                     $(this).click();
                 });
             }
-            if ($(this).hasClass('location-filter')) {
+            if ($this.hasClass('location-filter')) {
                 hierarchical_location_change(this);
             }
         });
@@ -283,13 +283,15 @@ S3.search = {};
         });
 
         // Location widgets
+        form.find('.s3-groupedopts-widget:visible').prev(
+                  '.location-filter.groupedopts-filter-widget')
+        .add(
         form.find('.ui-multiselect:visible').prev(
-          '.location-filter.multiselect-filter-widget,' +
-          '.location-filter.groupedopts-filter-widget')
+                  '.location-filter.multiselect-filter-widget')
         .add(
         form.find('.location-filter:visible,' +
-          '.location-filter.multiselect-filter-widget.active' /*+
-          ',.location-filter.multiselect-filter-bootstrap.active'*/))
+                  '.location-filter.multiselect-filter-widget.active' /*+
+          ',.location-filter.multiselect-filter-bootstrap.active'*/)))
         .each(function() {
             id = $(this).attr('id');
             url_var = $('#' + id + '-data').val();
@@ -1131,7 +1133,38 @@ S3.search = {};
      */
     var hierarchical_location_change = function(widget) {
         var name = widget.name;
-        var values = $('#' + name).val();
+        var $widget = $('#' + name);
+        var values = $widget.val();
+        if (values) {
+            // Show the next widget down
+            $widget.next('.ui-multiselect').next('.location-filter').next('.ui-multiselect').show();
+        } else {
+            // Hide the next widget down
+            var next_widget = $widget.next('.ui-multiselect').next('.location-filter').next('.ui-multiselect');
+            if (next_widget.length) {
+                next_widget.hide();
+                // Hide the next widget down
+                next_widget = next_widget.next('.location-filter').next('.ui-multiselect');
+                if (next_widget.length) {
+                    next_widget.hide();
+                    // Hide the next widget down
+                    next_widget = next_widget.next('.location-filter').next('.ui-multiselect');
+                    if (next_widget.length) {
+                        next_widget.hide();
+                        // Hide the next widget down
+                        next_widget = next_widget.next('.location-filter').next('.ui-multiselect');
+                        if (next_widget.length) {
+                            next_widget.hide();
+                            // Hide the next widget down
+                            next_widget = next_widget.next('.location-filter').next('.ui-multiselect');
+                            if (next_widget.length) {
+                                next_widget.hide();
+                            }
+                        }
+                    }
+                }
+            }
+        }
         var base = name.slice(0, -1);
         var level = parseInt(name.slice(-1));
         var hierarchy = S3.location_filter_hierarchy;
@@ -1306,7 +1339,16 @@ S3.search = {};
                     }
                 }
                 select.html(_options);
-                select.multiselect('refresh');
+                if (select.hasClass('groupedopts-filter-widget') &&
+                    typeof select.groupedopts != 'undefined') {
+                    try {
+                        select.groupedopts('refresh');
+                    } catch(e) { }
+                } else
+                if (select.hasClass('multiselect-filter-widget') &&
+                    typeof select.multiselect != 'undefined') {
+                    select.multiselect('refresh');
+                }
                 if (l === (level + 1)) {
                     if (values) {
                         // Show next level down (if hidden)
@@ -1322,7 +1364,10 @@ S3.search = {};
     };
 
     var filterSubmit = function(filter_form) {
-        
+
+        // Hide any warnings (e.g. 'Too Many Features')
+        S3.hideAlerts('warning');
+
         var form_id = filter_form.attr('id'),
             url = filter_form.find('input.filter-submit-url[type="hidden"]').val(),
             queries = getCurrentFilters(filter_form);
@@ -1494,13 +1539,13 @@ S3.search = {};
             }
         });
         
-        var $btn = $($form.find('.filter-advanced'));
+        var $btn = $($form.find('.filter-advanced-label'));
         if (hidden) {
             // Change label to label_off
-            $btn.attr('value', $btn.attr('label_off'));
+            $btn.text($btn.data('off')).siblings().toggle();
         } else {
             // Change label to label_on
-            $btn.attr('value', $btn.attr('label_on'));
+            $btn.text($btn.data('on')).siblings().toggle();
         }
         
     };

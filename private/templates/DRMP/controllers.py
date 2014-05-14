@@ -35,7 +35,7 @@ class index(S3CustomController):
         s3.jquery_ready.append('''$('#myCarousel').carousel()''')
 
         # Latest 4 Events and Alerts
-        from s3.s3resource import S3FieldSelector
+        from s3.s3query import FS
         s3db = current.s3db
         layout = s3.render_posts
         list_id = "news_datalist"
@@ -51,7 +51,7 @@ class index(S3CustomController):
                        ]
 
         resource = s3db.resource("cms_post")
-        resource.add_filter(S3FieldSelector("series_id$name") == "Event")
+        resource.add_filter(FS("series_id$name") == "Event")
         # Only show Future Events
         resource.add_filter(resource.table.date >= current.request.now)
         # Order with next Event first
@@ -59,7 +59,7 @@ class index(S3CustomController):
         output["events"] = latest_records(resource, layout, list_id, limit, list_fields, orderby)
 
         resource = s3db.resource("cms_post")
-        resource.add_filter(S3FieldSelector("series_id$name") == "Alert")
+        resource.add_filter(FS("series_id$name") == "Alert")
         # Order with most recent Alert first
         orderby = "date desc"
         output["alerts"] = latest_records(resource, layout, list_id, limit, list_fields, orderby)
@@ -182,7 +182,7 @@ def _newsfeed():
             get_vars.pop("~.series_id$name")
             get_vars["~.series_id__belongs"] = series_id
 
-    current.deployment_settings.ui.customize_cms_post()
+    current.deployment_settings.customise_controller("cms_post")
 
     list_layout = s3.render_posts
 
@@ -199,7 +199,7 @@ def _newsfeed():
                                       ),
                       S3LocationFilter("location_id",
                                        label=T("Filter by Location"),
-                                       levels=["L1", "L2", "L3"],
+                                       levels=("L1", "L2", "L3"),
                                        widget="multiselect",
                                        hidden=True,
                                        ),
@@ -300,10 +300,10 @@ def _newsfeed():
         layout = render_events
         list_id = "event_datalist"
         limit = 5
-        orderby = "zero_hour desc"
+        orderby = "start_date desc"
         list_fields = ["name",
                        "event_type_id$name",
-                       "zero_hour",
+                       "start_date",
                        "closed",
                        ]
         output["disasters"] = latest_records(resource, layout, list_id, limit, list_fields, orderby)
@@ -388,7 +388,7 @@ def render_events(list_id, item_id, resource, rfields, record):
 
     raw = record._row
     name = record["event_event.name"]
-    date = record["event_event.zero_hour"]
+    date = record["event_event.start_date"]
     closed = raw["event_event.closed"]
     event_type = record["event_event_type.name"]
 
@@ -475,30 +475,24 @@ class subscriptions(S3CustomController):
         #        must configure fixed options or lookup resources
         #        for filter widgets which need it.
         filters = [S3OptionsFilter("series_id",
-                                   label=T("Subscribe to"),
-                                   represent="%(name)s",
-                                   options=self._options("series_id"),
-                                   #widget="groupedopts",
-                                   widget="multiselect",
-                                   cols=2,
-                                   resource="cms_post",
-                                   _name="type-filter"),
+                                   label = T("Subscribe to"),
+                                   represent = "%(name)s",
+                                   resource = "cms_post",
+                                   _name = "type-filter",
+                                   ),
                    S3LocationFilter("location_id",
-                                    label=T("Location(s)"),
-                                    levels=["L1"],
-                                    options=self._options("location_id"),
-                                    widget="multiselect",
-                                    cols=3,
-                                    resource="cms_post",
-                                    _name="location-filter"),
+                                    label = T("Location(s)"),
+                                    levels = ("L1",),
+                                    resource = "cms_post",
+                                    _name = "location-filter",
+                                    ),
                    #S3OptionsFilter("created_by$organisation_id",
-                                   #label=T("Filter by Organization"),
-                                   #represent=s3db.org_organisation_represent,
-                                   ##represent="%(name)s",
-                                   #widget="multiselect",
-                                   #cols=3,
-                                   #resource="cms_post",
-                                   #_name="organisation-filter"),
+                   #                label = T("Filter by Organization"),
+                   #                represent = s3db.org_organisation_represent,
+                   #                #represent = "%(name)s",
+                   #                resource = "cms_post",
+                   #                _name = "organisation-filter",
+                   #                ),
                    ]
 
         # Title and view

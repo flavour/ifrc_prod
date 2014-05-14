@@ -8,7 +8,7 @@ from gluon.storage import Storage
 
 from s3.s3crud import S3CRUD
 from s3.s3filter import S3DateFilter, S3LocationFilter, S3OptionsFilter, S3TextFilter
-from s3.s3resource import S3FieldSelector
+from s3.s3query import FS
 from s3.s3utils import s3_avatar_represent
 
 THEME = "NEREIDS"
@@ -39,7 +39,7 @@ class index():
             s3db = current.s3db
             # Latest 4 Events
             resource = s3db.resource("cms_post")
-            resource.add_filter(S3FieldSelector("series_id$name") == "Event")
+            resource.add_filter(FS("series_id$name") == "Event")
             list_fields = ["location_id",
                            "date",
                            "body",
@@ -187,39 +187,36 @@ def _updates():
     response = current.response
     s3 = response.s3
 
-    current.deployment_settings.ui.customize_cms_post()
+    current.deployment_settings.ui.customise_cms_post()
 
     list_layout = s3.render_posts
 
     filter_widgets = [S3TextFilter(["body"],
-                                   label="",
-                                   _class="filter-search",
-                                   #_placeholder=T("Search").upper(),
+                                   label = "",
+                                   _class = "filter-search",
+                                   #_placeholder = T("Search").upper(),
                                    ),
                       S3OptionsFilter("series_id",
-                                      label=T("Filter by Type"),
+                                      label = T("Filter by Type"),
                                       # We want translations
-                                      #represent="%(name)s",
-                                      widget="multiselect",
-                                      hidden=True,
+                                      #represent = "%(name)s",
+                                      hidden = True,
                                       ),
                       S3LocationFilter("location_id",
-                                       label=T("Filter by Location"),
-                                       levels=["L1", "L2", "L3"],
-                                       widget="multiselect",
-                                       hidden=True,
+                                       label = T("Filter by Location"),
+                                       levels = ("L1", "L2", "L3",),
+                                       hidden = True,
                                        ),
                       S3OptionsFilter("created_by$organisation_id",
-                                      label=T("Filter by Organization"),
+                                      label = T("Filter by Organization"),
                                       # Can't use this for integers, use field.represent instead
                                       #represent="%(name)s",
-                                      widget="multiselect",
-                                      hidden=True,
+                                      hidden = True,
                                       ),
                       S3DateFilter("created_on",
-                                   label=T("Filter by Date"),
-                                   hide_time=True,
-                                   hidden=True,
+                                   label = T("Filter by Date"),
+                                   hide_time = True,
+                                   hidden = True,
                                    ),
                       ]
 
@@ -300,7 +297,7 @@ def _updates():
         resource = s3db.resource("event_event")
         list_fields = ["name",
                        "event_type_id$name",
-                       "zero_hour",
+                       "start_date",
                        "closed",
                        ]
         orderby = resource.get_config("list_orderby",
@@ -373,7 +370,7 @@ def render_events(list_id, item_id, resource, rfields, record):
 
     raw = record._row
     name = record["event_event.name"]
-    date = record["event_event.zero_hour"]
+    date = record["event_event.start_date"]
     closed = raw["event_event.closed"]
     event_type = record["event_event_type.name"]
 

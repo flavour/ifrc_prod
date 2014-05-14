@@ -25,7 +25,7 @@ settings.base.prepopulate = ["SSF"]
 
 # Should users be allowed to register themselves?
 settings.security.self_registration = True
-settings.auth.registration_requires_verification = False
+settings.auth.registration_requires_verification = True
 settings.auth.registration_requires_approval = False
 
 # The name of the teams that users are added to when they opt-in to receive alerts
@@ -66,6 +66,10 @@ settings.auth.always_notify_approver = True
 # Base settings
 settings.base.system_name = T("The Sahana Sunflower: A Community Portal")
 settings.base.system_name_short = T("Sahana Sunflower")
+
+# Assign the new users the permission to read.
+settings.auth.registration_roles = {"organisation_id": ["PROJECT_READ"],
+                                    }
 
 # L10n settings
 settings.L10n.languages = OrderedDict([
@@ -186,7 +190,8 @@ settings.security.archive_not_delete = True
 # 6: Apply Controller, Function, Table & Organisation ACLs
 # 7: Apply Controller, Function, Table, Organisation & Facility ACLs
 #
-#settings.security.policy = 6 # Organisation-ACLs
+
+settings.security.policy = 5
 #acl = settings.aaa.acl
 #settings.aaa.default_uacl =  acl.READ   # User ACL
 #settings.aaa.default_oacl =  acl.CREATE | acl.READ | acl.UPDATE # Owner ACL
@@ -248,15 +253,12 @@ settings.security.archive_not_delete = True
 #LIST_ITEM_REQUEST = T("List Requests for Donations")
 # req_req Crud Strings for Item Request (type=1)
 #settings.req.req_crud_strings[1] = Storage(
-#    title_create = ADD_ITEM_REQUEST,
+#    label_create = ADD_ITEM_REQUEST,
 #    title_display = T("Request for Donations Details"),
 #    title_list = LIST_ITEM_REQUEST,
 #    title_update = T("Edit Request for Donations"),
-#    title_search = T("Search Requests for Donations"),
-#    subtitle_create = ADD_ITEM_REQUEST,
 #    subtitle_list = T("Requests for Donations"),
 #    label_list_button = LIST_ITEM_REQUEST,
-#    label_create_button = ADD_ITEM_REQUEST,
 #    label_delete_button = T("Delete Request for Donations"),
 #    msg_record_created = T("Request for Donations Added"),
 #    msg_record_modified = T("Request for Donations Updated"),
@@ -266,15 +268,12 @@ settings.security.archive_not_delete = True
 #LIST_PEOPLE_REQUEST = T("List Requests for Volunteers")
 # req_req Crud Strings for People Request (type=3)
 #settings.req.req_crud_strings[3] = Storage(
-#    title_create = ADD_PEOPLE_REQUEST,
+#    label_create = ADD_PEOPLE_REQUEST,
 #    title_display = T("Request for Volunteers Details"),
 #    title_list = LIST_PEOPLE_REQUEST,
 #    title_update = T("Edit Request for Volunteers"),
-#    title_search = T("Search Requests for Volunteers"),
-#    subtitle_create = ADD_PEOPLE_REQUEST,
 #    subtitle_list = T("Requests for Volunteers"),
 #    label_list_button = LIST_PEOPLE_REQUEST,
-#    label_create_button = ADD_PEOPLE_REQUEST,
 #    label_delete_button = T("Delete Request for Volunteers"),
 #    msg_record_created = T("Request for Volunteers Added"),
 #    msg_record_modified = T("Request for Volunteers Updated"),

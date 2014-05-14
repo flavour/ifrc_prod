@@ -105,19 +105,23 @@ def mission():
         return output
     s3.postp = postp
 
-    return s3_rest_controller(hide_filter=False,
-                              # Remove the title if we have a component
+    return s3_rest_controller(# Remove the title if we have a component
                               # (rheader includes the title)
                               notitle=lambda r: {"title": ""} \
                                              if r.component else None,
-                              rheader=s3db.deploy_rheader)
+                              rheader=s3db.deploy_rheader,
+                              )
 
 # =============================================================================
 def response_message():
-    """ RESTful CRUD Controller """
+    """
+        RESTful CRUD Controller
+        - can't be called 'response' as this clobbbers web2py global!
+    """
 
     return s3_rest_controller("deploy", "response",
-                              custom_crud_buttons = {"list_btn": None})
+                              custom_crud_buttons = {"list_btn": None},
+                              )
 
 # =============================================================================
 def human_resource():
@@ -131,10 +135,10 @@ def human_resource():
     settings.search.filter_manager = True
 
     # Add deploy_alert_recipient as component so that we filter by it
-    s3db.add_component("deploy_alert_recipient",
-                       hrm_human_resource = "human_resource_id")
+    s3db.add_components("hrm_human_resource",
+                        deploy_alert_recipient="human_resource_id")
 
-    q = s3base.S3FieldSelector("application.active") == True
+    q = FS("application.active") == True
     output = s3db.hrm_human_resource_controller(extra_filter=q)
     return output
 
@@ -154,6 +158,7 @@ def person():
 
     return s3db.hrm_person_controller(replace_option = None,
                                       csv_extra_fields = [
+                                            # CSV column headers, so no T()
                                             dict(label="Deployable",
                                                  value="true"),
                                             # Assume volunteer if not
@@ -282,7 +287,7 @@ def assignment():
         return output
     s3.postp = postp
 
-    return s3_rest_controller(hide_filter=False)
+    return s3_rest_controller()
 
 # -----------------------------------------------------------------------------
 def competency():
@@ -323,7 +328,7 @@ def hr_search():
     """
 
     # Filter to just deployables (RDRT Members)
-    s3.filter = s3base.S3FieldSelector("application.active") == True
+    s3.filter = FS("application.active") == True
 
     s3.prep = lambda r: r.method == "search_ac"
 
@@ -338,7 +343,7 @@ def person_search():
     """
 
     # Filter to just deployables (RDRT Members)
-    s3.filter = s3base.S3FieldSelector("application.active") == True
+    s3.filter = FS("application.active") == True
 
     s3.prep = lambda r: r.method == "search_ac"
 
@@ -508,8 +513,11 @@ def alert():
     s3.postp = postp
 
     return s3_rest_controller(rheader=s3db.deploy_rheader,
+                              # Show filter only on recipient tab
                               hide_filter={"recipient": False,
-                                           "_default": True})
+                                           "_default": True,
+                                          }
+                              )
 
 # -----------------------------------------------------------------------------
 def email_inbox():
@@ -535,13 +543,35 @@ def email_inbox():
     table.channel_id.readable = False
     table.to_address.readable = False
 
-    from s3.s3resource import S3FieldSelector
-    s3.filter = (S3FieldSelector("response.id") == None) & \
-                (S3FieldSelector("inbound") == True)
+    from s3.s3query import FS
+    s3.filter = (FS("response.id") == None) & \
+                (FS("inbound") == True)
+
+    from s3.s3forms import S3SQLCustomForm, S3SQLInlineComponent
+    crud_form = S3SQLCustomForm("date",
+                                "subject",
+                                "from_address",
+                                "body",
+                                S3SQLInlineComponent(
+                                    "attachment",
+                                    name = "document_id",
+                                    label = T("Attachments"),
+                                    fields = ["document_id",
+                                              ],
+                                    ),                                                                
+                                )
 
     s3db.configure(tablename,
+                   crud_form = crud_form,
                    editable = False,
                    insertable = False,
+                   list_fields = ["id",
+                                  "date",
+                                  "from_address",
+                                  "subject",
+                                  "body",
+                                  (T("Attachments"), "attachment.document_id"),
+                                  ],
                    )
 
     # CRUD Strings
@@ -556,6 +586,8 @@ def email_inbox():
     )
 
     def prep(r):
+        if r.id:
+            s3db.msg_attachment.document_id.label = ""
         if r.component and r.component.alias == "select":
             if not r.method:
                 r.method = "select"
@@ -599,7 +631,8 @@ def email_channel():
         table = r.table
         tablename = "msg_email_channel"
         s3db.configure(tablename,
-                       deletable=False)
+                       deletable = False,
+                       )
 
         if not r.id:
             # Have we got a channel defined?
@@ -632,11 +665,9 @@ def email_channel():
             s3.crud_strings[tablename] = Storage(
                 title_display = T("Email Settings"),
                 title_list = T("Email Accounts"),
-                title_create = ADD_EMAIL_ACCOUNT,
+                label_create = ADD_EMAIL_ACCOUNT,
                 title_update = T("Edit Email Settings"),
                 label_list_button = T("View Email Accounts"),
-                label_create_button = ADD_EMAIL_ACCOUNT,
-                subtitle_create = T("Add New Email Account"),
                 msg_record_created = T("Account added"),
                 msg_record_deleted = T("Email Account deleted"),
                 msg_list_empty = T("No Accounts currently defined"),

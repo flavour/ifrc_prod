@@ -8,7 +8,10 @@ except:
     from gluon.contrib.simplejson.ordered_dict import OrderedDict
 
 from gluon import current
+from gluon.html import *
 from gluon.storage import Storage
+
+from s3.s3utils import s3_fullname
 
 T = current.T
 settings = current.deployment_settings
@@ -98,14 +101,13 @@ settings.auth.registration_link_user_to_default = "staff"
 
 settings.security.policy = 5 # Controller, Function & Table ACLs
 
-# Resource which need approval
-#settings.auth.record_approval_required_for = ["org_facility"]
-
 settings.ui.update_label = "Edit"
 settings.ui.label_attachments = "Media"
 
 # Uncomment to disable checking that LatLons are within boundaries of their parent
 #settings.gis.check_within_parent_boundaries = False
+# GeoNames username
+settings.gis.geonames_username = "eden_nyc"
 
 # Uncomment to show created_by/modified_by using Names not Emails
 settings.ui.auth_user_represent = "name"
@@ -138,10 +140,24 @@ settings.security.audit_write = audit_write
 # CMS
 # Uncomment to use Bookmarks in Newsfeed
 settings.cms.bookmarks = True
+# Uncomment to use have Filter form in Newsfeed be open by default
+settings.cms.filter_open = True
+# Uncomment to adjust filters in Newsfeed when clicking on locations instead of opening the profile page
+settings.cms.location_click_filters = True
+# Uncomment to use organisation_id instead of created_by in Newsfeed
+settings.cms.organisation = "post_organisation.organisation_id"
+# Uncomment to use org_group_id in Newsfeed
+settings.cms.organisation_group = "post_organisation_group.group_id"
+# Uncomment to use person_id instead of created_by in Newsfeed
+settings.cms.person = "person_id"
 # Uncomment to use Rich Text editor in Newsfeed
 settings.cms.richtext = True
-# Uncomment to show tags in Newsfeed
+# Uncomment to show Links in Newsfeed
+settings.cms.show_links = True
+# Uncomment to show Tags in Newsfeed
 settings.cms.show_tags = True
+# Uncomment to show post Titles in Newsfeed
+settings.cms.show_titles = True
 
 # -----------------------------------------------------------------------------
 # Inventory Management
@@ -175,8 +191,10 @@ settings.inv.item_status = {
 #
 # Enable the use of Organisation Groups
 settings.org.groups = "Network"
-settings.org.site_label = "Facility"
+# Make Services Hierarchical
+settings.org.services_hierarchical = True
 # Set the label for Sites
+settings.org.site_label = "Facility"
 #settings.org.site_label = "Location"
 # Uncomment to show the date when a Site (Facilities-only for now) was last contacted
 settings.org.site_last_contacted = True
@@ -194,8 +212,10 @@ settings.org.site_last_contacted = True
 #     }
 # Uncomment to use an Autocomplete for Site lookup fields
 settings.org.site_autocomplete = True
-# Uncomment to have Site Autocompletes search within Address fields
-settings.org.site_address_autocomplete = True
+# Extra fields to search in Autocompletes & display in Representations
+settings.org.site_autocomplete_fields = ("organisation_id$name",
+                                         "location_id$addr_street",
+                                         )
 # Uncomment to hide inv & req tabs from Sites
 #settings.org.site_inv_req_tabs = True
 
@@ -280,9 +300,9 @@ def org_facility_onvalidation(form):
         form_vars.name = current.db.org_facility.location_id.represent(form_vars.location_id)
 
 # -----------------------------------------------------------------------------
-def customize_org_facility(**attr):
+def customise_org_facility_controller(**attr):
     """
-        Customize org_facility controller
+        Customise org_facility controller
     """
 
     s3db = current.s3db
@@ -302,18 +322,19 @@ def customize_org_facility(**attr):
             types = r.get_vars.get("site_facility_type.facility_type_id__belongs", None)
             if not types:
                 # Hide Private Residences
-                from s3.s3resource import S3FieldSelector
-                s3.filter = S3FieldSelector("site_facility_type.facility_type_id$name") != "Private Residence"
+                from s3.s3query import FS
+                s3.filter = FS("site_facility_type.facility_type_id$name") != "Private Residence"
 
         if r.interactive:
             tablename = "org_facility"
             table = s3db[tablename]
 
-            if r.method in ("create", "update"):
+            if not r.component and r.method in (None, "create", "update"):
                 from s3.s3validators import IS_LOCATION_SELECTOR2
-                from s3.s3widgets import S3LocationSelectorWidget2#, S3SelectChosenWidget
+                from s3.s3widgets import S3LocationSelectorWidget2, S3MultiSelectWidget
                 field = table.location_id
-                field.label = "" # Gets replaced by widget
+                if r.method in ("create", "update"):
+                    field.label = "" # Gets replaced by widget
                 levels = ("L2", "L3")
                 field.requires = IS_LOCATION_SELECTOR2(levels=levels)
                 field.widget = S3LocationSelectorWidget2(levels=levels,
@@ -322,8 +343,7 @@ def customize_org_facility(**attr):
                                                          show_address=True,
                                                          show_postcode=True,
                                                          )
-                # element.style is being set to width: 0 for some reason, so not working
-                #table.organisation_id.widget = S3SelectChosenWidget()
+                table.organisation_id.widget = S3MultiSelectWidget(multiple=False)
 
             if r.get_vars.get("format", None) == "popup":
                 # Coming from req/create form
@@ -332,11 +352,10 @@ def customize_org_facility(**attr):
                 # We default this onvalidation
                 table.name.notnull = False
                 table.name.requires = None
-                s3db.org_site_facility_type.facility_type_id.label = ""
                 crud_form = S3SQLCustomForm(S3SQLInlineComponent(
                                                 "site_facility_type",
                                                 label = T("Facility Type"),
-                                                fields = ["facility_type_id"],
+                                                fields = [("", "facility_type_id")],
                                                 multiple = False,
                                                 required = True,
                                             ),
@@ -353,12 +372,12 @@ def customize_org_facility(**attr):
 
     return attr
 
-settings.ui.customize_org_facility = customize_org_facility
+settings.customise_org_facility_controller = customise_org_facility_controller
 
 # -----------------------------------------------------------------------------
-def customize_org_organisation(**attr):
+def customise_org_organisation_controller(**attr):
     """
-        Customize org_organisation controller
+        Customise org_organisation controller
     """
 
     s3db = current.s3db
@@ -386,172 +405,175 @@ def customize_org_organisation(**attr):
                            list_fields = list_fields)
             
         if r.interactive:
-            from gluon.html import DIV, INPUT
-            from s3.s3forms import S3SQLCustomForm, S3SQLInlineComponent, S3SQLInlineComponentMultiSelectWidget
-            s3db.pr_address.comments.label = ""
-            s3db.pr_contact.value.label = ""
-            s3db.doc_document.url.label = ""
-            crud_form = S3SQLCustomForm(
-                "name",
-                "acronym",
-                "organisation_type_id",
-                #S3SQLInlineComponentCheckbox(
-                S3SQLInlineComponentMultiSelectWidget(
-                    "service",
-                    label = T("Services"),
-                    field = "service_id",
-                    cols = 4,
-                ),
-                #S3SQLInlineComponentCheckbox(
-                S3SQLInlineComponentMultiSelectWidget(
-                    "group",
-                    label = T("Network"),
-                    field = "group_id",
-                    cols = 3,
-                ),
-                S3SQLInlineComponent(
-                    "address",
-                    label = T("Address"),
-                    multiple = False,
-                    # This is just Text - put into the Comments box for now
-                    # Ultimately should go into location_id$addr_street
-                    fields = ["comments"],
-                ),
-                #S3SQLInlineComponentCheckbox(
-                S3SQLInlineComponentMultiSelectWidget(
-                    "location",
-                    label = T("Neighborhoods Served"),
-                    field = "location_id",
-                    filterby = dict(field = "level",
-                                    options = "L4"
-                                    ),
-                    # @ToDo: GroupedCheckbox Widget or Hierarchical MultiSelectWidget
-                    cols = 5,
-                ),
-                "phone",
-                S3SQLInlineComponent(
-                    "contact",
-                    name = "phone2",
-                    label = T("Phone2"),
-                    multiple = False,
-                    fields = ["value"],
-                    filterby = dict(field = "contact_method",
-                                    options = "WORK_PHONE"
-                                    )
-                ),
-                S3SQLInlineComponent(
-                    "contact",
-                    name = "email",
-                    label = T("Email"),
-                    multiple = False,
-                    fields = ["value"],
-                    filterby = dict(field = "contact_method",
-                                    options = "EMAIL"
-                                    )
-                ),
-                "website",
-                S3SQLInlineComponent(
-                    "contact",
-                    comment = DIV(INPUT(_type="checkbox",
-                                        _name="rss_no_import"),
-                                  T("Don't Import Feed")),
-                    name = "rss",
-                    label = T("RSS"),
-                    multiple = False,
-                    fields = ["value"],
-                    filterby = dict(field = "contact_method",
-                                    options = "RSS"
-                                    )
-                ),
-                S3SQLInlineComponent(
-                    "document",
-                    name = "iCal",
-                    label = "iCAL",
-                    multiple = False,
-                    fields = ["url",
-                              ],
-                    filterby = dict(field = "name",
-                                    options="iCal"
-                                    )
-                ),                                                                
-                S3SQLInlineComponent(
-                    "document",
-                    name = "data",
-                    label = T("Data"),
-                    multiple = False,
-                    fields = ["url",
-                              ],
-                    filterby = dict(field = "name",
-                                    options="Data"
-                                    )
-                ),                                                                
-                S3SQLInlineComponent(
-                    "contact",
-                    name = "twitter",
-                    label = T("Twitter"),
-                    multiple = False,
-                    fields = ["value"],
-                    filterby = dict(field = "contact_method",
-                                    options = "TWITTER"
-                                    )
-                ),
-                S3SQLInlineComponent(
-                    "contact",
-                    name = "facebook",
-                    label = T("Facebook"),
-                    multiple = False,
-                    fields = ["value"],
-                    filterby = dict(field = "contact_method",
-                                    options = "FACEBOOK"
-                                    )
-                ),
-                "comments",
-            )
-            
-            from s3.s3filter import S3LocationFilter, S3OptionsFilter, S3TextFilter
-            filter_widgets = [
-                S3TextFilter(["name", "acronym"],
-                             label=T("Name"),
-                             _class="filter-search",
-                             ),
-                S3OptionsFilter("group_membership.group_id",
-                                label=T("Network"),
-                                represent="%(name)s",
-                                widget="multiselect",
-                                cols=3,
-                                #hidden=True,
-                                ),
-                S3LocationFilter("organisation_location.location_id",
-                                 label=T("Neighborhood"),
-                                 levels=["L3", "L4"],
-                                 widget="multiselect",
-                                 cols=3,
-                                 #hidden=True,
+            if not r.component:
+                from gluon.html import DIV, INPUT
+                from s3.s3forms import S3SQLCustomForm, S3SQLInlineComponent, S3SQLInlineComponentMultiSelectWidget
+                crud_form = S3SQLCustomForm(
+                    "name",
+                    "acronym",
+                    "organisation_type_id",
+                    S3SQLInlineComponentMultiSelectWidget(
+                        "service",
+                        label = T("Services"),
+                        field = "service_id",
+                        #cols = 4,
+                    ),
+                    S3SQLInlineComponentMultiSelectWidget(
+                        "group",
+                        label = T("Network"),
+                        field = "group_id",
+                        #cols = 3,
+                    ),
+                    S3SQLInlineComponent(
+                        "address",
+                        label = T("Address"),
+                        multiple = False,
+                        # This is just Text - put into the Comments box for now
+                        # Ultimately should go into location_id$addr_street
+                        fields = [("", "comments")],
+                    ),
+                    S3SQLInlineComponentMultiSelectWidget(
+                        "location",
+                        label = T("Neighborhoods Served"),
+                        field = "location_id",
+                        filterby = dict(field = "level",
+                                        options = "L4"
+                                        ),
+                        # @ToDo: GroupedCheckbox Widget or Hierarchical MultiSelectWidget
+                        #cols = 5,
+                    ),
+                    "phone",
+                    S3SQLInlineComponent(
+                        "contact",
+                        name = "phone2",
+                        label = T("Phone2"),
+                        multiple = False,
+                        fields = [("", "value")],
+                        filterby = dict(field = "contact_method",
+                                        options = "WORK_PHONE"
+                                        )
+                    ),
+                    S3SQLInlineComponent(
+                        "contact",
+                        name = "email",
+                        label = T("Email"),
+                        multiple = False,
+                        fields = [("", "value")],
+                        filterby = dict(field = "contact_method",
+                                        options = "EMAIL"
+                                        )
+                    ),
+                    "website",
+                    S3SQLInlineComponent(
+                        "contact",
+                        comment = DIV(INPUT(_type="checkbox",
+                                            _name="rss_no_import"),
+                                      T("Don't Import Feed")),
+                        name = "rss",
+                        label = T("RSS"),
+                        multiple = False,
+                        fields = [("", "value")],
+                        filterby = dict(field = "contact_method",
+                                        options = "RSS"
+                                        )
+                    ),
+                    S3SQLInlineComponent(
+                        "document",
+                        name = "iCal",
+                        label = "iCAL",
+                        multiple = False,
+                        fields = [("", "url")],
+                        filterby = dict(field = "name",
+                                        options="iCal"
+                                        )
+                    ),                                                                
+                    S3SQLInlineComponent(
+                        "document",
+                        name = "data",
+                        label = T("Data"),
+                        multiple = False,
+                        fields = [("", "url")],
+                        filterby = dict(field = "name",
+                                        options="Data"
+                                        )
+                    ),                                                                
+                    S3SQLInlineComponent(
+                        "contact",
+                        name = "twitter",
+                        label = T("Twitter"),
+                        multiple = False,
+                        fields = [("", "value")],
+                        filterby = dict(field = "contact_method",
+                                        options = "TWITTER"
+                                        )
+                    ),
+                    S3SQLInlineComponent(
+                        "contact",
+                        name = "facebook",
+                        label = T("Facebook"),
+                        multiple = False,
+                        fields = [("", "value")],
+                        filterby = dict(field = "contact_method",
+                                        options = "FACEBOOK"
+                                        )
+                    ),
+                    "comments",
+                )
+                
+                from s3.s3filter import S3LocationFilter, S3OptionsFilter, S3TextFilter
+                filter_widgets = [
+                    S3TextFilter(["name", "acronym"],
+                                 label = T("Name"),
+                                 _class = "filter-search",
                                  ),
-                S3OptionsFilter("service_organisation.service_id",
-                                label=T("Service"),
-                                represent="%(name)s",
-                                widget="multiselect",
-                                cols=3,
-                                #hidden=True,
-                                ),
-                S3OptionsFilter("organisation_type_id",
-                                label=T("Type"),
-                                represent="%(name)s",
-                                widget="multiselect",
-                                cols=3,
-                                #hidden=True,
-                                ),
-                ]
+                    S3OptionsFilter("group_membership.group_id",
+                                    label = T("Network"),
+                                    represent = "%(name)s",
+                                    #hidden = True,
+                                    ),
+                    S3LocationFilter("organisation_location.location_id",
+                                     label = T("Neighborhood"),
+                                     levels = ("L3", "L4"),
+                                     #hidden = True,
+                                     ),
+                    S3OptionsFilter("service_organisation.service_id",
+                                    #label = T("Service"),
+                                    #hidden = True,
+                                    ),
+                    S3OptionsFilter("organisation_type_id",
+                                    label = T("Type"),
+                                    #hidden = True,
+                                    ),
+                    ]
 
-            s3db.configure("org_organisation",
-                           crud_form = crud_form,
-                           filter_widgets = filter_widgets,
-                           )
+                s3db.configure("org_organisation",
+                               crud_form = crud_form,
+                               filter_widgets = filter_widgets,
+                               )
 
-            s3db.configure("pr_contact",
-                           onaccept = pr_contact_onaccept,
-                           )
+                s3db.configure("pr_contact",
+                               onaccept = pr_contact_onaccept,
+                               )
+
+            elif r.component_name == "facility":
+                if r.method in (None, "create", "update"):
+                    from s3.s3validators import IS_LOCATION_SELECTOR2
+                    from s3.s3widgets import S3LocationSelectorWidget2
+                    table = s3db.org_facility
+                    field = table.location_id
+                    if r.method in ("create", "update"):
+                        field.label = "" # Gets replaced by widget
+                    levels = ("L2", "L3")
+                    field.requires = IS_LOCATION_SELECTOR2(levels=levels)
+                    field.widget = S3LocationSelectorWidget2(levels=levels,
+                                                             hide_lx=False,
+                                                             reverse_lx=True,
+                                                             show_address=True,
+                                                             show_postcode=True,
+                                                             )
+            elif r.component_name == "human_resource":
+                # Don't assume that user is from same org/site as Contacts they create
+                r.component.table.site_id.default = None
 
         return result
     s3.prep = custom_prep
@@ -576,15 +598,14 @@ def customize_org_organisation(**attr):
         return output
     s3.postp = custom_postp
 
-    attr["hide_filter"] = False
     return attr
 
-settings.ui.customize_org_organisation = customize_org_organisation
+settings.customise_org_organisation_controller = customise_org_organisation_controller
 
 # -----------------------------------------------------------------------------
-def customize_org_group(**attr):
+def customise_org_group_controller(**attr):
     """
-        Customize org_group controller
+        Customise org_group controller
     """
 
     s3db = current.s3db
@@ -601,14 +622,119 @@ def customize_org_group(**attr):
 
         if r.interactive:
             if not r.component:
-                from s3.s3validators import IS_LOCATION_SELECTOR2
-                from s3.s3widgets import S3LocationSelectorWidget2
-                field = s3db.org_group.location_id
-                field.label = "" # Gets replaced by widget
-                field.requires = IS_LOCATION_SELECTOR2(levels=("L2",))
-                field.widget = S3LocationSelectorWidget2(levels=("L2",),
-                                                         polygons=True,
-                                                         )
+                from gluon.html import DIV, INPUT
+                from s3.s3forms import S3SQLCustomForm, S3SQLInlineComponent, S3SQLInlineComponentMultiSelectWidget
+                if r.method != "read":
+                    from gluon.validators import IS_EMPTY_OR
+                    from s3.s3validators import IS_LOCATION_SELECTOR2
+                    from s3.s3widgets import S3LocationSelectorWidget2
+                    field = s3db.org_group.location_id
+                    field.label = "" # Gets replaced by widget
+                    #field.requires = IS_LOCATION_SELECTOR2(levels=("L2",))
+                    field.requires = IS_EMPTY_OR(
+                                        IS_LOCATION_SELECTOR2(levels=("L2",))
+                                        )
+                    field.widget = S3LocationSelectorWidget2(levels=("L2",),
+                                                             polygons=True,
+                                                             )
+                    # Default location to Manhattan
+                    db = current.db
+                    gtable = db.gis_location
+                    query = (gtable.name == "New York") & \
+                            (gtable.level == "L2")
+                    manhattan = db(query).select(gtable.id,
+                                                 limitby=(0, 1)).first()
+                    if manhattan:
+                        field.default = manhattan.id
+
+                crud_form = S3SQLCustomForm(
+                    "name",
+                    "location_id",
+                    S3SQLInlineComponent(
+                        "contact",
+                        name = "phone",
+                        label = T("Phone"),
+                        multiple = False,
+                        fields = [("", "value")],
+                        filterby = dict(field = "contact_method",
+                                        options = "WORK_PHONE"
+                                        )
+                    ),
+                    S3SQLInlineComponent(
+                        "contact",
+                        name = "email",
+                        label = T("Email"),
+                        multiple = False,
+                        fields = [("", "value")],
+                        filterby = dict(field = "contact_method",
+                                        options = "EMAIL"
+                                        )
+                    ),
+                    "website",
+                    S3SQLInlineComponent(
+                        "contact",
+                        comment = DIV(INPUT(_type="checkbox",
+                                            _name="rss_no_import"),
+                                      T("Don't Import Feed")),
+                        name = "rss",
+                        label = T("RSS"),
+                        multiple = False,
+                        fields = [("", "value")],
+                        filterby = dict(field = "contact_method",
+                                        options = "RSS"
+                                        )
+                    ),
+                    S3SQLInlineComponent(
+                        "document",
+                        name = "iCal",
+                        label = "iCAL",
+                        multiple = False,
+                        fields = [("", "url")],
+                        filterby = dict(field = "name",
+                                        options="iCal"
+                                        )
+                    ),                                                                
+                    S3SQLInlineComponent(
+                        "document",
+                        name = "data",
+                        label = T("Data"),
+                        multiple = False,
+                        fields = [("", "url")],
+                        filterby = dict(field = "name",
+                                        options="Data"
+                                        )
+                    ),                                                                
+                    S3SQLInlineComponent(
+                        "contact",
+                        name = "twitter",
+                        label = T("Twitter"),
+                        multiple = False,
+                        fields = [("", "value")],
+                        filterby = dict(field = "contact_method",
+                                        options = "TWITTER"
+                                        )
+                    ),
+                    S3SQLInlineComponent(
+                        "contact",
+                        name = "facebook",
+                        label = T("Facebook"),
+                        multiple = False,
+                        fields = [("", "value")],
+                        filterby = dict(field = "contact_method",
+                                        options = "FACEBOOK"
+                                        )
+                    ),
+                    "comments",
+                )
+
+                s3db.configure("org_group",
+                               crud_form = crud_form,
+                               )
+
+                s3db.configure("pr_contact",
+                               onaccept = pr_contact_onaccept,
+                               )
+
             elif r.component_name == "pr_group":
                 field = s3db.pr_group.group_type
                 field.default = 3 # Relief Team, to show up in hrm/group
@@ -617,9 +743,12 @@ def customize_org_group(**attr):
         return result
     s3.prep = custom_prep
 
+    # Allow components with components (such as org/group) to breakout from tabs
+    attr["native"] = True
+
     return attr
 
-settings.ui.customize_org_group = customize_org_group
+settings.customise_org_group_controller = customise_org_group_controller
 
 # -----------------------------------------------------------------------------
 # Persons
@@ -631,9 +760,9 @@ settings.pr.request_gender = False
 
 # -----------------------------------------------------------------------------
 # Persons
-def customize_pr_person(**attr):
+def customise_pr_person_controller(**attr):
     """
-        Customize pr_person controller
+        Customise pr_person controller
     """
 
     s3 = current.response.s3
@@ -647,55 +776,54 @@ def customize_pr_person(**attr):
         else:
             result = True
 
-        if r.interactive:
-            if r.component_name == "human_resource":
-                s3db = current.s3db
-                from s3.s3forms import S3SQLCustomForm, S3SQLInlineComponent
-                s3db.org_group_person.group_id.label = ""
-                crud_form = S3SQLCustomForm("organisation_id",
-                                            "site_id",
-                                            S3SQLInlineComponent(
-                                                "group_person",
-                                                label = T("Network"),
-                                                link = False,
-                                                fields = ["group_id"],
-                                                multiple = False,
-                                                ),
-                                            "job_title_id",
-                                            "start_date",
-                                            )
-
-                list_fields = ["id",
-                               "job_title_id",
-                               "organisation_id",
-                               (T("Network"), "group_person.group_id"),
-                               (T("Groups"), "person_id$group_membership.group_id"),
-                               "site_id",
-                               #"site_contact",
-                               (T("Email"), "email.value"),
-                               (settings.get_ui_label_mobile_phone(), "phone.value"),
-                               ]
-
-                s3db.configure("hrm_human_resource",
-                               crud_form = crud_form,
-                               list_fields = list_fields,
-                               )
-
-            elif r.component_name == "group_membership":
-                current.s3db.pr_group_membership.group_head.label = T("Group Chairperson")
+        if r.interactive and \
+           r.component_name == "group_membership":
+            current.s3db.pr_group_membership.group_head.label = T("Group Chairperson")
 
         return result
     s3.prep = custom_prep
 
     return attr
 
-settings.ui.customize_pr_person = customize_pr_person
+settings.customise_pr_person_controller = customise_pr_person_controller
 
 # -----------------------------------------------------------------------------
 # Groups
-def customize_pr_group(**attr):
+def chairperson(row):
     """
-        Customize pr_group controller
+       Virtual Field to show the chairperson of a group 
+    """
+
+    if hasattr(row, "pr_group"):
+        row = row.pr_group
+    try:
+        group_id = row.id
+    except:
+        # not available
+        return current.messages["NONE"]
+
+    db = current.db
+    s3db = current.s3db
+    mtable = s3db.pr_group_membership
+    ptable = db.pr_person
+    query = (mtable.group_id == group_id) & \
+            (mtable.group_head == True) & \
+            (mtable.person_id == ptable.id)
+    chair = db(query).select(ptable.first_name,
+                             ptable.middle_name,
+                             ptable.last_name,
+                             ptable.id,
+                             limitby=(0, 1)).first()
+    if chair:
+        # Only used in list view so HTML is OK
+        return A(s3_fullname(chair),
+                 _href=URL(c="hrm", f="person", args=chair.id))
+    else:
+        return current.messages["NONE"]
+
+def customise_pr_group_controller(**attr):
+    """
+        Customise pr_group controller
     """
 
     s3 = current.response.s3
@@ -710,21 +838,22 @@ def customize_pr_group(**attr):
             result = True
 
         s3db = current.s3db
-        tablename = "pr_group"
 
         # Format for filter_widgets & imports
-        s3db.add_component("org_group_team",
-                           pr_group="group_id")
+        s3db.add_components("pr_group",
+                            org_group_team="group_id")
 
-        from gluon import URL
+        from s3.s3fields import S3Represent
         from s3.s3filter import S3TextFilter, S3OptionsFilter
         from s3.s3forms import S3SQLCustomForm, S3SQLInlineComponent
-        s3db.org_group_team.org_group_id.label = ""
+
+        s3db.org_group_team.org_group_id.represent = S3Represent(lookup="org_group",
+                                                                 show_link=True)
         crud_form = S3SQLCustomForm("name",
                                     "description",
                                     S3SQLInlineComponent("group_team",
                                                          label = T("Network"),
-                                                         fields = ["org_group_id"],
+                                                         fields = [("", "org_group_id")],
                                                          # @ToDo: Make this optional?
                                                          multiple = False,
                                                          ),
@@ -739,45 +868,73 @@ def customize_pr_group(**attr):
                           ],
                          label = T("Search"),
                          comment = T("You can search by by group name, description or comments and by network name. You may use % as wildcard. Press 'Search' without input to list all."),
-                         #_class="filter-search",
+                         #_class = "filter-search",
                          ),
             S3OptionsFilter("group_team.org_group_id",
-                            label=T("Network"),
-                            widget="multiselect",
-                            #hidden=True,
+                            label = T("Network"),
+                            #hidden = True,
                             ),
             ]
 
-        list_fields = ["id",
-                       (T("Network"), "group_team.org_group_id"),
-                       "name",
-                       "description",
-                       "comments",
-                       ]
-
-        s3db.configure(tablename,
-                       # Redirect to member list when a new group has been created
-                       create_next = URL(f="group",
-                                         args=["[id]", "group_membership"]),
+        s3db.configure("pr_group",
                        crud_form = crud_form,
                        filter_widgets = filter_widgets,
-                       list_fields = list_fields,
                        )
 
-        if r.component_name == "group_membership":
-            s3db.pr_group_membership.group_head.label = T("Group Chairperson")
+        #if r.component_name == "group_membership":
+        s3db.pr_group_membership.group_head.label = T("Group Chairperson")
+        #else:
+        #    # RHeader wants a simplified version, but don't want inconsistent across tabs
+        #    s3db.pr_group_membership.group_head.label = T("Chairperson")
 
         return result
     s3.prep = custom_prep
 
     return attr
 
-settings.ui.customize_pr_group = customize_pr_group
+settings.customise_pr_group_controller = customise_pr_group_controller
+
+# -----------------------------------------------------------------------------
+def customise_pr_group_resource(r, tablename):
+    """
+        Customise pr_group resource (in group & org_group controllers)
+            - runs after controller customisation
+            - but runs before prep
+    """
+
+    from gluon import Field, URL
+    from gluon.sqlhtml import TextWidget
+
+    s3db = current.s3db
+
+    table = s3db.pr_group
+
+    # Increase size of widget
+    table.description.widget = TextWidget.widget
+
+    table.chairperson = Field.Method("chairperson", chairperson)
+
+    list_fields = ["id",
+                   (T("Network"), "group_team.org_group_id"),
+                   "name",
+                   "description",
+                   (T("Chairperson"), "chairperson"),
+                   "comments",
+                   ]
+
+    s3db.configure("pr_group",
+                   # Redirect to member list when a new group has been created
+                   create_next = URL(c="hrm", f="group",
+                                     args=["[id]", "group_membership"]),
+                   list_fields = list_fields,
+                   )
+
+settings.customise_pr_group_resource = customise_pr_group_resource
 
 # -----------------------------------------------------------------------------
 def pr_contact_onaccept(form):
     """
-        Import Organisation RSS Feeds
+        Import Organisation/Network RSS Feeds
     """
 
     form_vars = form.vars
@@ -794,11 +951,16 @@ def pr_contact_onaccept(form):
     exists  = db(table.url == url).select(table.id, limitby=(0, 1))
     if exists:
         return
-    # Lookup org name
-    otable = db.org_organisation
-    name = db(otable.pe_id == form_vars.pe_id).select(otable.name,
-                                                      limitby=(0, 1)
-                                                      ).first().name
+    # Lookup name of Org/Network
+    pe_id = form_vars.pe_id
+    etable = db.pr_pentity
+    instance_type = db(etable.pe_id == pe_id).select(etable.instance_type,
+                                                     limitby=(0, 1)
+                                                     ).first().instance_type
+    otable = db[instance_type]
+    name = db(otable.pe_id == pe_id).select(otable.name,
+                                            limitby=(0, 1)
+                                            ).first().name
     # Add RSS Channel
     id = table.insert(name=name, enabled=True, url=url)
     record = dict(id=id)
@@ -846,9 +1008,9 @@ settings.hrm.teams = "Groups"
 settings.hrm.organisation_label = "Organization"
 
 # -----------------------------------------------------------------------------
-def customize_hrm_human_resource(**attr):
+def customise_hrm_human_resource_controller(**attr):
     """
-        Customize hrm_human_resource controller
+        Customise hrm_human_resource controller
     """
 
     s3 = current.response.s3
@@ -864,106 +1026,118 @@ def customize_hrm_human_resource(**attr):
 
         if r.interactive or r.representation == "aadata":
             if not r.component:
-                s3db = current.s3db
-                table = r.table
-                #table.department_id.readable = table.department_id.writable = False
-                #table.end_date.readable = table.end_date.writable = False
-                from s3.s3validators import IS_ADD_PERSON_WIDGET2
-                from s3.s3widgets import S3AddPersonWidget2
-                pfield = table.person_id
-                pfield.requires = IS_ADD_PERSON_WIDGET2()
-                pfield.widget = S3AddPersonWidget2(controller="pr")
-                list_fields = ["id",
-                               "person_id",
-                               "job_title_id",
-                               "organisation_id",
-                               (T("Network"), "group_person.group_id"),
-                               (T("Groups"), "person_id$group_membership.group_id"),
-                               "site_id",
-                               #"site_contact",
-                               (T("Email"), "email.value"),
-                               (settings.get_ui_label_mobile_phone(), "phone.value"),
-                               ]
-
                 from s3.s3filter import S3TextFilter, S3OptionsFilter, S3LocationFilter
                 filter_widgets = [
                     S3TextFilter(["person_id$first_name",
                                   "person_id$middle_name",
                                   "person_id$last_name",
                                   ],
-                                 label=T("Name"),
+                                 label = T("Name"),
                                  ),
                     S3OptionsFilter("organisation_id",
-                                    widget="multiselect",
-                                    filter=True,
-                                    header="",
-                                    hidden=True,
+                                    filter = True,
+                                    header = "",
+                                    hidden = True,
                                     ),
                     S3OptionsFilter("group_person.group_id",
                                     label = T("Network"),
-                                    widget="multiselect",
-                                    #filter=True,
-                                    #header="",
-                                    hidden=True,
+                                    #filter = True,
+                                    #header = "",
+                                    hidden = True,
                                     ),
                     S3LocationFilter("location_id",
                                      label = T("Location"),
-                                     widget="multiselect",
-                                     levels=["L1", "L2", "L3", "L4"],
-                                     hidden=True,
+                                     levels = ("L1", "L2", "L3", "L4"),
+                                     hidden = True,
                                      ),
                     S3OptionsFilter("site_id",
-                                    widget="multiselect",
-                                    hidden=True,
+                                    hidden = True,
                                     ),
                     S3OptionsFilter("training.course_id",
                                     label = T("Training"),
-                                    widget="multiselect",
-                                    hidden=True,
+                                    hidden = True,
                                     ),
                     S3OptionsFilter("group_membership.group_id",
                                     label = T("Team"),
-                                    widget="multiselect",
-                                    filter=True,
-                                    header="",
-                                    hidden=True,
+                                    filter = True,
+                                    header = "",
+                                    hidden = True,
                                     ),
                     ]
 
-                from s3.s3forms import S3SQLCustomForm, S3SQLInlineComponent
-                s3db.org_group_person.group_id.label = ""
-                crud_form = S3SQLCustomForm("person_id",
-                                            "organisation_id",
-                                            "site_id",
-                                            S3SQLInlineComponent(
-                                                "group_person",
-                                                label = T("Network"),
-                                                link = False,
-                                                fields = ["group_id"],
-                                                multiple = False,
-                                                ),
-                                            "job_title_id",
-                                            "start_date",
-                                            )
-
+                s3db = current.s3db
                 s3db.configure("hrm_human_resource",
-                               crud_form = crud_form,
                                filter_widgets = filter_widgets,
-                               list_fields = list_fields,
                                )
+
+                field = r.table.site_id
+                # Don't assume that user is from same org/site as Contacts they create
+                field.default = None
+                # Use a hierarchical dropdown instead of AC
+                field.widget = None
+                script = \
+'''S3OptionsFilter({
+ 'triggerName':'organisation_id',
+ 'targetName':'site_id',
+ 'lookupResource':'site',
+ 'lookupURL':'/%s/org/sites_for_org/',
+ 'optional':true
+})''' % r.application
+                s3.jquery_ready.append(script)
 
         return result
     s3.prep = custom_prep
 
-    attr["hide_filter"] = False
     return attr
 
-settings.ui.customize_hrm_human_resource = customize_hrm_human_resource
+settings.customise_hrm_human_resource_controller = customise_hrm_human_resource_controller
 
 # -----------------------------------------------------------------------------
-def customize_hrm_job_title(**attr):
+def customise_hrm_human_resource_resource(r, tablename):
     """
-        Customize hrm_job_title controller
+        Customise hrm_human_resource resource (in facility, human_resource, organisation & person controllers)
+            - runs after controller customisation
+            - but runs before prep
+    """
+
+    s3db = current.s3db
+    from s3.s3forms import S3SQLCustomForm, S3SQLInlineComponent
+    crud_form = S3SQLCustomForm("person_id",
+                                "organisation_id",
+                                "site_id",
+                                S3SQLInlineComponent(
+                                    "group_person",
+                                    label = T("Network"),
+                                    link = False,
+                                    fields = [("", "group_id")],
+                                    multiple = False,
+                                    ),
+                                "job_title_id",
+                                "start_date",
+                                )
+    list_fields = ["id",
+                   "person_id",
+                   "job_title_id",
+                   "organisation_id",
+                   (T("Network"), "group_person.group_id"),
+                   (T("Groups"), "person_id$group_membership.group_id"),
+                   "site_id",
+                   #"site_contact",
+                   (T("Email"), "email.value"),
+                   (settings.get_ui_label_mobile_phone(), "phone.value"),
+                   ]
+
+    s3db.configure("hrm_human_resource",
+                   crud_form = crud_form,
+                   list_fields = list_fields,
+                   )
+
+settings.customise_hrm_human_resource_resource = customise_hrm_human_resource_resource
+
+# -----------------------------------------------------------------------------
+def customise_hrm_job_title_controller(**attr):
+    """
+        Customise hrm_job_title controller
     """
 
     s3 = current.response.s3
@@ -987,7 +1161,7 @@ def customize_hrm_job_title(**attr):
 
     return attr
 
-settings.ui.customize_hrm_job_title = customize_hrm_job_title
+settings.customise_hrm_job_title_controller = customise_hrm_job_title_controller
 
 # -----------------------------------------------------------------------------
 # Projects
@@ -1004,7 +1178,7 @@ settings.project.sectors = False
 # Multiple partner organizations
 settings.project.multiple_organisations = True
 
-def customize_project_project(**attr):
+def customise_project_project_controller(**attr):
 
     s3 = current.response.s3
 
@@ -1030,8 +1204,6 @@ def customize_project_project(**attr):
             script = '''$('#project_project_code').attr('maxlength','100')'''
             s3.jquery_ready.append(script)
 
-            s3db.project_location.location_id.label = ""
-
             crud_form = S3SQLCustomForm(
                 "organisation_id",
                 "name",
@@ -1048,7 +1220,7 @@ def customize_project_project(**attr):
                 S3SQLInlineComponent(
                     "location",
                     label = T("Location"),
-                    fields = ["location_id"],
+                    fields = [("", "location_id")],
                 ),
                 # Partner Orgs
                 S3SQLInlineComponent(
@@ -1097,36 +1269,34 @@ def customize_project_project(**attr):
                               "organisation.name",
                               "organisation.acronym",
                               ],
-                             label=T("Name"),
-                             _class="filter-search",
+                             label = T("Name"),
+                             _class = "filter-search",
                              ),
                 S3OptionsFilter("status_id",
-                                label=T("Status"),
-                                represent="%(name)s",
-                                cols=3,
+                                label = T("Status"),
+                                # Not translateable
+                                #represent = "%(name)s",
+                                cols = 3,
                                 ),
                 #S3OptionsFilter("theme_project.theme_id",
-                #                label=T("Theme"),
-                #                represent="%(name)s",
-                #                widget="multiselect",
-                #                #hidden=True,
+                #                label = T("Theme"),
+                #                #hidden = True,
                 #                ),
                 S3LocationFilter("location.location_id",
-                                 label=T("Location"),
-                                 levels=["L1", "L2", "L3", "L4"],
-                                 widget="multiselect",
-                                 #hidden=True,
+                                 label = T("Location"),
+                                 levels = ("L1", "L2", "L3", "L4"),
+                                 #hidden = True,
                                  ),
                 # @ToDo: Widget to handle Start & End in 1!
                 S3DateFilter("start_date",
-                             label=T("Start Date"),
-                             hide_time=True,
-                             #hidden=True,
+                             label = T("Start Date"),
+                             hide_time = True,
+                             #hidden = True,
                              ),
                 S3DateFilter("end_date",
-                             label=T("End Date"),
-                             hide_time=True,
-                             #hidden=True,
+                             label = T("End Date"),
+                             hide_time = True,
+                             #hidden = True,
                              ),
                 ]
 
@@ -1148,10 +1318,9 @@ def customize_project_project(**attr):
         return result
     s3.prep = custom_prep
 
-    attr["hide_filter"] = False
     return attr
 
-settings.ui.customize_project_project = customize_project_project
+settings.customise_project_project_controller = customise_project_project_controller
 
 # -----------------------------------------------------------------------------
 # Requests Management
@@ -1174,37 +1343,111 @@ settings.req.type_inv_label = "Supplies"
 settings.req.summary = True
 
 # -----------------------------------------------------------------------------
-def customize_req_req(**attr):
+def req_req_postprocess(form):
     """
-        Customize req_req controller
+        Runs after crud_form completes
+        - creates a cms_post in the newswire
+        - @ToDo: Send out Tweets
     """
 
-    s3 = current.response.s3
+    req_id = form.vars.id
 
-    # Custom prep
-    standard_prep = s3.prep
-    def custom_prep(r):
-        # Call standard prep
-        if callable(standard_prep):
-            result = standard_prep(r)
-        else:
-            result = True
+    db = current.db
+    s3db = current.s3db
+    rtable = s3db.req_req
 
-        if r.interactive:
-            from s3layouts import S3AddResourceLink
-            s3db = current.s3db
-            table = s3db.req_req
-            table.site_id.comment = S3AddResourceLink(c="org", f="facility",
-                                                      vars = dict(child="site_id"),
-                                                      title=T("Add Facility"),
-                                                      tooltip=T("Enter some characters to bring up a list of possible matches"))
+    # Read the full record
+    row = db(rtable.id == req_id).select(rtable.type,
+                                         rtable.site_id,
+                                         rtable.requester_id,
+                                         rtable.priority,
+                                         rtable.date_required,
+                                         rtable.purpose,
+                                         rtable.comments,
+                                         limitby=(0, 1)
+                                         ).first()
 
-        return result
-    s3.prep = custom_prep
+    # Build Title & Body from the Request details
+    priority = rtable.priority.represent(row.priority)
+    date_required = row.date_required
+    if date_required:
+        date = rtable.date_required.represent(date_required)
+        title = "%(priority)s by %(date)s" % dict(priority=priority,
+                                                  date=date)
+    else:
+        title = priority
+    body = row.comments
+    if row.type == 1:
+        # Items
+        ritable = s3db.req_req_item
+        items = db(ritable.req_id == req_id).select(ritable.item_id,
+                                                    ritable.item_pack_id,
+                                                    ritable.quantity)
+        item_represent = s3db.supply_item_represent
+        pack_represent = s3db.supply_item_pack_represent
+        for item in items:
+            item = "%s %s %s" % (item.quantity,
+                                 pack_represent(item.item_pack_id),
+                                 item_represent(item.item_id))
+            body = "%s\n%s" % (item, body)
+    else:
+        # Skills
+        body = "%s\n%s" % (row.purpose, body)
+        rstable = s3db.req_req_skill
+        skills = db(rstable.req_id == req_id).select(rstable.skill_id,
+                                                     rstable.quantity)
+        skill_represent = s3db.hrm_multi_skill_represent
+        for skill in skills:
+            item = "%s %s" % (skill.quantity, skill_represent(skill.skill_id))
+            body = "%s\n%s" % (item, body)
 
-    return attr
+    # Lookup series_id
+    stable = s3db.cms_series
+    try:
+        series_id = db(stable.name == "Request").select(stable.id,
+                                                        cache=s3db.cache,
+                                                        limitby=(0, 1)
+                                                        ).first().id
+    except:
+        # Prepop hasn't been run
+        series_id = None
 
-settings.ui.customize_req_req = customize_req_req
+    # Location is that of the site
+    otable = s3db.org_site
+    location_id = db(otable.site_id == row.site_id).select(otable.location_id,
+                                                           limitby=(0, 1)
+                                                           ).first().location_id
+    # Create Post
+    ptable = s3db.cms_post
+    id = ptable.insert(series_id=series_id,
+                       title=title,
+                       body=body,
+                       location_id=location_id,
+                       person_id=row.requester_id,
+                       )
+    record = dict(id=id)
+    s3db.update_super(ptable, record)
+
+    # Add source link
+    url = "%s%s" % (settings.get_base_public_url(),
+                    URL(c="req", f="req", args=req_id))
+    s3db.doc_document.insert(doc_id=record["doc_id"],
+                             url=url,
+                             )
+
+# -----------------------------------------------------------------------------
+def customise_req_req_resource(r, tablename):
+
+    from s3layouts import S3AddResourceLink
+    current.s3db.req_req.site_id.comment = \
+        S3AddResourceLink(c="org", f="facility",
+                          vars = dict(child="site_id"),
+                          title=T("Create Facility"),
+                          tooltip=current.messages.AUTOCOMPLETE_HELP)
+
+    current.response.s3.req_req_postprocess = req_req_postprocess
+
+settings.customise_req_req_resource = customise_req_req_resource
 
 # -----------------------------------------------------------------------------
 # Comment/uncomment modules here to disable/enable them

@@ -2,7 +2,7 @@
 
 """ S3 RESTful API
 
-    @copyright: 2009-2013 (c) Sahana Software Foundation
+    @copyright: 2009-2014 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -39,12 +39,6 @@ except:
     from StringIO import StringIO
 
 try:
-    from lxml import etree
-except ImportError:
-    print >> sys.stderr, "ERROR: lxml module needed for XML handling"
-    raise
-
-try:
     import json # try stdlib (Python 2.6)
 except ImportError:
     try:
@@ -59,12 +53,10 @@ from gluon import *
 #from gluon.html import A, DIV, URL
 #from gluon.http import HTTP, redirect
 #from gluon.validators import IS_EMPTY_OR, IS_NOT_IN_DB, IS_DATE, IS_TIME
-from gluon.dal import Row
 from gluon.storage import Storage
-from gluon.tools import callback
 
 from s3resource import S3Resource
-from s3utils import S3MarkupStripper, s3_unicode
+from s3utils import s3_store_last_record_id, s3_remove_last_record_id
 
 REGEX_FILTER = re.compile(".+\..+|.*\(.+\).*")
 
@@ -75,362 +67,6 @@ if DEBUG:
         print >> sys.stderr, m
 else:
     _debug = lambda m: None
-
-# =============================================================================
-class S3RequestManager(object):
-    """
-        Request Manager
-    """
-
-    DELETED = "deleted"
-    RCVARS = "rcvars"
-
-    MAX_DEPTH = 10
-
-    # Prefixes of resources that must not be manipulated from remote
-    # Can be amended from CLI using: s3mgr.PROTECTED = []
-    PROTECTED = ("admin",)
-
-    # -------------------------------------------------------------------------
-    def __init__(self):
-        """
-            Constructor
-        """
-
-        self.deployment_settings = current.deployment_settings
-
-        # Ensure we have a "s3" Storage in response
-        if "s3" not in current.response:
-            current.response.s3 = Storage()
-
-        # Error messages
-        T = current.T
-        self.ERROR = Storage(
-            BAD_RECORD = T("Record not found"),
-            BAD_METHOD = T("Unsupported method"),
-            METHOD_DISABLED = T("Method disabled"),
-            BAD_FORMAT = T("Unsupported data format"),
-            BAD_REQUEST = T("Invalid request"),
-            BAD_TEMPLATE = T("XSLT stylesheet not found"),
-            BAD_RESOURCE = T("Nonexistent or invalid resource"),
-            PARSE_ERROR = T("XML parse error"),
-            TRANSFORMATION_ERROR = T("XSLT transformation error"),
-            BAD_SOURCE = T("Invalid source"),
-            NO_MATCH = T("No matching element found in the data source"),
-            VALIDATION_ERROR = T("Validation error"),
-            DATA_IMPORT_ERROR = T("Data import error"),
-            NOT_PERMITTED = T("Operation not permitted"),
-            NOT_IMPLEMENTED = T("Not implemented"),
-            INTEGRITY_ERROR = T("Integrity error: record can not be deleted while it is referenced by other records")
-        )
-
-        self.LABEL = Storage(CREATE=T("CREATE"),
-                             READ=T("READ"),
-                             UPDATE=T("UPDATE"),
-                             DELETE=T("DELETE"),
-                             COPY=T("COPY"),
-                             NONE=T("NONE"))
-
-        # Settings
-        self.s3 = current.response.s3
-        self.domain = current.request.env.server_name
-        self.rlink_tablename = "s3_rlink"
-
-        self.show_urls = True
-        self.show_ids = False
-
-        # Errors
-        self.error = None
-
-        # Register
-        current.manager = self
-
-        # Codecs
-        self.codecs = Storage()
-
-        # Default method handlers (override in config)
-        self.crud = S3Method()
-        self.search = S3Method()
-
-        # Hooks
-        self.permit = current.auth.s3_has_permission
-        self.messages = None
-        self.import_prep = None
-        self.log = None
-
-        # JSON/CSV formats and content-type headers
-        self.json_formats = []
-        self.csv_formats = []
-        self.content_type = Storage()
-
-    # -------------------------------------------------------------------------
-    # Session variables
-    # -------------------------------------------------------------------------
-    def get_session(self, prefix, name):
-        """
-            Reads the last record ID for a resource from a session
-
-            @param prefix: the prefix of the resource name (=module name)
-            @param name: the name of the resource (=without prefix)
-        """
-
-        session = current.session
-
-        tablename = "%s_%s" % (prefix, name)
-        if self.RCVARS in session and tablename in session[self.RCVARS]:
-            return session[self.RCVARS][tablename]
-        else:
-            return None
-
-    # -------------------------------------------------------------------------
-    def store_session(self, prefix, name, id):
-        """
-            Stores a record ID for a resource in a session
-
-            @param prefix: the prefix of the resource name (=module name)
-            @param name: the name of the resource (=without prefix)
-            @param id: the ID to store
-        """
-
-        session = current.session
-
-        RCVARS = self.RCVARS
-
-        if RCVARS not in session:
-            session[RCVARS] = Storage()
-        if RCVARS in session:
-            tablename = "%s_%s" % (prefix, name)
-            session[RCVARS][tablename] = id
-        return True # always return True to make this chainable
-
-    # -------------------------------------------------------------------------
-    def clear_session(self, prefix=None, name=None):
-        """
-            Clears one or all record IDs stored in a session
-
-            @param prefix: the prefix of the resource name (=module name)
-            @param name: the name of the resource (=without prefix)
-        """
-
-        session = current.session
-
-        RCVARS = self.RCVARS
-
-        if prefix and name:
-            tablename = "%s_%s" % (prefix, name)
-            if RCVARS in session and tablename in session[RCVARS]:
-                del session[RCVARS][tablename]
-        else:
-            if RCVARS in session:
-                del session[RCVARS]
-
-        return True # always return True to make this chainable
-
-    # -------------------------------------------------------------------------
-    # Utilities
-    # -------------------------------------------------------------------------
-    @staticmethod
-    def validate(table, record, fieldname, value):
-        """
-            Validates a single value
-
-            @param table: the database table
-            @param record: the existing database record, if available
-            @param fieldname: name of the field
-            @param value: value to check
-
-            @status: deprecated, use S3Resource.validate instead
-                     (still used by validate.json in Inline Forms)
-        """
-
-        try:
-            field = table[fieldname]
-        except:
-            raise AttributeError("No field %s in %s" % (fieldname,
-                                                        table._tablename))
-        if field:
-            if record:
-                v = record.get(fieldname, None)
-                if v and v == value:
-                    return (value, None)
-                self_id = record[table._id.name]
-                requires = field.requires
-                if field.unique and not requires:
-                    field.requires = IS_NOT_IN_DB(current.db, str(field))
-                    field.requires.set_self_id(self_id)
-                else:
-                    if not isinstance(requires, (list, tuple)):
-                        requires = [requires]
-                    for r in requires:
-                        if hasattr(r, "set_self_id"):
-                            r.set_self_id(self_id)
-                        if hasattr(r, "other") and \
-                            hasattr(r.other, "set_self_id"):
-                            r.other.set_self_id(self_id)
-
-            if not hasattr(field, "validate"):
-                # Virtual Field
-                return (value, None)
-            else:
-                try:
-                    value, error = field.validate(value)
-                except:
-                    return (None, None)
-                else:
-                    return (value, error)
-
-    # -------------------------------------------------------------------------
-    def represent(self, field,
-                  value=None,
-                  record=None,
-                  linkto=None,
-                  strip_markup=False,
-                  xml_escape=False,
-                  non_xml_output=False,
-                  extended_comments=False):
-        """
-            Represent a field value
-
-            @param field: the field (Field)
-            @param value: the value
-            @param record: record to retrieve the value from
-            @param linkto: function or format string to link an ID column
-            @param strip_markup: strip away markup from representation
-            @param xml_escape: XML-escape the output
-            @param non_xml_output: Needed for output such as pdf or xls
-            @param extended_comments: Typically the comments are abbreviated
-        """
-
-        xml_encode = current.xml.xml_encode
-
-        NONE = current.manager.LABEL["NONE"]
-        cache = current.cache
-        fname = field.name
-
-        # Get the value
-        if record is not None:
-            tablename = str(field.table)
-            if tablename in record and isinstance(record[tablename], Row):
-                text = val = record[tablename][field.name]
-            else:
-                text = val = record[field.name]
-        else:
-            text = val = value
-
-        # Always XML-escape content markup if it is intended for xml output
-        # This code is needed (for example) for a data table that includes a link
-        # Such a table can be seen at inv/inv_item
-        # where the table displays a link to the warehouse
-        if not non_xml_output:
-            if not xml_escape and val is not None:
-                ftype = str(field.type)
-                if ftype in ("string", "text"):
-                    val = text = xml_encode(s3_unicode(val))
-                elif ftype == "list:string":
-                    val = text = [xml_encode(s3_unicode(v)) for v in val]
-
-        # Get text representation
-        if field.represent:
-            try:
-                key = "%s_repr_%s" % (field, val)
-                unicode(key)
-            except (UnicodeEncodeError, UnicodeDecodeError):
-                text = field.represent(val)
-            else:
-                text = cache.ram(key,
-                                 lambda: field.represent(val),
-                                 time_expire=60)
-                if isinstance(text, DIV):
-                    text = str(text)
-                elif not isinstance(text, basestring):
-                    text = s3_unicode(text)
-        else:
-            if val is None:
-                text = NONE
-            elif fname == "comments" and not extended_comments:
-                ur = s3_unicode(text)
-                if len(ur) > 48:
-                    text = "%s..." % ur[:45].encode("utf8")
-            else:
-                text = s3_unicode(text)
-
-        # Strip away markup from text
-        if strip_markup and "<" in text:
-            try:
-                stripper = S3MarkupStripper()
-                stripper.feed(text)
-                text = stripper.stripped()
-            except:
-                pass
-
-        # Link ID field
-        if fname == "id" and linkto:
-            id = str(val)
-            try:
-                href = linkto(id)
-            except TypeError:
-                href = linkto % id
-            href = str(href).replace(".aadata", "")
-            return A(text, _href=href).xml()
-
-        # XML-escape text
-        elif xml_escape:
-            text = xml_encode(text)
-
-        try:
-            text = text.decode("utf-8")
-        except:
-            pass
-
-        return text
-
-    # -------------------------------------------------------------------------
-    def onaccept(self, table, record, method="create"):
-        """
-            Helper to run the onvalidation routine for a record
-
-            @param table: the Table
-            @param record: the FORM or the Row to validate
-            @param method: the method
-        """
-
-        s3db = current.s3db
-        if hasattr(table, "_tablename"):
-            tablename = table._tablename
-        else:
-            tablename = table
-
-        onaccept = s3db.get_config(tablename, "%s_onaccept" % method,
-                   s3db.get_config(tablename, "onaccept"))
-        if "vars" not in record:
-            record = Storage(vars=record, errors=Storage())
-        if onaccept:
-            callback(onaccept, record, tablename=tablename)
-        return
-
-    # -------------------------------------------------------------------------
-    def onvalidation(self, table, record, method="create"):
-        """
-            Helper to run the onvalidation routine for a record
-
-            @param table: the Table
-            @param record: the FORM or the Row to validate
-            @param method: the method
-        """
-
-        s3db = current.s3db
-        if hasattr(table, "_tablename"):
-            tablename = table._tablename
-        else:
-            tablename = table
-
-        onvalidation = s3db.get_config(tablename, "%s_onvalidation" % method,
-                       s3db.get_config(tablename, "onvalidation"))
-        if "vars" not in record:
-            record = Storage(vars=record, errors=Storage())
-        if onvalidation:
-            callback(onvalidation, record, tablename=tablename)
-        return record.errors
 
 # =============================================================================
 class S3Request(object):
@@ -472,11 +108,7 @@ class S3Request(object):
                    current web2py request object
         """
 
-        manager = current.manager
-
         # Common settings
-        self.UNAUTHORISED = current.T("Not Authorized")
-        self.ERROR = manager.ERROR
 
         # XSLT Paths
         self.XSLT_PATH = "static/formats"
@@ -591,7 +223,7 @@ class S3Request(object):
                                    unapproved=unapproved,
                                    include_deleted=include_deleted,
                                    context=True,
-                                   #filter_component=component_name,
+                                   filter_component=component_name,
                                    )
 
         self.tablename = self.resource.tablename
@@ -599,7 +231,7 @@ class S3Request(object):
 
         # Try to load the master record
         self.record = None
-        uid = self.vars.get("%s.uid" % self.name, None)
+        uid = self.vars.get("%s.uid" % self.name)
         if self.id or uid and not isinstance(uid, (list, tuple)):
             # Single record expected
             self.resource.load()
@@ -607,17 +239,15 @@ class S3Request(object):
                 self.record = self.resource.records().first()
                 id = table._id.name
                 self.id = self.record[id]
-                manager.store_session(self.resource.prefix,
-                                      self.resource.name,
-                                      self.id)
+                s3_store_last_record_id(self.tablename, self.id)
             else:
-                manager.error = manager.ERROR.BAD_RECORD
+                error = current.ERROR.BAD_RECORD
                 if self.representation == "html":
-                    current.session.error = manager.error
+                    current.session.error = error
                     self.component = None # => avoid infinite loop
                     redirect(URL(r=current.request, c=self.controller))
                 else:
-                    raise KeyError(manager.error)
+                    raise KeyError(error)
 
         # Identify the component
         self.component = None
@@ -626,16 +256,15 @@ class S3Request(object):
         self.multiple = True # @todo: deprecate
 
         if self.component_name:
-            c = self.resource.components.get(self.component_name, None)
+            c = self.resource.components.get(self.component_name)
             if c:
                 self.component = c
                 self.pkey, self.fkey = c.pkey, c.fkey # @todo: deprecate
                 self.multiple = c.multiple # @todo: deprecate
             else:
-                manager.error = "%s not a component of %s" % (
-                                        self.component_name,
-                                        self.resource.tablename)
-                raise SyntaxError(manager.error)
+                error = "%s not a component of %s" % (self.component_name,
+                                                      self.resource.tablename)
+                raise SyntaxError(error)
 
         # Identify link table and link ID
         self.link = None
@@ -646,13 +275,13 @@ class S3Request(object):
         if self.link and self.id and self.component_id:
             self.link_id = self.link.link_id(self.id, self.component_id)
             if self.link_id is None:
-                manager.error = manager.ERROR.BAD_RECORD
+                error = current.ERROR.BAD_RECORD
                 if self.representation == "html":
-                    current.session.error = manager.error
+                    current.session.error = error
                     self.component = None # => avoid infinite loop
                     redirect(URL(r=current.request, c=self.controller))
                 else:
-                    raise KeyError(manager.error)
+                    raise KeyError(error)
 
         # Store method handlers
         self._handler = Storage()
@@ -917,7 +546,7 @@ class S3Request(object):
         """
 
         response = current.response
-        hooks = response.s3
+        s3 = response.s3
         self.next = None
 
         bypass = False
@@ -925,57 +554,62 @@ class S3Request(object):
         preprocess = None
         postprocess = None
 
+        representation = self.representation
+
         # Enforce primary record ID
-        if not self.id and self.representation == "html":
+        if not self.id and representation == "html":
             if self.component or self.method in ("read", "profile", "update"):
                 count = self.resource.count()
                 if self.vars is not None and count == 1:
                     self.resource.load()
                     self.record = self.resource._rows[0]
                 else:
-                    if hasattr(self.resource.search_method(), "search_interactive"):
-                        redirect(URL(r=self, f=self.name, args="search",
-                                     vars={"_next": self.url(id="[id]")}))
-                    else:
-                        current.session.error = self.ERROR.BAD_RECORD
-                        redirect(URL(r=self, c=self.prefix, f=self.name))
+                    #current.session.error = current.ERROR.BAD_RECORD
+                    redirect(URL(r=self, c=self.prefix, f=self.name))
 
         # Pre-process
-        if hooks is not None:
-            preprocess = hooks.get("prep", None)
+        if s3 is not None:
+            preprocess = s3.get("prep")
         if preprocess:
             pre = preprocess(self)
+            # Re-read representation after preprocess:
+            representation = self.representation
             if pre and isinstance(pre, dict):
                 bypass = pre.get("bypass", False) is True
-                output = pre.get("output", None)
+                output = pre.get("output")
                 if not bypass:
                     success = pre.get("success", True)
                     if not success:
-                        if self.representation == "html" and output:
+                        if representation == "html" and output:
                             if isinstance(output, dict):
                                 output.update(r=self)
                             return output
                         else:
                             status = pre.get("status", 400)
                             message = pre.get("message",
-                                              self.ERROR.BAD_REQUEST)
+                                              current.ERROR.BAD_REQUEST)
                             self.error(status, message)
             elif not pre:
-                self.error(400, self.ERROR.BAD_REQUEST)
+                self.error(400, current.ERROR.BAD_REQUEST)
 
         # Default view
-        if self.representation not in ("html", "popup"):
+        if representation not in ("html", "popup"):
             response.view = "xml.html"
 
         # Content type
-        response.headers["Content-Type"] = \
-            current.manager.content_type.get(self.representation, "text/html")
+        response.headers["Content-Type"] = s3.content_type.get(representation,
+                                                               "text/html")
 
         # Custom action?
         if not self.custom_action:
-            self.custom_action = current.s3db.get_method(self.prefix, self.name,
-                                                         component_name=self.component_name,
-                                                         method=self.method)
+            action = current.s3db.get_method(self.prefix,
+                                             self.name,
+                                             component_name=self.component_name,
+                                             method=self.method)
+            if isinstance(action, (type, types.ClassType)):
+                self.custom_action = action()
+            else:
+                self.custom_action = action
 
         # Method handling
         http = self.http
@@ -993,19 +627,17 @@ class S3Request(object):
             elif http == "DELETE":
                 handler = self.__DELETE()
             else:
-                self.error(405, self.ERROR.BAD_METHOD)
+                self.error(405, current.ERROR.BAD_METHOD)
             # Invoke the method handler
             if handler is not None:
                 output = handler(self, **attr)
-            elif self.method == "search":
-                output = self.resource.search_method()(self, **attr)
             else:
                 # Fall back to CRUD
                 output = self.resource.crud(self, **attr)
 
         # Post-process
-        if hooks is not None:
-            postprocess = hooks.get("postp", None)
+        if s3 is not None:
+            postprocess = s3.get("postp")
         if postprocess is not None:
             output = postprocess(self, output)
         if output is not None and isinstance(output, dict):
@@ -1017,7 +649,7 @@ class S3Request(object):
         if self.next is not None and \
            (self.http != "GET" or self.method == "clear"):
             if isinstance(output, dict):
-                form = output.get("form", None)
+                form = output.get("form")
                 if form:
                     if not hasattr(form, "errors"):
                         form = form[0]
@@ -1069,7 +701,7 @@ class S3Request(object):
                     self.id = resource.get_id()
                     self.uid = resource.get_uid()
                 else:
-                    self.error(404, self.ERROR.BAD_RECORD)
+                    self.error(404, current.ERROR.BAD_RECORD)
                 method = "read"
             else:
                 method = "list"
@@ -1083,20 +715,10 @@ class S3Request(object):
             return self.__DELETE()
 
         elif method == "clear" and not self.component:
-            current.manager.clear_session(self.prefix, self.name)
-            if "_next" in self.vars:
-                request_vars = dict(_next=self._next)
-            else:
-                request_vars = {}
-            if self.representation == "html" and \
-               self.resource.search_method().search_interactive:
-                self.next = URL(r=self,
-                                f=self.name,
-                                args="search",
-                                vars=request_vars)
-            else:
-                self.next = URL(r=self, f=self.name)
+            s3_remove_last_record_id(self.tablename)
+            self.next = URL(r=self, f=self.name)
             return lambda r, **attr: None
+            
         elif self.transformable():
             transform = True
 
@@ -1162,17 +784,17 @@ class S3Request(object):
             @param attr: controller attributes
         """
 
-        manager = current.manager
         _vars = r.get_vars
+        args = Storage()
 
         # Slicing
-        start = _vars.get("start", None)
+        start = _vars.get("start")
         if start is not None:
             try:
                 start = int(start)
             except ValueError:
                 start = None
-        limit = _vars.get("limit", None)
+        limit = _vars.get("limit")
         if limit is not None:
             try:
                 limit = int(limit)
@@ -1180,7 +802,7 @@ class S3Request(object):
                 limit = None
 
         # msince
-        msince = _vars.get("msince", None)
+        msince = _vars.get("msince")
         if msince is not None:
             tfmt = current.xml.ISOFORMAT
             try:
@@ -1193,12 +815,12 @@ class S3Request(object):
         # Show IDs (default: False)
         if "show_ids" in _vars:
             if _vars["show_ids"].lower() == "true":
-                manager.show_ids = True
+                current.xml.show_ids = True
 
         # Show URLs (default: True)
         if "show_urls" in _vars:
             if _vars["show_urls"].lower() == "false":
-                manager.show_urls = False
+                current.xml.show_urls = False
 
         # Maxbounds (default: False)
         maxbounds = False
@@ -1230,9 +852,8 @@ class S3Request(object):
 
         # Maximum reference resolution depth
         if "maxdepth" in _vars:
-            maxdepth = _vars["maxdepth"]
             try:
-                manager.MAX_DEPTH = int(maxdepth)
+                args["maxdepth"] = int(_vars["maxdepth"])
             except ValueError:
                 pass
 
@@ -1260,28 +881,29 @@ class S3Request(object):
         stylesheet = r.stylesheet()
 
         # Add stylesheet parameters
-        args = Storage()
         if stylesheet is not None:
             if r.component:
                 args.update(id=r.id,
                             component=r.component.tablename)
                 if r.component.alias:
                     args.update(alias=r.component.alias)
-            mode = _vars.get("xsltmode", None)
+            mode = _vars.get("xsltmode")
             if mode is not None:
                 args.update(mode=mode)
 
         # Set response headers
-        headers = current.response.headers
+        response = current.response
+        s3 = response.s3
+        headers = response.headers
         representation = r.representation
-        if representation in manager.json_formats:
+        if representation in s3.json_formats:
             as_json = True
             default = "application/json"
         else:
             as_json = False
             default = "text/xml"
-        headers["Content-Type"] = manager.content_type.get(representation,
-                                                           default)
+        headers["Content-Type"] = s3.content_type.get(representation,
+                                                      default)
 
         # Export the resource
         output = r.resource.export_xml(start=start,
@@ -1289,6 +911,7 @@ class S3Request(object):
                                        msince=msince,
                                        fields=fields,
                                        dereference=True,
+                                       # maxdepth in args
                                        references=references,
                                        mcomponents=mcomponents,
                                        rcomponents=rcomponents,
@@ -1339,9 +962,9 @@ class S3Request(object):
         source_url = None
 
         # Get the source(s)
-        manager = current.manager
-        json_formats = manager.json_formats
-        csv_formats = manager.csv_formats
+        s3 = current.response.s3
+        json_formats = s3.json_formats
+        csv_formats = s3.csv_formats
         source = []
         format = r.representation
         if format in json_formats or format in csv_formats:
@@ -1438,7 +1061,8 @@ class S3Request(object):
             @param attr: controller attributes
         """
 
-        json_formats = current.manager.json_formats
+        response = current.response
+        json_formats = response.s3.json_formats
         if r.representation in json_formats:
             as_json = True
             content_type = "application/json"
@@ -1458,7 +1082,6 @@ class S3Request(object):
         if output is None:
             # Transformation error
             r.error(400, current.xml.error)
-        response = current.response
         response.headers["Content-Type"] = content_type
         return output
 
@@ -1481,7 +1104,7 @@ class S3Request(object):
                                               as_json=True)
             content_type = "application/json"
         else:
-            r.error(501, r.ERROR.BAD_FORMAT)
+            r.error(501, current.ERROR.BAD_FORMAT)
         response = current.response
         response.headers["Content-Type"] = content_type
         return output
@@ -1533,7 +1156,7 @@ class S3Request(object):
                                                as_json=True)
             content_type = "application/json"
         else:
-            r.error(501, r.ERROR.BAD_FORMAT)
+            r.error(501, current.ERROR.BAD_FORMAT)
         response = current.response
         response.headers["Content-Type"] = content_type
         return output
@@ -1652,7 +1275,7 @@ class S3Request(object):
                 redirect(URL(r=self, f="index"))
         else:
             headers = {"Content-Type":"application/json"}
-            print >> sys.stderr, "ERROR: %s" % message
+            current.log.error(message)
             raise HTTP(status,
                        body=current.xml.json_message(success=False,
                                                      statuscode=status,
@@ -1704,7 +1327,6 @@ class S3Request(object):
             del vars["format"]
 
         args = []
-        read = False
 
         cname = self.component_name
 
@@ -1861,7 +1483,7 @@ class S3Request(object):
         stylesheet = os.path.join(folder, path, format, filename)
         if not os.path.exists(stylesheet):
             if not skip_error:
-                self.error(501, "%s: %s" % (self.ERROR.BAD_TEMPLATE,
+                self.error(501, "%s: %s" % (current.ERROR.BAD_TEMPLATE,
                                             stylesheet))
             else:
                 stylesheet = None
@@ -1875,7 +1497,7 @@ class S3Request(object):
         """
 
         self.files = Storage()
-        content_type = self.env.get("content_type", None)
+        content_type = self.env.get("content_type")
 
         source = []
         if content_type and content_type.startswith("multipart/"):
@@ -1899,6 +1521,57 @@ class S3Request(object):
             source.append(s)
 
         return source
+
+    # -------------------------------------------------------------------------
+    def customise_resource(self, tablename=None):
+        """
+            Invoke the customization callback for a resource.
+
+            @param tablename: the tablename of the resource; if called
+                              without tablename it will invoke the callbacks
+                              for the target resources of this request:
+                                - master
+                                - active component
+                                - active link table
+                              (in this order) 
+
+            Resource customization functions can be defined like:
+
+                def customise_resource_my_table(r, tablename):
+
+                    current.s3db.configure(tablename,
+                                           my_custom_setting = "example")
+                    return
+
+                settings.customise_resource_my_table = \
+                                        customise_resource_my_table
+
+            @note: the hook itself can call r.customise_resource in order
+                   to cascade customizations as necessary
+            @note: if a table is customised that is not currently loaded,
+                   then it will be loaded for this process
+        """
+
+        if tablename is None:
+            customise = self.customise_resource
+            
+            customise(self.resource.tablename)
+            component = self.component
+            if component:
+                customise(component.tablename)
+            link = self.link
+            if link:
+                customise(link.tablename)
+        else:
+            # Always load the model first (otherwise it would
+            # override the custom settings when loaded later)
+            db = current.db
+            if tablename not in db:
+                table = db.table(tablename)
+            customise = current.deployment_settings.customise_resource(tablename)
+            if customise:
+                customise(self, tablename)
+        return
 
 # =============================================================================
 class S3Method(object):
@@ -1966,21 +1639,6 @@ class S3Method(object):
                 else:
                     self.method = "list"
 
-            ## In interactive single-record CRUD, open the
-            ## instance record instead of a super-entity record
-            #if r.interactive and \
-               #self.record_id and \
-               #self.method in ("read", "update") and \
-               #self.resource.table._id.name != "id":
-                #record = self.resource[self.record_id]
-                #tablename = record.instance_type
-                #resource = current.s3db.resource(tablename
-                                                 #uid=record.uuid)
-                #resource.load()
-                #if resource.count() == 1:
-                    #self.resource = resource
-                    #self.record_id = resource.records().first()[resource.table._id]
-
         self.prefix = resource.prefix
         self.name = resource.name
         self.tablename = resource.tablename
@@ -1991,18 +1649,34 @@ class S3Method(object):
             return None
 
         if r.interactive:
-            hide_filter = attr.get("hide_filter", None)
+            # hide_filter policy:
+            #
+            #   None            show filters on master,
+            #                   hide for components (default)
+            #   False           show all filters (on all tabs)
+            #   True            hide all filters (on all tabs)
+            #
+            #   dict(alias=setting)     setting per component, alias
+            #                           None means master resource,
+            #                           use special alias _default
+            #                           to specify an alternative
+            #                           default
+            #   
+            hide_filter = attr.get("hide_filter")
             if isinstance(hide_filter, dict):
-                hide_filter = hide_filter.get(r.component_name,
-                              hide_filter.get("_default", None))
+                component_name = r.component_name
+                if component_name in hide_filter:
+                    hide_filter = hide_filter[component_name]
+                elif "_default" in hide_filter:
+                    hide_filter = hide_filter["_default"]
+                else:
+                    hide_filter = None
             if hide_filter is None:
-                # Hide by default until fully migrated:
-                hide_filter = True
-                #hide_filter = r.component is not None
+                hide_filter = r.component is not None
             self.hide_filter = hide_filter
         else:
             self.hide_filter = True
-                          
+
         # Apply method
         if widget_id and hasattr(self, "widget"):
             output = self.widget(r,
@@ -2105,7 +1779,7 @@ class S3Method(object):
 
         if not method:
             method = self.method
-        if method in ("list", "search", "datatable", "datalist"):
+        if method in ("list", "datatable", "datalist"):
             # Rest handled in S3Permission.METHODS
             method = "read"
 
@@ -2284,33 +1958,30 @@ class S3Method(object):
         _crud_strings = crud_strings.get(tablename, crud_strings)
         return _crud_strings.get(name,
                                  # Default fallback
-                                 crud_strings.get(name, None))
+                                 crud_strings.get(name))
 
 # =============================================================================
 # Global functions
 #
 def s3_request(*args, **kwargs):
 
-    manager = current.manager
     xml = current.xml
-
-    manager.error = None
     headers = {"Content-Type":"application/json"}
     try:
         r = S3Request(*args, **kwargs)
     except SyntaxError:
-        error = manager.error
-        print >> sys.stderr, "ERROR: %s" % error
+        message = sys.exc_info()[1]
+        current.log.error(message)
         raise HTTP(400,
-                    body=xml.json_message(False, 400, message=error),
-                    web2py_header=error,
+                    body=xml.json_message(False, 400, message=message),
+                    web2py_header=message,
                     **headers)
     except KeyError:
-        error = manager.error
-        print >> sys.stderr, "ERROR: %s" % error
+        message = sys.exc_info()[1]
+        current.log.error(message)
         raise HTTP(404,
-                    body=xml.json_message(False, 404, message=error),
-                    web2py_header=error,
+                    body=xml.json_message(False, 404, message=message),
+                    web2py_header=message,
                     **headers)
     except:
         raise

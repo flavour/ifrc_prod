@@ -24,7 +24,7 @@ def index_alt():
         Module homepage for non-Admin users when no CMS content found
     """
 
-    # @ToDo: Move this to the Template (separate deployment_setting or else a customize for non-REST controllers)
+    # @ToDo: Move this to the Template (separate deployment_setting or else a customise for non-REST controllers)
     template = settings.get_template()
     if template == "SandyRelief":
         # Just redirect to the Facilities
@@ -37,9 +37,7 @@ def index_alt():
 def group():
     """ RESTful CRUD controller """
 
-    return s3_rest_controller(hide_filter = False,
-                              rheader = s3db.org_rheader,
-                              )
+    return s3_rest_controller(rheader = s3db.org_rheader)
 
 # -----------------------------------------------------------------------------
 def region():
@@ -70,7 +68,7 @@ def subsector():
 def site():
     """
         RESTful CRUD controller
-        - used by S3SiteAutocompleteWidget/S3SiteAddressAutocompleteWidget
+        - used by S3SiteAutocompleteWidget
           which doesn't yet support filtering to just updateable sites
         - used by site_contact_person()
         - used by S3OptionsFilter (e.g. Asset Log)
@@ -194,7 +192,7 @@ def person():
             # Do not serve other representations here
             return False
         else:
-            s3mgr.show_ids = True
+            current.xml.show_ids = True
         return True
     s3.prep = prep
 
@@ -239,7 +237,7 @@ def mailing_list():
             table = s3db[tablename]
             _rheader = s3db.org_rheader
             _tabs = []
-    s3db.add_component("pr_group_membership", pr_group="group_id")
+    s3db.add_components("pr_group", pr_group_membership="group_id")
 
     rheader = lambda r: _rheader(r, tabs = _tabs)
     return s3_rest_controller("pr",
@@ -255,14 +253,11 @@ def donor():
 
     tablename = "org_donor"
     s3.crud_strings[tablename] = Storage(
-        title_create = ADD_DONOR,
+        label_create = ADD_DONOR,
         title_display = T("Donor Details"),
         title_list = T("Donors Report"),
         title_update = T("Edit Donor"),
-        title_search = T("Search Donors"),
-        subtitle_create = T("Add New Donor"),
         label_list_button = T("List Donors"),
-        label_create_button = ADD_DONOR,
         label_delete_button = T("Delete Donor"),
         msg_record_created = T("Donor added"),
         msg_record_modified = T("Donor updated"),

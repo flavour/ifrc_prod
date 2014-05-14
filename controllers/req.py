@@ -172,13 +172,11 @@ def req_template():
         # CRUD strings
         ADD_REQUEST = T("Add Request Template")
         s3.crud_strings["req_req"] = Storage(
-            title_create = ADD_REQUEST,
+            label_create = ADD_REQUEST,
             title_display = T("Request Template Details"),
             title_list = T("Request Templates"),
             title_update = T("Edit Request Template"),
-            subtitle_create = ADD_REQUEST,
             label_list_button = T("List Request Templates"),
-            label_create_button = ADD_REQUEST,
             label_delete_button = T("Delete Request Template"),
             msg_record_created = T("Request Template Added"),
             msg_record_modified = T("Request Template Updated"),
@@ -248,9 +246,9 @@ def req_controller():
                 if crud_strings:
                     s3.crud_strings["req_req"] = crud_strings
                 elif type == 1:
-                    s3.crud_strings["req_req"].title_create = T("Make Supplies Request")
+                    s3.crud_strings["req_req"].label_create = T("Make Supplies Request")
                 elif type == 3:
-                    s3.crud_strings["req_req"].title_create = T("Make People Request")
+                    s3.crud_strings["req_req"].label_create = T("Make People Request")
 
                 # Filter the query based on type
                 if s3.filter:
@@ -654,12 +652,7 @@ S3.confirmClick('#commit-btn','%s')''' % T("Do you want to commit to this reques
         return output
     s3.postp = postp
 
-    output = s3_rest_controller("req", "req",
-                                hide_filter = False,
-                                rheader = s3db.req_rheader,
-                                )
-
-    return output
+    return s3_rest_controller("req", "req", rheader = s3db.req_rheader)
 
 # =============================================================================
 def requester_represent(id, show_link=True):
@@ -674,8 +667,8 @@ def requester_represent(id, show_link=True):
     ptable = s3db.pr_person
     ctable = s3db.pr_contact
 
-    query = (htable.id == id) & \
-            (htable.person_id == ptable.id)
+    query = (htable.person_id == ptable.id) & \
+            (ptable.id == id)
     left = ctable.on((ctable.pe_id == ptable.pe_id) & \
                      (ctable.contact_method == "SMS"))
     row = db(query).select(htable.type,
@@ -697,17 +690,13 @@ def requester_represent(id, show_link=True):
     if show_link:
         if hr.type == 1:
             controller = "hrm"
-            group = "staff"
         else:
             controller = "vol"
-            group = "volunteer"
         request.extension = "html"
         return A(repr,
                  _href = URL(c = controller,
                              f = "person",
-                             args = ["contacts"],
-                             vars = {"group": group,
-                                     "human_resource.id": id}
+                             args = [id, "contacts"]
                              )
                  )
     return repr
@@ -719,64 +708,13 @@ def req_item():
         @ToDo: Filter out fulfilled Items?
     """
 
-    if not s3.filter:
-        # Filter out Template Items
-        ritable = s3db.req_req_item
-        rtable = db.req_req
-        s3.filter = (rtable.is_template == False) & \
-                    (rtable.id == ritable.req_id)
-
-    # Search method
-    # @ToDo: Migrate to S3Filter
-    search_method = s3db.get_config("req_req_item", "search_method")
-    if not search_method:
-        S3SearchOptionsWidget = s3base.S3SearchOptionsWidget
-        req_item_search = (
-            S3SearchOptionsWidget(
-                name="req_search_fulfil_status",
-                label=T("Status"),
-                field="req_id$fulfil_status",
-                options = s3.req_status_opts,
-                cols = 3,
-            ),
-            S3SearchOptionsWidget(
-                name="req_search_priority",
-                label=T("Priority"),
-                field="req_id$priority",
-                options = s3.req_priority_opts,
-                cols = 3,
-            ),
-            #S3SearchOptionsWidget(
-            #  name="req_search_L1",
-            #  field="req_id$site_id$location_id$L1",
-            #  location_level="L1",
-            #  cols = 3,
-            #),
-            #S3SearchOptionsWidget(
-            #  name="req_search_L2",
-            #  field="req_id$site_id$location_id$L2",
-            #  location_level="L2",
-            #  cols = 3,
-            #),
-            S3SearchOptionsWidget(
-                name="req_search_L3",
-                field="req_id$site_id$location_id$L3",
-                location_level="L3",
-                cols = 3,
-            ),
-            S3SearchOptionsWidget(
-                name="req_search_L4",
-                field="req_id$site_id$location_id$L4",
-                location_level="L4",
-                cols = 3,
-            ),
-        )
-        s3db.configure("req_req_item",
-                       search_method = s3base.S3Search(advanced=req_item_search),
-                       )
+    # Filter out Template Items
+    if request.function != "fema":
+        s3.filter = (FS("req_id$is_template") == False)
 
     def prep(r):
-        if r.interactive:
+        
+        if r.interactive or r.representation == "aadata":
 
             list_fields = s3db.get_config("req_req_item", "list_fields")
             list_fields.insert(1, "req_id$site_id")
@@ -940,60 +878,10 @@ def req_skill():
     """
 
     # Filter out Template Items
-    table = s3db.req_req_skill
-    rtable = s3db.req_req
-    s3.filter = (rtable.is_template == False) & \
-                (rtable.id == table.req_id)
-
-    # Search method
-    # @ToDo: Migrate to S3Filter
-    S3SearchOptionsWidget = s3base.S3SearchOptionsWidget
-    req_skill_search = (
-        S3SearchOptionsWidget(
-            name="req_search_fulfil_status",
-            label=T("Status"),
-            field="req_id$fulfil_status",
-            options = s3.req_status_opts,
-            cols = 3,
-        ),
-        S3SearchOptionsWidget(
-            name="req_search_priority",
-            label=T("Priority"),
-            field="req_id$priority",
-            options = s3.req_priority_opts,
-            cols = 3,
-        ),
-        #S3SearchOptionsWidget(
-        #  name="req_search_L1",
-        #  field="req_id$site_id$location_id$L1",
-        #  location_level="L1",
-        #  cols = 3,
-        #),
-        #S3SearchOptionsWidget(
-        #  name="req_search_L2",
-        #  field="req_id$site_id$location_id$L2",
-        #  location_level="L2",
-        #  cols = 3,
-        #),
-        S3SearchOptionsWidget(
-            name="req_search_L3",
-            field="req_id$site_id$location_id$L3",
-            location_level="L3",
-            cols = 3,
-        ),
-        S3SearchOptionsWidget(
-            name="req_search_L4",
-            field="req_id$site_id$location_id$L4",
-            location_level="L4",
-            cols = 3,
-        ),
-    )
-    s3db.configure("req_req_skill",
-                   search_method = s3base.S3Search(advanced=req_skill_search),
-                   )
+    s3.filter = (FS("req_id$is_template") == False)
 
     def prep(r):
-        if r.interactive:
+        if r.interactive or r.representation == "aadata":
             list_fields = s3db.get_config("req_req_skill", "list_fields")
             list_fields.insert(1, "req_id$site_id")
             list_fields.insert(1, "req_id$site_id$location_id$L4")
@@ -1026,9 +914,7 @@ def req_skill():
         return output
     s3.postp = postp
 
-    output = s3_rest_controller("req", "req_skill")
-
-    return output
+    return s3_rest_controller("req", "req_skill")
 
 # =============================================================================
 def summary_option():
@@ -1211,9 +1097,7 @@ S3OptionsFilter({
         return output
     s3.postp = postp
 
-    output = s3_rest_controller(hide_filter=False,
-                                rheader=commit_rheader)
-    return output
+    return s3_rest_controller(rheader=commit_rheader)
 
 # -----------------------------------------------------------------------------
 def commit_rheader(r):
@@ -1394,17 +1278,17 @@ def commit_req():
 
     citable = s3db.req_commit_item
     for req_item in req_items:
-        req_item_quantity = req_item.req_req_item.quantity * \
-                            req_item.req_req_item.pack_quantity
+        req_pack_quantity = req_item.req_req_item.pack_quantity()
+        req_item_quantity = req_item.req_req_item.quantity * req_pack_quantity
 
         inv_item_quantity = req_item.inv_inv_item.quantity * \
-                            req_item.inv_inv_item.pack_quantity
+                            req_item.inv_inv_item.pack_quantity()
 
         if inv_item_quantity > req_item_quantity:
             commit_item_quantity = req_item_quantity
         else:
             commit_item_quantity = inv_item_quantity
-        commit_item_quantity = commit_item_quantity / req_item.req_req_item.pack_quantity
+        commit_item_quantity = commit_item_quantity / req_pack_quantity
 
         if commit_item_quantity:
             req_item_id = req_item.req_req_item.id
@@ -1415,7 +1299,7 @@ def commit_req():
                                             )
 
             # Update the req_item.commit_quantity & req.commit_status
-            s3mgr.store_session("req", "commit_item", commit_item_id)
+            s3base.s3_store_last_record_id("req_commit_item", commit_item_id)
             form = Storage()
             form.vars = Storage(
                     req_item_id = req_item_id
@@ -1582,6 +1466,7 @@ def send_req():
                    req_item_id = rim_id,
                    item_pack_id = iitem.item_pack_id,
                    quantity = send_item_quantity,
+                   recv_quantity = send_item_quantity,
                    status = IN_PROCESS,
                    pack_value = iitem.pack_value,
                    currency = iitem.currency,
@@ -1685,22 +1570,16 @@ def fema():
                 (ritable.deleted != True) & \
                 (ritable.item_id.belongs(fema_item_ids))
 
-    # Search method
-    # @ToDo: Migrate to S3Filter
-    req_item_search = [
-        s3base.S3SearchOptionsWidget(
-            name="req_search_site",
-            field="req_id$site_id",
-            label = T("Facility"),
-            cols = 3,
-        ),
-        ]
-    s3db.configure("req_req_item",
-                   search_method = s3base.S3Search(advanced=req_item_search),
-                   )
+    # Filter Widgets
+    filter_widgets = [
+        s3base.S3OptionsFilter("req_id$site_id",
+                               label = T("Facility"),
+                               #cols = 3,
+                               ),
+    ]
+    s3db.configure("req_req_item", filter_widgets = filter_widgets)
 
-    output = req_item()
-    return output
+    return req_item()
 
 # -----------------------------------------------------------------------------
 def organisation_needs():

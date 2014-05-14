@@ -60,7 +60,7 @@ def index2():
                 if orderby is None:
                     orderby = default_orderby
             start = int(vars.iDisplayStart) if vars.iDisplayStart else 0
-            limit = int(vars.iDisplayLength) if vars.iDisplayLength else s3mgr.ROWSPERPAGE
+            limit = int(vars.iDisplayLength) if vars.iDisplayLength else s3.ROWSPERPAGE
             data = resource.select(list_fields,
                                    start=start,
                                    limit=limit,
@@ -139,7 +139,7 @@ def index2():
                 if isinstance(orderby, bool):
                     orderby = [table.site_id, stable.name, ~table.quantity]
                 start = int(vars.iDisplayStart) if vars.iDisplayStart else 0
-                limit = int(vars.iDisplayLength) if vars.iDisplayLength else s3mgr.ROWSPERPAGE
+                limit = int(vars.iDisplayLength) if vars.iDisplayLength else s3.ROWSPERPAGE
                 data = resource.select(list_fields,
                                        orderby=orderby,
                                        start=start,
@@ -310,12 +310,7 @@ def warehouse():
                 s3db.inv_prep(r)
 
             elif component_name == "human_resource":
-                # Filter out people which are already staff for this warehouse
-                s3base.s3_filter_staff(r)
-                # Cascade the organisation_id from the hospital to the staff
-                htable = s3db.hrm_human_resource
-                htable.organisation_id.default = r.record and r.record.organisation_id
-                htable.organisation_id.writable = False
+                s3db.org_site_staff_config(r)
 
             elif component_name == "req":
                 s3db.req_prep(r)
@@ -355,18 +350,18 @@ def warehouse():
             # Change Action buttons to open Stock Tab by default
             read_url = URL(f="warehouse", args=["[id]", "inv_item"])
             update_url = URL(f="warehouse", args=["[id]", "inv_item"])
-            s3mgr.crud.action_buttons(r,
-                                      read_url=read_url,
-                                      update_url=update_url)
+            s3_action_buttons(r,
+                              read_url=read_url,
+                              update_url=update_url)
         else:
             cname = r.component_name
             if cname == "human_resource":
                 # Modify action button to open staff instead of human_resource
                 read_url = URL(c="hrm", f="staff", args=["[id]"])
                 update_url = URL(c="hrm", f="staff", args=["[id]", "update"])
-                s3mgr.crud.action_buttons(r, read_url=read_url,
-                                          #delete_url=delete_url,
-                                          update_url=update_url)
+                s3_action_buttons(r, read_url=read_url,
+                                  #delete_url=delete_url,
+                                  update_url=update_url)
 
         if "add_btn" in output:
             del output["add_btn"]
@@ -379,16 +374,11 @@ def warehouse():
         resourcename = "warehouse"
     csv_stylesheet = "%s.xsl" % resourcename
 
-    if "map" in request.args:
-        # S3Map has migrated
-        hide_filter = False
-    else:
-        # Not yet ready otherwise
-        hide_filter = True
-
     output = s3_rest_controller(module, resourcename,
                                 rheader=s3db.inv_rheader,
-                                hide_filter=hide_filter,
+                                hide_filter = {"inv_item": False,
+                                               "_default": True,
+                                              },
                                 csv_template = resourcename,
                                 csv_stylesheet = csv_stylesheet,
                                 # Extra fields for CSV uploads:
@@ -415,15 +405,12 @@ def supplier():
     # Modify CRUD Strings
     ADD_SUPPLIER = T("Add Supplier")
     s3.crud_strings.org_organisation = Storage(
-        title_create=ADD_SUPPLIER,
+        label_create=ADD_SUPPLIER,
         title_display=T("Supplier Details"),
         title_list=T("Suppliers"),
         title_update=T("Edit Supplier"),
-        title_search=T("Search Suppliers"),
         title_upload=T("Import Suppliers"),
-        subtitle_create=ADD_SUPPLIER,
         label_list_button=T("List Suppliers"),
-        label_create_button=ADD_SUPPLIER,
         label_delete_button=T("Delete Supplier"),
         msg_record_created=T("Supplier added"),
         msg_record_modified=T("Supplier updated"),
@@ -468,13 +455,12 @@ def inv_item():
 
     s3.crud_strings[tablename].msg_list_empty = T("No Stock currently registered")
 
-    if "report" in request.get_vars and \
-       request.get_vars.report == "mon":
+    report = request.get_vars.get("report")
+    if report == "mon":
             s3.crud_strings[tablename].update(dict(
                 title_list = T("Monetization Report"),
                 subtitle_list = T("Monetization Details"),
                 #msg_list_empty = T("No Stock currently registered"),
-                title_search = T("Monetization Report"),
               ))
             s3db.configure(tablename,
                            list_fields = ["id",
@@ -516,7 +502,7 @@ def inv_item():
         s3.filter = (table.quantity != 0)
 
     def prep(r):
-        if r.method != "search" and r.method != "report":
+        if r.method != "report":
             s3.dataTable_group = 1
         return True
     s3.prep = prep
@@ -524,9 +510,8 @@ def inv_item():
     # Import pre-process
     def import_prep(data):
         """
-            Deletes all Stock records of the organisation
-            before processing a new data import, used for the import_prep
-            hook in s3mgr
+            Deletes all Stock records of the organisation/branch
+            before processing a new data import
         """
         request = current.request
         resource, tree = data
@@ -554,10 +539,11 @@ def inv_item():
                                 (stable.organisation_id == otable.id) & \
                                 (itable.site_id == stable.id)
                         resource = s3db.resource("inv_inv_item", filter=query)
-                        ondelete = s3db.get_config("inv_inv_item", "ondelete")
-                        resource.delete(ondelete=ondelete, format="xml")
+                        # Use cascade=True so that the deletion gets
+                        # rolled back if the import fails:
+                        resource.delete(format="xml", cascade=True)
             resource.skip_import = True
-    s3mgr.import_prep = import_prep
+    s3.import_prep = import_prep
     # Upload for configuration (add replace option)
     s3.importerPrep = lambda: dict(ReplaceOption=T("Remove existing data before import"))
 
@@ -1339,99 +1325,98 @@ def track_item():
                    deletable=False,
                    )
 
-    vars = request.get_vars
-    if "report" in vars:
-        if vars.report == "rel":
-            s3.crud_strings["inv_track_item"] = Storage(title_list = T("Summary of Releases"),
-                                                        subtitle_list = T("Summary Details"),
-                                                        title_search = T("Summary of Releases"),
-                                                        )
-            s3db.configure("inv_track_item",
-                            list_fields = ["id",
-                                           #"send_id",
-                                           #"req_item_id",
-                                           (T("Date Released"), "send_id$date"),
-                                           (T("Beneficiary"), "send_id$site_id"),
-                                           (settings.get_inv_send_shortname(), "send_id$send_ref"),
-                                           (settings.get_req_shortname(), "send_id$req_ref"),
-                                           (T("Items/Description"), "item_id"),
-                                           (T("Source"), "supply_org_id"),
-                                           (T("Unit"), "item_pack_id"),
-                                           (T("Quantity"), "quantity"),
-                                           (T("Unit Cost"), "pack_value"),
-                                           (T("Total Cost"), "total_value"),
-                                           ],
-                            orderby = "site_id",
-                            sort = True
-                            )
-            s3.filter = (table.send_id != None)
+    report = request.get_vars.get("report")
+    if report == "rel":
+        # Summary of Releases
+        s3.crud_strings["inv_track_item"] = Storage(title_list = T("Summary of Releases"),
+                                                    subtitle_list = T("Summary Details"),
+                                                    )
+        s3db.configure("inv_track_item",
+                       list_fields = ["id",
+                                      #"send_id",
+                                      #"req_item_id",
+                                      (T("Date Released"), "send_id$date"),
+                                      (T("Beneficiary"), "send_id$site_id"),
+                                      (settings.get_inv_send_shortname(), "send_id$send_ref"),
+                                      (settings.get_req_shortname(), "send_id$req_ref"),
+                                      (T("Items/Description"), "item_id"),
+                                      (T("Source"), "supply_org_id"),
+                                      (T("Unit"), "item_pack_id"),
+                                      (T("Quantity"), "quantity"),
+                                      (T("Unit Cost"), "pack_value"),
+                                      (T("Total Cost"), "total_value"),
+                                     ],
+                       orderby = "inv_send.site_id",
+                       sort = True
+                      )
+        s3.filter = (FS("send_id") != None)
 
-        elif vars.report == "inc":
-            s3.crud_strings["inv_track_item"] = Storage(title_list = T("Summary of Incoming Supplies"),
-                                                        subtitle_list = T("Summary Details"),
-                                                        title_search = T("Summary of Incoming Supplies"),
-                                                        )
+    elif report == "inc":
+        # Summary of Incoming Supplies
+        s3.crud_strings["inv_track_item"] = Storage(title_list = T("Summary of Incoming Supplies"),
+                                                    subtitle_list = T("Summary Details"),
+                                                    )
 
-            s3db.configure("inv_track_item",
-                            list_fields = ["id",
-                                           (T("Date Received"), "recv_id$date"),
-                                           (T("Received By"), "recv_id$recipient_id"),
-                                           (settings.get_inv_send_shortname(), "recv_id$send_ref"),
-                                           (settings.get_inv_recv_shortname(), "recv_id$recv_ref"),
-                                           (settings.get_proc_shortname(), "recv_id$purchase_ref"),
-                                           (T("Item/Description"), "item_id"),
-                                           (T("Unit"), "item_pack_id"),
-                                           (T("Quantity"), "quantity"),
-                                           (T("Unit Cost"), "pack_value"),
-                                           (T("Total Cost"), "total_value"),
-                                           (T("Source"), "supply_org_id"),
-                                           (T("Remarks"), "comments"),
-                                           ],
-                            orderby = "inv_recv.recipient_id",
-                            )
-            s3.filter = (table.recv_id != None)
+        s3db.configure("inv_track_item",
+                        list_fields = ["id",
+                                        (T("Date Received"), "recv_id$date"),
+                                        (T("Received By"), "recv_id$recipient_id"),
+                                        (settings.get_inv_send_shortname(), "recv_id$send_ref"),
+                                        (settings.get_inv_recv_shortname(), "recv_id$recv_ref"),
+                                        (settings.get_proc_shortname(), "recv_id$purchase_ref"),
+                                        (T("Item/Description"), "item_id"),
+                                        (T("Unit"), "item_pack_id"),
+                                        (T("Quantity"), "quantity"),
+                                        (T("Unit Cost"), "pack_value"),
+                                        (T("Total Cost"), "total_value"),
+                                        (T("Source"), "supply_org_id"),
+                                        (T("Remarks"), "comments"),
+                                        ],
+                        orderby = "inv_recv.recipient_id",
+                        )
+        s3.filter = (FS("recv_id") != None)
 
-        elif vars.report == "util":
-            s3.crud_strings["inv_track_item"] = Storage(title_list = T("Utilization Report"),
-                                                        subtitle_list = T("Utilization Details"),
-                                                        title_search = T("Utilization Report"),
-                                                        )
+    elif report == "util":
+        # Utilization Report
+        s3.crud_strings["inv_track_item"] = Storage(title_list = T("Utilization Report"),
+                                                    subtitle_list = T("Utilization Details"),
+                                                    )
 
-            s3db.configure("inv_track_item",
-                            list_fields = ["id",
-                                           (T("Item/Description"), "item_id$name"),
-                                           (T("Beneficiary"), "send_id$site_id"),
-                                           (settings.get_inv_send_shortname(), "send_id$send_ref"),
-                                           (settings.get_req_shortname(), "send_id$req_ref"),
-                                           (T("Items/Description"), "item_id"),
-                                           (T("Source"), "supply_org_id"),
-                                           (T("Unit"), "item_pack_id"),
-                                           (T("Quantity"), "quantity"),
-                                           (T("Unit Cost"), "pack_value"),
-                                           (T("Total Cost"), "total_value"),
-                                           ]
-                            )
+        s3db.configure("inv_track_item",
+                        list_fields = ["id",
+                                        (T("Item/Description"), "item_id$name"),
+                                        (T("Beneficiary"), "send_id$site_id"),
+                                        (settings.get_inv_send_shortname(), "send_id$send_ref"),
+                                        (settings.get_req_shortname(), "send_id$req_ref"),
+                                        (T("Items/Description"), "item_id"),
+                                        (T("Source"), "supply_org_id"),
+                                        (T("Unit"), "item_pack_id"),
+                                        (T("Quantity"), "quantity"),
+                                        (T("Unit Cost"), "pack_value"),
+                                        (T("Total Cost"), "total_value"),
+                                        ]
+                        )
 
-            s3.filter = (table.item_id != None)
+        s3.filter = (FS("item_id") != None)
 
-        elif vars.report == "exp":
-            s3.crud_strings["inv_track_item"] = Storage(title_list = T("Expiration Report"),
-                                                        subtitle_list = T("Expiration Details"),
-                                                        title_search = T("Expiration Report"),
-                                                        )
+    elif report == "exp":
+        # Expiration Report
+        s3.crud_strings["inv_track_item"] = Storage(title_list = T("Expiration Report"),
+                                                    subtitle_list = T("Expiration Details"),
+                                                    )
 
-            s3db.configure("inv_track_item",
-                            list_fields = ["id",
-                                           (T("Item/Description"), "item_id"),
-                                           (T("Expiration Date"), "expiry_date"),
-                                           (T("Source"), "supply_org_id"),
-                                           (T("Unit"), "item_pack_id"),
-                                           (T("Quantity"), "quantity"),
-                                           (T("Unit Cost"), "pack_value"),
-                                           (T("Total Cost"), "total_value"),
-                                           ]
-                            )
-            s3.filter = (table.expiry_date != None)
+        s3db.configure("inv_track_item",
+                        list_fields = ["id",
+                                        (T("Item/Description"), "item_id"),
+                                        (T("Expiration Date"), "expiry_date"),
+                                        (T("Source"), "supply_org_id"),
+                                        (T("Unit"), "item_pack_id"),
+                                        (T("Quantity"), "quantity"),
+                                        (T("Unit Cost"), "pack_value"),
+                                        (T("Total Cost"), "total_value"),
+                                        ]
+                        )
+        s3.filter = (FS("expiry_date") != None)
 
     output = s3_rest_controller(rheader=s3db.inv_rheader)
     return output

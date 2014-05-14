@@ -18,7 +18,7 @@ class S3OptionsMenu(default.S3OptionsMenu):
         controller, so each controller has its own options menu function
         in this class.
 
-        Each of these option menu functions can be customized separately,
+        Each of these option menu functions can be customised separately,
         by simply overriding (re-defining) the default function. The
         options menu function must return an instance of the item layout.
 
@@ -39,7 +39,7 @@ class S3OptionsMenu(default.S3OptionsMenu):
 
         return M(c="org")(
                     M("Organizations", f="organisation")(
-                        M("Add Organization", m="create"),
+                        M("Create Organization", m="create"),
                         M("List All"),
                         M("Import", m="import")
                     ),
@@ -72,13 +72,13 @@ class S3OptionsMenu(default.S3OptionsMenu):
         menu = M(c="project")(
             M("Projects", f="project")(
                 M("New", m="create"),
-                M("List All"),
+                #M("List All"),
                 M("Map", f="location", m="map"),
             ),
-            M("Reports", f="location", m="report2")(
-                M("3W", f="location", m="report2"),
-                M("Beneficiaries", f="beneficiary", m="report2"),
-                M("Funding", f="organisation", m="report2"),
+            M("Reports", f="location", m="report")(
+                M("3W", f="location", m="report"),
+                M("Beneficiaries", f="beneficiary", m="report"),
+                M("Funding", f="organisation", m="report"),
             ),
             M("Import", f="project", m="import", p="create")(
                 M("Import Projects", m="import", p="create"),
@@ -89,25 +89,24 @@ class S3OptionsMenu(default.S3OptionsMenu):
             ),
             M("Partner Organizations",  f="partners")(
                 M("New", m="create"),
-                M("List All"),
+                #M("List All"),
                 M("Import", m="import", p="create"),
             ),
             M("Themes", f="theme")(
                 M("New", m="create"),
-                M("List All"),
+                #M("List All"),
             ),
             M("Activity Types", f="activity_type")(
                 M("New", m="create"),
-                M("List All"),
-                #M("Search", m="search")
+                #M("List All"),
             ),
             M("Beneficiary Types", f="beneficiary_type")(
                 M("New", m="create"),
-                M("List All"),
+                #M("List All"),
             ),
             M("Demographics", f="demographic")(
                 M("New", m="create"),
-                M("List All"),
+                #M("List All"),
             ),
         )
 

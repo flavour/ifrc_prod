@@ -69,10 +69,10 @@ class S3Codec(object):
     def get_codec(format):
 
         # Import the codec classes
-        from codecs import S3SHP
-        from codecs import S3SVG
-        from codecs import S3XLS
-        from codecs import S3RL_PDF
+        from s3codecs import S3SHP
+        from s3codecs import S3SVG
+        from s3codecs import S3XLS
+        from s3codecs import S3RL_PDF
 
         # Register the codec classes
         CODECS = Storage(
@@ -155,7 +155,11 @@ class S3Codec(object):
 
             @param dtstr: the date/time string
         """
-        DEFAULT = datetime.datetime.utcnow()
+
+        # Default seconds/microseconds=zero
+        DEFAULT = datetime.datetime.utcnow().replace(second=0,
+                                                     microsecond=0)
+                                                     
         dt = dateutil.parser.parse(dtstr, default=DEFAULT)
         if dt.tzinfo is None:
             try:
@@ -163,7 +167,7 @@ class S3Codec(object):
                                            default=DEFAULT)
             except:
                 # time part missing?
-                dt = dateutil.parser.parse(dtstr + " 00:00 +0000",
+                dt = dateutil.parser.parse(dtstr + " 00:00:00 +0000",
                                            default=DEFAULT)
         return dt
 

@@ -63,6 +63,8 @@ settings.base.guided_tour = True
 #settings.auth.opt_in_team_list = ["Updates"]
 # Uncomment this to set the opt in default to True
 #settings.auth.opt_in_default = True
+# Uncomment this to request the Home Phone when a user registers
+#settings.auth.registration_requests_home_phone = True
 # Uncomment this to request the Mobile Phone when a user registers
 #settings.auth.registration_requests_mobile_phone = True
 # Uncomment this to have the Mobile Phone selection during registration be mandatory
@@ -81,7 +83,7 @@ settings.base.guided_tour = True
 #settings.auth.registration_organisation_group_required = True
 # Uncomment this to request the Site when a user registers
 #settings.auth.registration_requests_site = True
-# Uncomment this to allow Admin to see Organisations in user Admin even if the Registration doesn't request this
+# Uncomment this to allow Admin to see Organisations in User Admin even if the Registration doesn't request this
 #settings.auth.admin_sees_organisation = True
 # Uncomment to set the default role UUIDs assigned to newly-registered users
 # This is a dictionary of lists, where the key is the realm that the list of roles applies to
@@ -91,7 +93,7 @@ settings.base.guided_tour = True
 # Uncomment this to enable record approval
 #settings.auth.record_approval = True
 # Uncomment this and specify a list of tablenames for which record approval is required
-#settings.auth.record_approval_required_for = ["project_project"]
+#settings.auth.record_approval_required_for = ("org_organisation",)
 # Uncomment this to request an image when users register
 #settings.auth.registration_requests_image = True
 # Uncomment this to direct newly-registered users to their volunteer page to be able to add extra details
@@ -108,7 +110,7 @@ settings.base.guided_tour = True
 # Uncomment this to enable presence records on login based on HTML5 geolocations
 #settings.auth.set_presence_on_login = True
 # Uncomment this and specify a list of location levels to be ignored by presence records
-#settings.auth.ignore_levels_for_presence = ["L0", "L1", "L2", "L3"]
+#settings.auth.ignore_levels_for_presence = ("L0", "L1", "L2", "L3")
 # Uncomment this to enable the creation of new locations if a user logs in from an unknown location. Warning: This may lead to many useless location entries
 #settings.auth.create_unknown_locations = True
 
@@ -117,8 +119,6 @@ settings.base.guided_tour = True
 # http://www.loc.gov/standards/iso639-2/php/code_list.php
 #settings.L10n.languages = OrderedDict([
 #    ("ar", "العربية"),
-#    ("zh-cn", "中文 (简体)"),
-#    ("zh-tw", "中文 (繁體)"),
 #    ("en", "English"),
 #    ("fr", "Français"),
 #    ("de", "Deutsch"),
@@ -126,13 +126,20 @@ settings.base.guided_tour = True
 #    ("es", "Español"),
 #    ("it", "Italiano"),
 #    ("ja", "日本語"),
+#    ("km", "ភាសាខ្មែរ"),
 #    ("ko", "한국어"),
+#    ("ne", "नेपाली"),          # Nepali
+#    ("prs", "دری"), # Dari
+#    ("ps", "پښتو"), # Pashto
 #    ("pt", "Português"),
 #    ("pt-br", "Português (Brasil)"),
 #    ("ru", "русский"),
+#    ("tet", "Tetum"),
 #    ("tl", "Tagalog"),
 #    ("ur", "اردو"),
 #    ("vi", "Tiếng Việt"),
+#    ("zh-cn", "中文 (简体)"),
+#    ("zh-tw", "中文 (繁體)"),
 #])
 # Default language for Language Toolbar (& GIS Locations in future)
 #settings.L10n.default_language = "en"
@@ -140,9 +147,9 @@ settings.base.guided_tour = True
 #settings.L10n.display_toolbar = False
 # Default timezone for users
 #settings.L10n.utc_offset = "UTC +0000"
-# Uncomment these to use US-style dates in English (localisations can still convert to local format)
-#settings.L10n.date_format = T("%m-%d-%Y")
-#settings.L10n.time_format = T("%H:%M:%S")
+# Uncomment these to use US-style dates in English
+#settings.L10n.date_format = "%m-%d-%Y"
+#settings.L10n.time_format = "%H:%M:%S"
 # Start week on Sunday
 #settings.L10n.firstDOW = 0
 # Number formats (defaults to ISO 31-0)
@@ -155,15 +162,15 @@ settings.L10n.decimal_separator = "."
 # Make last name in person/user records mandatory
 #settings.L10n.mandatory_lastname = True
 # Configure the list of Religions
-#settings.L10n.get("religions", {"none": T("none"),
-                                #"christian": T("Christian"),
-                                #"muslim": T("Muslim"),
-                                #"jewish": T("Jewish"),
-                                #"buddhist": T("Buddhist"),
-                                #"hindu": T("Hindu"),
-                                #"bahai": T("Bahai"),
-                                #"other": T("other")
-                                #})
+#settings.L10n.religions = {"none": T("none"),
+                           #"christian": T("Christian"),
+                           #"muslim": T("Muslim"),
+                           #"jewish": T("Jewish"),
+                           #"buddhist": T("Buddhist"),
+                           #"hindu": T("Hindu"),
+                           #"bahai": T("Bahai"),
+                           #"other": T("other")
+                           #}
 # Uncomment this to Translate CMS Series Names
 #settings.L10n.translate_cms_series = True
 # Uncomment this to Translate Layer Names
@@ -206,6 +213,8 @@ settings.L10n.decimal_separator = "."
 #settings.gis.building_name = False
 # Use a non-default fillColor for Clustered points
 #settings.gis.cluster_fill = "8087ff"
+# Disable the label for clustered points
+#settings.gis.cluster_label = False
 # Use a non-default strokeColor for Clustered points
 #settings.gis.cluster_stroke = "2b2f76"
 # Use a non-default fillColor for Selected points
@@ -218,6 +227,8 @@ settings.L10n.decimal_separator = "."
 #settings.gis.display_L0 = True
 # Currently unused
 #settings.gis.display_L1 = False
+# Uncomemnt this to do deduplicate lookups on Imports via PCode (as alternative to Name)
+#settings.gis.lookup_pcode = True
 # Set this if there will be multiple areas in which work is being done,
 # and a menu to select among them is wanted.
 #settings.gis.menu = "Maps"
@@ -232,12 +243,16 @@ settings.L10n.decimal_separator = "."
 #settings.gis.duplicate_features = True
 # Uncomment to use CMS to provide Metadata on Map Layers
 #settings.gis.layer_metadata = True
+# Uncomment to show Clear Layers tool
+#settings.gis.clear_layers = True
 # Uncomment to hide Layer Properties tool
 #settings.gis.layer_properties = False
 # Uncomment to hide the Base Layers folder in the LayerTree
 #settings.gis.layer_tree_base = False
 # Uncomment to hide the Overlays folder in the LayerTree
 #settings.gis.layer_tree_overlays = False
+# Uncomment to change the label of the Overlays folder in the LayerTree
+#settings.gis.label_overlays = "Overlays"
 # Uncomment to not expand the folders in the LayerTree by default
 #settings.gis.layer_tree_expanded = False
 # Uncomment to have custom folders in the LayerTree use Radio Buttons
@@ -256,14 +271,27 @@ settings.L10n.decimal_separator = "."
 #settings.gis.poi_resources = ["cr_shelter", "hms_hospital", "org_office"]
 # Uncomment to hide the ScaleLine control
 #settings.gis.scaleline = False
+# Uncomment to hide the GeoNames search box
+#settings.gis.search_geonames = False
 # Uncomment to modify the Simplify Tolerance
 #settings.gis.simplify_tolerance = 0.001
+# Uncomment to Hide the Toolbar from the main Map
+#settings.gis.toolbar = False
+# Uncomment to show Catalogue Layers in Map Widgets (e.g. Profile & Summary pages)
+#settings.gis.widget_catalogue_layers = True
+# Uncomment to show WMS Browser in Map Widgets (e.g. Profile & Summary pages)
+# - NB This also requires the active gis_config to have one configured
+#settings.gis.widget_wms_browser = True
 # Uncomment to hide the Zoom control
 #settings.gis.zoomcontrol = False
+# GeoNames username
+settings.gis.geonames_username = "eden_test"
 
 # Messaging Settings
 # If you wish to use a parser.py in another folder than "default"
 #settings.msg.parser = "mytemplatefolder"
+# Uncomment to turn off enforcement of E.123 international phone number notation
+#settings.msg.require_international_phone_numbers = False
 
 # Use 'soft' deletes
 #settings.security.archive_not_delete = False
@@ -326,25 +354,59 @@ settings.L10n.decimal_separator = "."
 #settings.ui.export_formats = ["kml", "pdf", "rss", "xls", "xml"]
 # Uncomment to include an Interim Save button on CRUD forms
 #settings.ui.interim_save = True
+# Uncomment to enable glyphicon icons on action buttons (requires bootstrap CSS)
+#settings.ui.use_button_glyphicons = True
+# Uncomment to use S3MultiSelectWidget on all dropdowns (currently the Auth Registration page & LocationSelectorWidget2 listen to this)
+#settings.ui.multiselect_widget = True
 
 # -----------------------------------------------------------------------------
 # CMS
 # Uncomment to use Bookmarks in Newsfeed
 #settings.cms.bookmarks = True
+# Uncomment to use have Filter form in Newsfeed be open by default
+#settings.cms.filter_open = True
+# Uncomment to adjust filters in Newsfeed when clicking on locations instead of opening the profile page
+#settings.cms.location_click_filters = True
 # Uncomment to use Rich Text editor in Newsfeed
 #settings.cms.richtext = True
-# Uncomment to show tags in Newsfeed
+# Uncomment to show Events in Newsfeed
+#settings.cms.show_events = True
+# Uncomment to show Links in Newsfeed
+#settings.cms.show_links = True
+# Uncomment to show Tags in Newsfeed
 #settings.cms.show_tags = True
+# Uncomment to show post Titles in Newsfeed
+#settings.cms.show_titles = True
+# Uncomment to use organisation_id instead of created_by in Newsfeed
+#settings.cms.organisation = "post_organisation.organisation_id"
+# Uncomment to use org_group_id in Newsfeed
+#settings.cms.organisation_group = "created_by$org_group_id"
+#settings.cms.organisation_group = "post_organisation_group.group_id"
+# Uncomment to use person_id instead of created_by in Newsfeed
+#settings.cms.person = "person_id"
+
+# -----------------------------------------------------------------------------
+# Events
+# Make Event Types Hierarchical
+#settings.event.types_hierarchical = True
 
 # -----------------------------------------------------------------------------
 # Persons
+# Uncomment to allow person imports to match even without email addresses 
+#settings.pr.import_update_requires_email = False
+# Uncomment to a fuzzy search for duplicates in the new AddPersonWidget2
+#settings.pr.lookup_duplicates = True
 # Uncomment to hide fields in S3AddPersonWidget[2]
 #settings.pr.request_dob = False
 #settings.pr.request_gender = False
 # Uncomment to show field in S3AddPersonWidget
 #settings.pr.request_home_phone = True
-# Uncomment to prevent selecting existing users in S3AddPersonWidget
+# Uncomment to modify the order of Names
+#settings.pr.name_format = "%(last_name)s, %(first_name)s %(middle_name)s"
+# Uncomment to prevent selecting existing users in the old S3AddPersonWidget
 #settings.pr.select_existing = False
+# Uncomment to prevent showing HR details in S3PersonAutocompleteWidget results
+#settings.pr.search_shows_hr_details = False
 
 # -----------------------------------------------------------------------------
 # Organisations
@@ -352,11 +414,17 @@ settings.L10n.decimal_separator = "."
 #settings.org.autocomplete = True
 # Enable the use of Organisation Branches
 #settings.org.branches = True
+# Make Facility Types Hierarchical
+#settings.org.facility_types_hierarchical = True
 # Enable the use of Organisation Groups & what their name is
 #settings.org.groups = "Coalition"
 #settings.org.groups = "Network"
 # Enable the use of Organisation Regions
 #settings.org.regions = True
+# Make Organisation Regions Hierarchical
+#settings.org.regions_hierarchical = True
+# Make Services Hierarchical
+#settings.org.services_hierarchical = True
 # Set the length of the auto-generated org/site code the default is 10
 #settings.org.site_code_len = 3
 # Set the label for Sites
@@ -365,10 +433,8 @@ settings.L10n.decimal_separator = "."
 #settings.org.site_last_contacted = True
 # Uncomment to use an Autocomplete for Site lookup fields
 #settings.org.site_autocomplete = True
-# Extra fields to show in Autocomplete Representations
-#settings.org.site_autocomplete_fields = ["instance_type", "location_id$L1", "organisation_id$name"]
-# Uncomment to have Site Autocompletes search within Address fields
-#settings.org.site_address_autocomplete = True
+# Extra fields to search in Autocompletes & display in Representations
+#settings.org.site_autocomplete_fields = ("instance_type", "location_id$L1", "location_id$addr_street", "organisation_id$name")
 # Uncomment to hide inv & req tabs from Sites
 #settings.org.site_inv_req_tabs = False
 # Uncomment to add summary fields for Organisations/Offices for # National/International staff
@@ -390,7 +456,7 @@ settings.L10n.decimal_separator = "."
 
 # -----------------------------------------------------------------------------
 # Human Resource Management
-# Uncomment to chage the label for 'Staff'
+# Uncomment to change the label for 'Staff'
 #settings.hrm.staff_label = "Contacts"
 # Uncomment to allow Staff & Volunteers to be registered without an email address
 #settings.hrm.email_required = False
@@ -402,12 +468,19 @@ settings.L10n.decimal_separator = "."
 #settings.hrm.filter_certificates = True
 # Uncomment to allow HRs to have multiple Job Titles
 #settings.hrm.multiple_job_titles = True
+# Uncomment to have each root Org use a different Job Title Catalog
+#settings.hrm.org_dependent_job_titles = True
 # Uncomment to hide the Staff resource
 #settings.hrm.show_staff = False
 # Uncomment to allow hierarchical categories of Skills, which each need their own set of competency levels.
 #settings.hrm.skill_types = True
 # Uncomment to disable Staff experience
 #settings.hrm.staff_experience = False
+# Uncomment to enable Volunteer 'active' field
+# - can also be made a function which is called to calculate the status based on recorded hours
+#settings.hrm.vol_active = True
+# Uncomment to define a Tooltip to show when viewing the Volunteer 'active' field
+#settings.hrm.vol_active_tooltip = "A volunteer is defined as active if they've participated in an average of 8 or more hours of Program work or Trainings per month in the last year"
 # Uncomment to disable Volunteer experience
 #settings.hrm.vol_experience = False
 # Uncomment to show the Organisation name in HR represents
@@ -420,13 +493,15 @@ settings.L10n.decimal_separator = "."
 #settings.hrm.use_awards = False
 # Uncomment to disable the use of HR Certificates
 #settings.hrm.use_certificates = False
+# Uncomment to enable the use of Staff/Volunteer IDs
+#settings.hrm.use_code = True
 # Uncomment to disable the use of HR Credentials
 #settings.hrm.use_credentials = False
 # Uncomment to disable the use of HR Description
 #settings.hrm.use_description = False
 # Uncomment to enable the use of HR Education
 #settings.hrm.use_education = True
-# Uncomment to disable the use of HR ID
+# Uncomment to disable the use of HR ID Tab
 #settings.hrm.use_id = False
 # Uncomment to disable the use of HR Skills
 #settings.hrm.use_skills = False
@@ -538,14 +613,11 @@ settings.L10n.decimal_separator = "."
 #ADD_ITEM_REQUEST = T("Make a Request for Donations")
 # req_req Crud Strings for Item Request (type=1)
 #settings.req.req_crud_strings[1] = Storage(
-#    title_create = ADD_ITEM_REQUEST,
+#    label_create = ADD_ITEM_REQUEST,
 #    title_display = T("Request for Donations Details"),
 #    title_list = T("Requests for Donations"),
 #    title_update = T("Edit Request for Donations"),
-#    title_search = T("Search Requests for Donations"),
-#    subtitle_create = ADD_ITEM_REQUEST,
 #    label_list_button = T("List Requests for Donations"),
-#    label_create_button = ADD_ITEM_REQUEST,
 #    label_delete_button = T("Delete Request for Donations"),
 #    msg_record_created = T("Request for Donations Added"),
 #    msg_record_modified = T("Request for Donations Updated"),
@@ -554,14 +626,11 @@ settings.L10n.decimal_separator = "."
 #ADD_PEOPLE_REQUEST = T("Make a Request for Volunteers")
 # req_req Crud Strings for People Request (type=3)
 #settings.req.req_crud_strings[3] = Storage(
-#    title_create = ADD_PEOPLE_REQUEST,
+#    label_create = ADD_PEOPLE_REQUEST,
 #    title_display = T("Request for Volunteers Details"),
 #    title_list = T("Requests for Volunteers"),
 #    title_update = T("Edit Request for Volunteers"),
-#    title_search = T("Search Requests for Volunteers"),
-#    subtitle_create = ADD_PEOPLE_REQUEST,
 #    label_list_button = T("List Requests for Volunteers"),
-#    label_create_button = ADD_PEOPLE_REQUEST,
 #    label_delete_button = T("Delete Request for Volunteers"),
 #    msg_record_created = T("Request for Volunteers Added"),
 #    msg_record_modified = T("Request for Volunteers Updated"),
@@ -582,9 +651,9 @@ settings.L10n.decimal_separator = "."
 #settings.project.mode_drr = True
 # Uncomment this to use settings suitable for detailed Task management
 #settings.project.mode_task = True
-# Uncomment this to use Activities for projects
+# Uncomment this to use Activities for Projects & Tasks
 #settings.project.activities = True
-# Uncomment this to use Activity Types for Activities/Projects
+# Uncomment this to use Activity Types for Activities & Projects
 #settings.project.activity_types = True
 # Uncomment this to use Codes for projects
 #settings.project.codes = True
@@ -594,7 +663,7 @@ settings.L10n.decimal_separator = "."
 #settings.project.hazards = True
 # Uncomment this to enable Milestones in projects
 #settings.project.milestones = True
-# Uncomment this to link Activities to Projects
+# Uncomment this to use Projects for Activities & Tasks
 #settings.project.projects = True
 # Uncomment this to disable Sectors in projects
 #settings.project.sectors = False
@@ -616,6 +685,12 @@ settings.L10n.decimal_separator = "."
 #    5: T("Super"), # T("Beneficiary")?
 #}
 #settings.project.organisation_lead_role = 1
+# Uncomment to customise the list of options for the Priority of a Task.
+# NB Be very cautious about doing this (see docstring in modules/s3cfg.py)
+#settings.project.task_priority_opts = 
+# Uncomment to customise the list of options for the Status of a Task.
+# NB Be very cautious about doing this (see docstring in modules/s3cfg.py)
+#settings.project.task_status_opts = 
 
 # -----------------------------------------------------------------------------
 # Incidents
@@ -623,11 +698,8 @@ settings.L10n.decimal_separator = "."
 #settings.irs.vehicle = True
 
 # -----------------------------------------------------------------------------
-# Save Search Widget
-# New S3Filter
+# Filter Manager
 #settings.search.filter_manager = False
-# Old S3Search
-#settings.search.save_widget = False
 
 # if you want to have videos appearing in /default/video
 #settings.base.youtube_id = [dict(id = "introduction",

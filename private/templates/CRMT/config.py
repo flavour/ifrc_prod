@@ -56,14 +56,21 @@ settings.auth.registration_organisation_required = False
 settings.auth.registration_requests_organisation_group = True
 settings.auth.registration_organisation_group_required = False
 settings.auth.registration_requests_site = False
+# Uncomment this to request the Home Phone when a user registers
+settings.auth.registration_requests_home_phone = True
+# Uncomment this to request the Mobile Phone when a user registers
+settings.auth.registration_requests_mobile_phone = True
 
 settings.auth.registration_link_user_to = {"staff": T("Staff")}
 settings.auth.registration_link_user_to_default = "staff"
 
-settings.auth.record_approval = False
-
 # Approval emails get sent to all admins
 settings.mail.approver = "ADMIN"
+
+# Record Approval
+settings.auth.record_approval = True
+# If an anonymous user creates a new org when registering then the org will be unapproved until the user is approved
+settings.auth.record_approval_required_for = ("org_organisation",)
 
 # -----------------------------------------------------------------------------
 # Security Policy
@@ -111,6 +118,8 @@ settings.ui.formstyle = "bootstrap"
 settings.ui.hide_report_options = False
 settings.ui.update_label = "Update" 
 settings.ui.export_formats = ["xls", "xml"]
+# Uncomment to use S3MultiSelectWidget on all dropdowns (currently the Auth Registration page & LocationSelectorWidget2 listen to this)
+settings.ui.multiselect_widget = True
 
 # Set Map to fill the container
 settings.gis.map_width = 1170
@@ -191,13 +200,17 @@ settings.ui.summary = [{"common": True,
                         "name": "cms",
                         "widgets": [{"method": "cms"}]
                         },
+                       {"common": True,
+                        "name": "add",
+                        "widgets": [{"method": "create"}],
+                        },
                        {"name": "table",
                         "label": "Table",
                         "widgets": [{"method": "datatable"}]
                         },
                        {"name": "charts",
                         "label": "Charts",
-                        "widgets": [{"method": "report2", "ajax_init": True}]
+                        "widgets": [{"method": "report", "ajax_init": True}]
                         },
                        {"name": "map",
                         "label": "Map",
@@ -245,12 +258,16 @@ settings.gis.toolbar = False
 #settings.gis.nav_controls = False
 # Uncomment to use CMS to provide Metadata on Map Layers
 settings.gis.layer_metadata = True
+# Uncomment to show Clear Layers tool
+settings.gis.clear_layers = True
 # Uncomment to hide Layer Properties tool
 settings.gis.layer_properties = False
 # Uncomment to hide the Base Layers folder in the LayerTree
 settings.gis.layer_tree_base = False
 # Uncomment to hide the Overlays folder in the LayerTree
-settings.gis.layer_tree_overlays = False
+#settings.gis.layer_tree_overlays = False
+# Uncomment to change the label of the Overlays folder in the LayerTree
+settings.gis.label_overlays = "Places"
 # Uncomment to not expand the folders in the LayerTree by default
 settings.gis.layer_tree_expanded = False
 # Uncomment to have custom folders in the LayerTree use Radio Buttons
@@ -268,6 +285,8 @@ settings.gis.permalink = False
 settings.gis.pois = False
 # Uncomment to rename Overlays in Layer Tree
 #settings.gis.label_overlays = "Community Data"
+# GeoNames username
+settings.gis.geonames_username = "lacrmt"
 
 # Don't simplify Polygons as much to retain their original shape
 settings.gis.simplify_tolerance = 0.0001
@@ -307,10 +326,18 @@ settings.hrm.teams = False
 # -----------------------------------------------------------------------------
 # Organisation Registry
 #
+# Make Facility Types Hierarchical
+settings.org.facility_types_hierarchical = True
 # Enable the use of Organisation Groups
 settings.org.groups = "Coalition"
 # Set the label for Sites
 settings.org.site_label = "Place"
+
+# -----------------------------------------------------------------------------
+# projects
+#
+# Uncomment this to disable Sectors in projects
+settings.project.sectors = False
 
 # -----------------------------------------------------------------------------
 # Contacts
@@ -324,7 +351,7 @@ def user_coalition(row):
     if hasattr(row, "pr_person_user"):
         row = row.pr_person_user
     try:
-       user_id = row.user_id
+        user_id = row.user_id
     except:
         # not available
         return current.messages["NONE"]
@@ -339,10 +366,7 @@ def user_coalition(row):
     else:
         return current.messages["NONE"]
 
-def customize_pr_person(**attr):
-    """
-        Customize pr_person controller
-    """
+def customise_pr_person_controller(**attr):
 
     s3 = current.response.s3
 
@@ -378,11 +402,20 @@ def customize_pr_person(**attr):
                            (T("Place"), "human_resource.site_id"),
                            ]
             is_logged_in = current.auth.is_logged_in()
+            # Don't include Email/Phone for unauthenticated users
             if is_logged_in:
-                # Don't include Email/Phone for unauthenticated users
-                list_fields += [(settings.get_ui_label_mobile_phone(), "phone.value"),
-                                (T("Email"), "email.value"),
-                                ]
+                # Custom filtered component for list_fields/CRUD form
+                s3db.add_components("pr_pentity",
+                                    pr_contact = ({"name": "home",
+                                                   "joinby": "pe_id",
+                                                   "filterby": "contact_method",
+                                                   "filterfor": ["HOME_PHONE"],
+                                                   }),
+                                    )
+                list_fields.extend(((T("Email"), "email.value"),
+                                    (settings.get_ui_label_mobile_phone(), "phone.value"),
+                                    (T("Home Phone"), "home.value"),
+                                    ))
             s3db.configure(tablename,
                            list_fields = list_fields,
                            )
@@ -390,16 +423,12 @@ def customize_pr_person(**attr):
         if r.interactive:
             if current.request.controller != "default":
                 # CRUD Strings
-                ADD_CONTACT = T("Add New Contact")
                 s3.crud_strings[tablename] = Storage(
-                    title_create = T("Add Contact"),
+                    label_create = T("Create Contact"),
                     title_display = T("Contact Details"),
                     title_list = T("Contact Directory"),
                     title_update = T("Update Contact Details"),
-                    title_search = T("Search Contacts"),
-                    subtitle_create = ADD_CONTACT,
                     label_list_button = T("List Contacts"),
-                    label_create_button = ADD_CONTACT,
                     label_delete_button = T("Delete Contact"),
                     msg_record_created = T("Contact added"),
                     msg_record_modified = T("Contact details updated"),
@@ -409,10 +438,11 @@ def customize_pr_person(**attr):
             # Custom Form (Read/Create/Update)
             from s3.s3fields import S3Represent
             from s3.s3forms import S3SQLCustomForm, S3SQLInlineComponent
-            if r.method in ("create", "update"):
+            if r.method in ("create", "update", "summary"):
                 # Custom Widgets/Validators
                 widgets = True
                 from s3.s3validators import IS_ONE_OF
+                from s3.s3widgets import S3MultiSelectWidget
                 from s3layouts import S3AddResourceLink
             else:
                 widgets = False
@@ -424,6 +454,8 @@ def customize_pr_person(**attr):
             represent = S3Represent(lookup="org_site")
             site_field.represent = represent
             if widgets:
+                htable.organisation_id.widget = S3MultiSelectWidget(multiple=False)
+                site_field.widget = S3MultiSelectWidget(multiple=False)
                 site_field.requires = IS_ONE_OF(db, "org_site.site_id",
                                                 represent,
                                                 orderby = "org_site.name")
@@ -433,14 +465,10 @@ def customize_pr_person(**attr):
                                                        title=T("Place"),
                                                        tooltip=T("If you don't see the Place in the list, you can add a new one by clicking link 'Add New Place'."))
 
-            # Hide Labels when just 1 column in inline form
-            s3db.pr_contact.value.label = ""
-
             s3db.pr_image.profile.default = True
-            image_field = s3db.pr_image.image
-            image_field.label = ""
             # ImageCrop widget doesn't currently work within an Inline Form
             from gluon.validators import IS_IMAGE
+            image_field = s3db.pr_image.image
             image_field.requires = IS_IMAGE()
             image_field.widget = None
 
@@ -460,7 +488,7 @@ def customize_pr_person(**attr):
             # S3SQLInlineComponent uses the link table, so cannot access org_group_id
             # => use a readonly virtual field instead
             from gluon import Field
-            s3db.pr_person_user.org_group_id = Field.Lazy(user_coalition)
+            s3db.pr_person_user.org_group_id = Field.Method("org_group_id", user_coalition)
 
             s3_sql_custom_fields = [
                     "first_name",
@@ -472,9 +500,6 @@ def customize_pr_person(**attr):
                         label = "",
                         multiple = False,
                         fields = hr_fields,
-                        filterby = dict(field = "contact_method",
-                                        options = "SMS"
-                                        )
                     ),
                     S3SQLInlineComponent(
                         "user",
@@ -484,35 +509,42 @@ def customize_pr_person(**attr):
                         fields = [],
                         # Fields needed to load for Virtual Fields
                         extra_fields = ["user_id"],
-                        virtual_fields = [("", "org_group_id"),
-                                          ],
+                        virtual_fields = ["org_group_id"],
                     ),
                     S3SQLInlineComponent(
                         "image",
                         name = "image",
                         label = T("Photo"),
                         multiple = False,
-                        fields = ["image"],
+                        fields = [("", "image")],
                         filterby = dict(field = "profile",
                                         options=[True]
                                         ),
                         ),
                     S3SQLInlineComponent("contact",
+                        name = "email",
+                        label = T("Email"),
+                        multiple = False,
+                        fields = [("", "value")],
+                        filterby = dict(field = "contact_method",
+                                        options = "EMAIL"),
+                        ),
+                    S3SQLInlineComponent("contact",
                         name = "phone",
                         label = settings.get_ui_label_mobile_phone(),
                         multiple = False,
-                        fields = ["value"],
+                        fields = [("", "value")],
                         filterby = dict(field = "contact_method",
                                         options = "SMS"),
                         ),
                     S3SQLInlineComponent("contact",
-                        name = "email",
-                        label = T("Email"),
+                        name = "home",
+                        label = T("Home Phone"),
                         multiple = False,
-                        fields = ["value"],
+                        fields = [("", "value")],
                         filterby = dict(field = "contact_method",
-                                        options = "EMAIL"),
-                        )
+                                        options = "HOME_PHONE"),
+                        ),
                     ]
 
             crud_form = S3SQLCustomForm(*s3_sql_custom_fields)
@@ -522,11 +554,11 @@ def customize_pr_person(**attr):
 
             s3db.configure(tablename,
                            create_next = url_next,
-                           delete_next = url_next,
-                           update_next = url_next,
                            crud_form = crud_form,
+                           delete_next = url_next,
                            # Don't include a Create form in 'More' popups
                            #listadd = False if r.method=="datalist" else True,
+                           update_next = url_next,
                            )
 
         return True
@@ -558,35 +590,34 @@ def customize_pr_person(**attr):
 
     return attr
 
-settings.ui.customize_pr_person = customize_pr_person
+settings.customise_pr_person_controller = customise_pr_person_controller
+
+# -----------------------------------------------------------------------------
+def default_coalition_filter(selector, tablename=None):
+    """
+        Default filter for coalitions (callback)
+    """
+
+    auth = current.auth
+    org_group_id = auth.is_logged_in() and auth.user.org_group_id
+    if org_group_id:
+        return org_group_id
+    else:
+        # Filter to all Coalitions
+        gtable = current.s3db.org_group
+        rows = current.db(gtable.deleted == False).select(gtable.id)
+        return [row.id for row in rows]
 
 # -----------------------------------------------------------------------------
 # Activities
 #
-def customize_project_activity(**attr):
-    """
-        Customize project_activity controller
-    """
+def customise_project_activity_controller(**attr):
 
-    s3db = current.s3db
-    request = current.request
-    if "summary" in request.args:
-        get_vars = request.get_vars
-        w = get_vars.get("w", None)
-        if not w:
-            # This is an interactive request
-            coalition = get_vars.get("activity_group.group_id__belongs", None)
-            if not coalition:
-                # Default the Coalition Filter
-                auth = current.auth
-                org_group_id = auth.is_logged_in() and auth.user.org_group_id
-                if org_group_id:
-                    get_vars["activity_group.group_id__belongs"] = str(org_group_id)
-                else:
-                    # Filter to all Coalitions
-                    gtable = s3db.org_group
-                    rows = current.db(gtable.deleted == False).select(gtable.id)
-                    get_vars["activity_group.group_id__belongs"] = ",".join([str(row.id) for row in rows])
+    if "summary" in current.request.args:
+        from s3.s3utils import s3_set_default_filter
+        s3_set_default_filter("activity_group.group_id",
+                              default_coalition_filter,
+                              tablename = "project_activity")
 
     # Custom PreP
     s3 = current.response.s3
@@ -595,19 +626,23 @@ def customize_project_activity(**attr):
         # Call standard prep
         if callable(standard_prep):
             result = standard_prep(r)
+            if not result:
+                return False
 
+        s3db = current.s3db
         tablename = "project_activity"
         table = s3db[tablename]
 
         method = r.method
         representation = r.representation
         if method == "summary" or representation == "aadata":
-            # Modify list_fields
+            # Modify list_fields for interactive views
             list_fields = ["date",
                            "name",
                            "activity_activity_type.activity_type_id",
                            "activity_group.group_id",
                            "location_id",
+                           "location_id$addr_postcode",
                            "person_id",
                            (T("Number of People"), "beneficiary.value"),
                            "comments",
@@ -621,25 +656,83 @@ def customize_project_activity(**attr):
             # CRUD Strings / Represent
             s3.crud_strings[tablename].title_update = T("Update Activities")
             table.date.label = T("Date")
+            table.name.label = T("Activity Name")
             table.location_id.label = T("Address")
             table.location_id.represent = s3db.gis_LocationRepresent(address_only=True)
 
-            if method in ("summary", "report2"):
+            # Custom Form (Read/Create/Update inc embedded Summary)
+            from s3.s3forms import S3SQLCustomForm, S3SQLInlineComponent
+
+            table.person_id.comment = None
+
+            bttable = s3db.project_beneficiary_type
+            total = current.db(bttable.name == "Total").select(bttable.parameter_id,
+                                                               limitby=(0, 1)).first()
+            if total:
+                parameter_id = total.parameter_id
+            else:
+                parameter_id = None
+            crud_form = S3SQLCustomForm(
+                "date",
+                "name",
+                S3SQLInlineComponent(
+                    "activity_activity_type",
+                    label = T("Activity Type"),
+                    fields = [("", "activity_type_id")],
+                    multiple = False,
+                ),
+                S3SQLInlineComponent(
+                    "activity_group",
+                    label = T("Coalition"),
+                    fields = [("", "group_id")],
+                    multiple = False,
+                ),
+                "location_id",
+                "person_id",
+                S3SQLInlineComponent(
+                    "activity_organisation",
+                    label = T("Participating Organizations"),
+                    fields = [("", "organisation_id")],
+                ),
+                S3SQLInlineComponent(
+                    "beneficiary",
+                    label = T("Number of People Reached"),
+                    link = False,
+                    multiple = False,
+                    fields = [("", "value")],
+                    filterby = dict(field = "parameter_id",
+                                    options = parameter_id
+                                    ),
+                ),
+                S3SQLInlineComponent(
+                    "document",
+                    name = "file",
+                    label = T("Files"),
+                    fields = [("", "file"),
+                              #"comments",
+                              ],
+                ),
+                "comments",
+            )
+
+            s3db.configure(tablename,
+                           crud_form = crud_form,
+                           )
+            
+            if method in ("summary", "report"):
                 from s3.s3filter import S3OptionsFilter, S3DateFilter
                 filter_widgets = [S3OptionsFilter("activity_group.group_id",
-                                                  represent="%(name)s",
-                                                  widget="multiselect",
-                                                  header=True,
+                                                  represent = "%(name)s",
+                                                  header = True,
                                                   ),
                                   S3OptionsFilter("activity_activity_type.activity_type_id",
                                                   # Doesn't allow Translation
-                                                  #represent="%(name)s",
-                                                  widget="multiselect",
-                                                  header=True,
+                                                  #represent = "%(name)s",
+                                                  header = True,
                                                   ),
                                   S3DateFilter("date",
-                                               label=None,
-                                               hide_time=True,
+                                               label = None,
+                                               hide_time = True,
                                                input_labels = {"ge": "From", "le": "To"}
                                                )
                                   ]
@@ -651,116 +744,48 @@ def customize_project_activity(**attr):
                                  ]
 
                 report_options = Storage(
-                    rows=report_fields,
-                    cols=[],
-                    fact=[(T("Number of Activities"), "count(name)"),
-                          (T("Number of People"), "sum(beneficiary.value)"),
-                          ],
-                    defaults=Storage(rows="activity_activity_type.activity_type_id",
-                                     #cols="activity_group.group_id",
-                                     fact="count(name)",
-                                     totals=True,
-                                     chart = "barchart:rows",
-                                     table = "collapse",
-                                     )
+                    rows = report_fields,
+                    cols = [],
+                    fact = [(T("Number of Activities"), "count(name)"),
+                            (T("Number of People"), "sum(beneficiary.value)"),
+                            ],
+                    defaults = Storage(rows="activity_activity_type.activity_type_id",
+                                       #cols="activity_group.group_id",
+                                        fact="count(name)",
+                                       totals=True,
+                                       chart = "barchart:rows",
+                                       table = "collapse",
+                                       )
                     )
 
                 s3db.configure(tablename,
                                # Hide Open & Delete dataTable action buttons
-                               editable = False,
                                deletable = False,
-                               filter_widgets = filter_widgets,
+                               editable = False,
                                filter_formstyle = filter_formstyle,
+                               filter_widgets = filter_widgets,
                                report_options = report_options,
                                )
 
-            else:
-                # Custom Form (Read/Create/Update)
-                from s3.s3forms import S3SQLCustomForm, S3SQLInlineComponent
-                if method in ("create", "update"):
-                    # Custom Widgets/Validators
-                    widgets = True
-                    from s3.s3validators import IS_ADD_PERSON_WIDGET2, IS_LOCATION_SELECTOR2
-                    from s3.s3widgets import S3AddPersonWidget2, S3LocationSelectorWidget2, S3SelectChosenWidget
-                    field = table.location_id
-                    field.label = "" # Gets replaced by widget
-                    field.requires = IS_LOCATION_SELECTOR2(levels=("L3",))
-                    field.widget = S3LocationSelectorWidget2(levels=("L3",),
-                                                             hide_lx=False,
-                                                             reverse_lx=True,
-                                                             show_address=True,
-                                                             show_postcode=True,
-                                                             )
-                    s3db.project_activity_organisation.organisation_id.widget = S3SelectChosenWidget()
-                else:
-                    widgets = False
+            if method in ("create", "update", "summary"):
+                # Custom Widgets/Validators
+                from s3.s3validators import IS_LOCATION_SELECTOR2
+                from s3.s3widgets import S3LocationSelectorWidget2, S3MultiSelectWidget
 
-                field = table.person_id
-                field.comment = None
-                if widgets:
-                    field.requires = IS_ADD_PERSON_WIDGET2()
-                    field.widget = S3AddPersonWidget2(controller="pr")
-                
-                # Hide Labels when just 1 column in inline form
-                s3db.doc_document.file.label = ""
-                s3db.project_activity_activity_type.activity_type_id.label = ""
-                s3db.project_activity_group.group_id.label = ""
-                s3db.project_beneficiary.value.label = ""
+                s3db.project_activity_activity_type.activity_type_id.widget = S3MultiSelectWidget(multiple=False)
+                s3db.project_activity_group.group_id.widget = S3MultiSelectWidget(multiple=False)
+                s3db.project_activity_organisation.organisation_id.widget = S3MultiSelectWidget(multiple=False)
 
-                # Custom Crud Form
-                bttable = s3db.project_beneficiary_type
-                total = current.db(bttable.name == "Total").select(bttable.parameter_id,
-                                                                   limitby=(0, 1)).first()
-                if total:
-                    parameter_id = total.parameter_id
-                else:
-                    parameter_id = None
-                crud_form = S3SQLCustomForm(
-                    "date",
-                    "name",
-                    S3SQLInlineComponent(
-                        "activity_activity_type",
-                        label = T("Activity Type"),
-                        fields = ["activity_type_id"],
-                        multiple = False,
-                    ),
-                    S3SQLInlineComponent(
-                        "activity_group",
-                        label = T("Coalition"),
-                        fields = ["group_id"],
-                        multiple = False,
-                    ),
-                    "location_id",
-                    "person_id",
-                    S3SQLInlineComponent(
-                        "activity_organisation",
-                        label = T("Participating Organizations"),
-                        fields = ["organisation_id"],
-                    ),
-                    S3SQLInlineComponent(
-                        "beneficiary",
-                        label = T("Number of People Reached"),
-                        link = False,
-                        multiple = False,
-                        fields = ["value"],
-                        filterby = dict(field = "parameter_id",
-                                        options = parameter_id
-                                        ),
-                    ),
-                    S3SQLInlineComponent(
-                        "document",
-                        name = "file",
-                        label = T("Files"),
-                        fields = ["file",
-                                  #"comments",
-                                  ],
-                    ),
-                    "comments",
-                )
-
-                s3db.configure(tablename,
-                               crud_form = crud_form,
-                               )
+                field = table.location_id
+                field.label = "" # Gets replaced by widget
+                levels = ("L3",)
+                field.requires = IS_LOCATION_SELECTOR2(levels=levels)
+                field.widget = S3LocationSelectorWidget2(levels=levels,
+                                                         hide_lx=False,
+                                                         reverse_lx=True,
+                                                         show_address=True,
+                                                         show_postcode=True,
+                                                         )
 
         return True
     s3.prep = custom_prep
@@ -770,12 +795,10 @@ def customize_project_activity(**attr):
 
     return attr
 
-settings.ui.customize_project_activity = customize_project_activity
+settings.customise_project_activity_controller = customise_project_activity_controller
 
-def customize_project_activity_type(**attr):
-    """
-        Customize project_activity_type controller
-    """
+def customise_project_activity_type_controller(**attr):
+
     from s3.s3forms import S3SQLCustomForm
     current.s3db.configure("project_activity_type",
                            crud_form = S3SQLCustomForm("name",
@@ -784,7 +807,7 @@ def customize_project_activity_type(**attr):
 
     return attr
 
-settings.ui.customize_project_activity_type = customize_project_activity_type
+settings.customise_project_activity_type_controller = customise_project_activity_type_controller
 
 # -----------------------------------------------------------------------------
 # Organisations
@@ -798,7 +821,7 @@ def org_facility_types(row):
     if hasattr(row, "org_facility"):
         row = row.org_facility
     try:
-       site_id = row.site_id
+        site_id = row.site_id
     except:
         # not available
         return current.messages["NONE"]
@@ -812,10 +835,7 @@ def org_facility_types(row):
     return ",".join([r.name for r in rows])
 
 # -----------------------------------------------------------------------------
-def customize_org_organisation(**attr):
-    """
-        Customize org_organisation controller
-    """
+def customise_org_organisation_controller(**attr):
 
     # Custom PreP
     s3 = current.response.s3
@@ -844,6 +864,7 @@ def customize_org_organisation(**attr):
                            (T("Coalition Member"), "group_membership.group_id"),
                            (T("Sectors"), "sector_organisation.sector_id"),
                            (T("Services"), "service_organisation.service_id"),
+                           "website",
                            "comments",
                            ]
 
@@ -854,9 +875,10 @@ def customize_org_organisation(**attr):
         if (r.interactive or r.representation=="json") and not r.component:
             # CRUD Strings / Represent
             s3.crud_strings[tablename].title_update = T("Update Organization")
-            table.logo.readable = table.logo.writable = False 
+            table.logo.readable = table.logo.writable = False
+            table.name.label = T("Organization Name")
 
-            if method in ("summary", "report2"):
+            if method in ("summary", "report"):
                 from s3.s3filter import S3OptionsFilter, S3TextFilter
                 filter_widgets = [S3TextFilter(["name",
                                                 "group_membership.group_id",
@@ -867,21 +889,16 @@ def customize_org_organisation(**attr):
                                                 label = T("Search"),
                                                ),
                                   S3OptionsFilter("group_membership.group_id",
-                                                  represent="%(name)s",
-                                                  widget="multiselect",
-                                                  header=True,
+                                                  represent = "%(name)s",
+                                                  header = True,
                                                   ),
                                   S3OptionsFilter("sector_organisation.sector_id",
-                                                  label=T("Sector"),
-                                                  represent="%(name)s",
-                                                  widget="multiselect",
-                                                  header=True,
+                                                  label = T("Sector"),
+                                                  header = True,
                                                   ),
                                   S3OptionsFilter("service_organisation.service_id",
-                                                  label=T("Service"),
-                                                  represent="%(name)s",
-                                                  widget="multiselect",
-                                                  header=True,
+                                                  label = T("Service"),
+                                                  header = True,
                                                   ),
                                   ]
 
@@ -910,17 +927,28 @@ def customize_org_organisation(**attr):
 
                 s3db.configure(tablename,
                                # Hide Open & Delete dataTable action buttons
-                               editable = False,
                                deletable = False,
-                               filter_widgets = filter_widgets,
+                               editable = False,
                                filter_formstyle = filter_formstyle,
+                               filter_widgets = filter_widgets,
                                report_options = report_options,
                                # No Map for Organisations
                                summary = [s for s in settings.ui.summary if s["name"] != "map"],
                                )
 
-            else:
-                # Custom Form (Read/Create/Update)
+            if not current.auth.is_logged_in():
+                # Anonymous user creating Org: Keep Simple
+                from s3.s3forms import S3SQLCustomForm
+                crud_form = S3SQLCustomForm("name",
+                                            "website",
+                                            "comments",
+                                            )
+                s3db.configure(tablename,
+                               crud_form = crud_form,
+                               )
+
+            elif method in ("read", "create", "update", "summary"):
+                # Custom Form (Read/Create/Update inc embedded Summary)
                 from s3.s3forms import S3SQLCustomForm, S3SQLInlineComponent, S3SQLInlineComponentMultiSelectWidget
 
                 ftable = s3db.org_facility
@@ -933,13 +961,13 @@ def customize_org_organisation(**attr):
                 # s3forms passes even read-only fields through validation
                 field.requires = None
                 s3db.configure("org_facility",
-                               #editable=False,
-                               insertable=False,
+                               #editable = False,
+                               insertable = False,
                                )
                 # We can't include components in an Inline Component
                 # => use a readonly virtual field instead
                 from gluon import Field
-                ftable.facility_types = Field.Lazy(org_facility_types)
+                ftable.facility_types = Field.Method("facility_types", org_facility_types)
 
                 hrtable = s3db.hrm_human_resource
                 hrtable.person_id.widget = None
@@ -950,7 +978,7 @@ def customize_org_organisation(**attr):
                              #"email",
                              #"phone",
                              ]
-                if method != "create":
+                if method not in ("create", "summary"):
                     hr_fields.insert(1, "site_id")
                     if method == "update":
                         # Filter the options for site_id in the organisation contacts
@@ -965,13 +993,16 @@ def customize_org_organisation(**attr):
                                                              label=s3db.org_site_represent,
                                                              orderby="org_site.name",
                                                              filterby="organisation_id",
-                                                             filter_opts=[r.id],
+                                                             filter_opts=(r.id,),
                                                              instance_types=instance_types,
                                                              realms=realms,
                                                              not_filterby="obsolete",
-                                                             not_filter_opts=[True])
+                                                             not_filter_opts=(True,)
+                                                             )
 
                 # Custom Crud Form
+                from s3.s3widgets import S3MultiSelectWidget
+                s3db.org_resource.parameter_id.widget = S3MultiSelectWidget(multiple=False)
                 form_fields = [
                     "name",
                     "logo",
@@ -998,9 +1029,20 @@ def customize_org_organisation(**attr):
                                   "comments",
                                   ],
                     ),
+                    "website",
+                    S3SQLInlineComponent(
+                        "contact",
+                        name = "twitter",
+                        label = T("Twitter"),
+                        multiple = False,
+                        fields = [("", "value")],
+                        filterby = dict(field = "contact_method",
+                                        options = "TWITTER"
+                                        )
+                    ),
                     "comments",
                 ]
-                if method not in ("create", "update"):
+                if method not in ("create", "update", "summary"):
                     hrtable = s3db.hrm_human_resource
                     hrtable.person_id.widget = None
                     hrtable.site_id.label = T("Place")
@@ -1026,11 +1068,12 @@ def customize_org_organisation(**attr):
                     #                                             label=s3db.org_site_represent,
                     #                                             orderby="org_site.name",
                     #                                             filterby="organisation_id",
-                    #                                             filter_opts=[r.id],
+                    #                                             filter_opts=(r.id,),
                     #                                             instance_types=instance_types,
                     #                                             realms=realms,
                     #                                             not_filterby="obsolete",
-                    #                                             not_filter_opts=[True])
+                    #                                             not_filter_opts=(True,)
+                    #                                             )
 
                     form_fields.insert(6, S3SQLInlineComponent(
                         "human_resource",
@@ -1062,20 +1105,15 @@ def customize_org_organisation(**attr):
     # Remove rheader
     attr["rheader"] = None
 
-    attr["hide_filter"] = False
     return attr
 
-settings.ui.customize_org_organisation = customize_org_organisation
+settings.customise_org_organisation_controller = customise_org_organisation_controller
 
 # -----------------------------------------------------------------------------
 # Coalitions (org_group)
 #
-def customize_org_group(**attr):
-    """
-        Customize org_group controller
-    """
+def customise_org_group_controller(**attr):
 
-    s3db = current.s3db
     s3 = current.response.s3
 
     # Custom prep
@@ -1084,26 +1122,29 @@ def customize_org_group(**attr):
         # Call standard prep
         if callable(standard_prep):
             result = standard_prep(r)
-        else:
-            result = True
+            if not result:
+                return False
 
         if r.interactive:
             from s3.s3validators import IS_LOCATION_SELECTOR2
             from s3.s3widgets import S3LocationSelectorWidget2
-            field = s3db.org_group.location_id
+            table = current.s3db.org_group
+            table.name.label = T("Coalition Name")
+            field = table.location_id
             field.label = "" # Gets replaced by widget
-            field.requires = IS_LOCATION_SELECTOR2(levels=("L2",))
-            field.widget = S3LocationSelectorWidget2(levels=("L2",),
+            levels = ("L2",)
+            field.requires = IS_LOCATION_SELECTOR2(levels=levels)
+            field.widget = S3LocationSelectorWidget2(levels=levels,
                                                      polygons=True,
                                                      )
 
-        return result
+        return True
     s3.prep = custom_prep
 
     attr["rheader"] = None
     return attr
 
-settings.ui.customize_org_group = customize_org_group
+settings.customise_org_group_controller = customise_org_group_controller
 
 #-----------------------------------------------------------------------------
 # Places (org_facility)
@@ -1147,7 +1188,8 @@ def facility_onaccept(form):
                     from shapely import speedups
                     speedups.enable()
                 except:
-                    s3_debug("S3GIS", "Upgrade Shapely for Performance enhancements")
+                    current.log.info("S3GIS",
+                                     "Upgrade Shapely for Performance enhancements")
                 pnt = point.Point(location.lon, location.lat)
                 for p in polygons:
                     wkt = p[gtable].wkt
@@ -1172,30 +1214,13 @@ settings.base.import_callbacks = {"org_facility": {"onaccept": facility_onaccept
                                                    },
                                   }
 
-def customize_org_facility(**attr):
-    """
-        Customize org_facility controller
-    """
+def customise_org_facility_controller(**attr):
 
-    s3db = current.s3db
-    request = current.request
-    if "summary" in request.args:
-        get_vars = request.get_vars
-        w = get_vars.get("w", None)
-        if not w:
-            # This is an interactive request
-            coalition = get_vars.get("site_org_group.group_id__belongs", None)
-            if not coalition:
-                # Default the Coalition Filter
-                auth = current.auth
-                org_group_id = auth.is_logged_in() and auth.user.org_group_id
-                if org_group_id:
-                    get_vars["site_org_group.group_id__belongs"] = str(org_group_id)
-                else:
-                    # Filter to all Coalitions
-                    gtable = s3db.org_group
-                    rows = current.db(gtable.deleted == False).select(gtable.id)
-                    get_vars["site_org_group.group_id__belongs"] = ",".join([str(row.id) for row in rows])
+    if "summary" in current.request.args:
+        from s3.s3utils import s3_set_default_filter
+        s3_set_default_filter("site_org_group.group_id",
+                              default_coalition_filter,
+                              tablename = "org_facility")
 
     # Custom PreP
     s3 = current.response.s3
@@ -1204,7 +1229,10 @@ def customize_org_facility(**attr):
         # Call standard prep
         if callable(standard_prep):
             result = standard_prep(r)
+            if not result:
+                return False
 
+        s3db = current.s3db
         tablename = "org_facility"
         table = s3db[tablename]
 
@@ -1217,6 +1245,7 @@ def customize_org_facility(**attr):
                            "organisation_id",
                            "site_org_group.group_id",
                            "location_id",
+                           "location_id$addr_postcode",
                            "contact",
                            "phone1",
                            "email",
@@ -1224,32 +1253,97 @@ def customize_org_facility(**attr):
                            ]
 
             s3db.configure(tablename,
-                           list_fields=list_fields,
+                           list_fields = list_fields,
+                           # Override std summary page
+                           summary = settings.ui.summary,
                            )
 
         if r.interactive or representation == "json":
             # CRUD Strings / Represent
+            table.name.label = T("Place Name")
             table.phone1.label = T("Phone")
             table.location_id.label = T("Address")
             table.location_id.represent = s3db.gis_LocationRepresent(address_only=True)
 
             s3.crud_strings[tablename] = Storage(
-                title_create = T("Add Place"),
+                label_create = T("Add Place"),
                 title_display = T("Place Details"),
                 title_list = T("Places"),
                 title_update = T("Update Place"),
-                title_search = T("Search Places"),
-                subtitle_create = T("Add New Place"),
                 label_list_button = T("List Places"),
-                label_create_button = T("Add Place"),
                 label_delete_button = T("Remove Place"),
                 msg_record_created = T("Place added"),
                 msg_record_modified = T("Place updated"),
                 msg_record_deleted = T("Place removed"),
                 msg_list_empty = T("No Places currently recorded"))
 
-            if method in ("summary", "report2"):
-                from s3.s3filter import S3OptionsFilter, S3TextFilter
+            # Custom Form (Read/Create/Update inc embedded Summary)
+            from s3.s3forms import S3SQLCustomForm, S3SQLInlineComponent, S3SQLInlineLink
+            if method in ("create", "update", "summary"):
+                # Custom Widgets/Validators
+                from s3.s3validators import IS_LOCATION_SELECTOR2
+                from s3.s3widgets import S3LocationSelectorWidget2, S3MultiSelectWidget
+
+                field = table.location_id
+                field.label = "" # Gets replaced by widget
+                levels = ("L3",)
+                field.requires = IS_LOCATION_SELECTOR2(levels=levels)
+                field.widget = S3LocationSelectorWidget2(levels=levels,
+                                                         hide_lx=False,
+                                                         reverse_lx=True,
+                                                         show_address=True,
+                                                         show_postcode=True,
+                                                         )
+
+                table.organisation_id.widget = S3MultiSelectWidget(multiple=False)
+                s3db.org_site_org_group.group_id.widget = S3MultiSelectWidget(multiple=False)
+
+            # Custom Crud Form
+            crud_form = S3SQLCustomForm(
+                "name",
+                S3SQLInlineLink(
+                    "facility_type",
+                    label = T("Type of Place"),
+                    field = "facility_type_id",
+                    widget = "hierarchy",
+                ),
+                "organisation_id",
+                S3SQLInlineComponent(
+                    "site_org_group",
+                    label = T("Coalition"),
+                    fields = [("", "group_id")],
+                    multiple = False,
+                ),
+                "location_id",
+                #S3SQLInlineComponent(
+                #    "human_resource",
+                #    label = T("Place's Contacts"),
+                #    fields = ["person_id",
+                #              #"job_title_id",
+                #              #"email",
+                #              #"phone",
+                #              ],
+                #),
+                # Can't have Components of Components Inline, so just use simple fields
+                "contact",
+                "phone1",
+                "email",
+                S3SQLInlineComponent(
+                    "document",
+                    name = "file",
+                    label = T("Files"),
+                    fields = [("", "file"),
+                              #"comments",
+                              ],
+                ),
+                "comments",
+            )
+            s3db.configure(tablename,
+                           crud_form = crud_form,
+                           )
+
+            if method in ("summary", "report"):
+                from s3.s3filter import S3OptionsFilter, S3TextFilter, S3HierarchyFilter
                 filter_widgets = [S3TextFilter(["name",
                                                 "site_org_group.group_id",
                                                 "site_facility_type.facility_type_id",
@@ -1263,20 +1357,13 @@ def customize_org_facility(**attr):
                                                 label = T("Search"),
                                                ),
                                   S3OptionsFilter("site_org_group.group_id",
-                                                  header = True,
                                                   represent = "%(name)s",
-                                                  widget = "multiselect",
                                                   ),
-                                  S3OptionsFilter("site_facility_type.facility_type_id",
-                                                  header = True,
-                                                  label = T("Type of Place"),
-                                                  represent = "%(name)s",
-                                                  widget = "multiselect",
-                                                  ),
+                                  S3HierarchyFilter("site_facility_type.facility_type_id",
+                                                    label = T("Type of Place"),
+                                                    ),
                                   S3OptionsFilter("organisation_id",
-                                                  header = True,
                                                   represent = "%(name)s",
-                                                  widget = "multiselect",
                                                   ),
                                   ]
 
@@ -1288,16 +1375,16 @@ def customize_org_facility(**attr):
                                  ]
 
                 report_options = Storage(
-                    rows=report_fields,
-                    cols=[],
-                    fact=[(T("Number of Places"), "count(name)")],
-                    defaults=Storage(rows="site_facility_type.facility_type_id",
-                                     #cols="site_org_group.group_id",
-                                     fact="count(name)",
-                                     totals=True,
-                                     chart = "barchart:rows",
-                                     table = "collapse",
-                                     )
+                    rows = report_fields,
+                    cols = [],
+                    fact = [(T("Number of Places"), "count(name)")],
+                    defaults = Storage(rows = "site_facility_type.facility_type_id",
+                                       #cols = "site_org_group.group_id",
+                                       fact = "count(name)",
+                                       chart = "barchart:rows",
+                                       table = "collapse",
+                                       totals = True,
+                                       )
                     )
 
                 s3db.configure(tablename,
@@ -1308,93 +1395,18 @@ def customize_org_facility(**attr):
                                filter_formstyle = filter_formstyle,
                                report_options = report_options,
                                )
-            else:
-                # Custom Form (Read/Create/Update)
-                from s3.s3forms import S3SQLCustomForm, S3SQLInlineComponent, S3SQLInlineComponentMultiSelectWidget
-                if method in ("create", "update"):
-                    # Custom Widgets/Validators
-                    widgets = True
-                    from s3.s3validators import IS_LOCATION_SELECTOR2
-                    from s3.s3widgets import S3LocationSelectorWidget2, S3SelectChosenWidget
-                else:
-                    widgets = False
 
-                if widgets:
-                    field = table.location_id
-                    field.label = "" # Gets replaced by widget
-                    field.requires = IS_LOCATION_SELECTOR2(levels=("L3",))
-                    field.widget = S3LocationSelectorWidget2(levels=("L3",),
-                                                             hide_lx=False,
-                                                             reverse_lx=True,
-                                                             show_address=True,
-                                                             show_postcode=True,
-                                                             )
-                    #field.widget = None
-                    #field = s3db.hrm_human_resource.person_id
-                    #field.comment = None
-                    #field.requires = IS_ADD_PERSON_WIDGET2()
-                    #field.widget = S3AddPersonWidget2(controller="pr")
-
-                    table.organisation_id.widget = S3SelectChosenWidget()
-                    #s3db.hrm_human_resource.person_id.widget = None
-
-                # Hide Labels when just 1 column in inline form
-                s3db.doc_document.file.label = ""
-                s3db.org_site_org_group.group_id.label = ""
-
-                # Custom Crud Form
-                crud_form = S3SQLCustomForm(
-                    "name",
-                    S3SQLInlineComponentMultiSelectWidget(
-                        "facility_type",
-                        label = T("Type of Place"),
-                        field = "facility_type_id",
-                    ),
-                    "organisation_id",
-                    S3SQLInlineComponent(
-                        "site_org_group",
-                        label = T("Coalition"),
-                        fields = ["group_id"],
-                        multiple = False,
-                    ),
-                    "location_id",
-                    #S3SQLInlineComponent(
-                    #    "human_resource",
-                    #    label = T("Place's Contacts"),
-                    #    fields = ["person_id",
-                    #              #"job_title_id",
-                    #              #"email",
-                    #              #"phone",
-                    #              ],
-                    #),
-                    # Can't have Components of Components Inline, so just use simple fields
-                    "contact",
-                    "phone1",
-                    "email",
-                    S3SQLInlineComponent(
-                        "document",
-                        name = "file",
-                        label = T("Files"),
-                        fields = ["file",
-                                  #"comments",
-                                  ],
-                    ),
-                    "comments",
-                )
-                s3db.configure(tablename,
-                               crud_form = crud_form,
-                               )
-
-        elif representation == "plain" and \
-             method != "search":
+        elif representation == "plain":
             # Map Popups
             table.location_id.label = T("Address")
             table.location_id.represent = s3db.gis_LocationRepresent(address_only=True)
             table.organisation_id.comment = ""
             s3.crud_strings[tablename].title_display = T("Place Details")
-            s3db.configure(tablename,
-                           popup_url="",
-                           )
+            # Disable Open on Places.
+            # - Not sure why this was done & have now been requested to undo it.
+            #s3db.configure(tablename,
+            #               popup_url = "",
+            #               )
 
         return True
     s3.prep = custom_prep
@@ -1407,35 +1419,18 @@ def customize_org_facility(**attr):
 
     return attr
 
-settings.ui.customize_org_facility = customize_org_facility
+settings.customise_org_facility_controller = customise_org_facility_controller
 
 # -----------------------------------------------------------------------------
 # People
 #
-def customize_stats_people(**attr):
-    """
-        Customize stats_people controller
-    """
+def customise_stats_people_controller(**attr):
 
-    s3db = current.s3db
-    request = current.request
-    if "summary" in request.args:
-        get_vars = request.get_vars
-        w = get_vars.get("w", None)
-        if not w:
-            # This is an interactive request
-            coalition = get_vars.get("people_group.group_id__belongs", None)
-            if not coalition:
-                # Default the Coalition Filter
-                auth = current.auth
-                org_group_id = auth.is_logged_in() and auth.user.org_group_id
-                if org_group_id:
-                    get_vars["people_group.group_id__belongs"] = str(org_group_id)
-                else:
-                    # Filter to all Coalitions
-                    gtable = s3db.org_group
-                    rows = current.db(gtable.deleted == False).select(gtable.id)
-                    get_vars["people_group.group_id__belongs"] = ",".join([str(row.id) for row in rows])
+    if "summary" in current.request.args:
+        from s3.s3utils import s3_set_default_filter
+        s3_set_default_filter("people_group.group_id",
+                              default_coalition_filter,
+                              tablename = "stats_people")
 
     # Custom PreP
     s3 = current.response.s3
@@ -1444,7 +1439,10 @@ def customize_stats_people(**attr):
         # Call standard prep
         if callable(standard_prep):
             result = standard_prep(r)
+            if not result:
+                return False
 
+        s3db = current.s3db
         tablename = "stats_people"
         table = s3db[tablename]
 
@@ -1462,6 +1460,7 @@ def customize_stats_people(**attr):
                            "value",
                            "people_group.group_id",
                            "location_id",
+                           "location_id$addr_postcode",
                            "person_id",
                            "comments",
                            ]
@@ -1476,21 +1475,83 @@ def customize_stats_people(**attr):
             #table.location_id.represent = s3db.gis_LocationRepresent(address_only=True)
 
             s3.crud_strings[tablename] = Storage(
-                title_create = T("Add People"),
+                label_create = T("Add People"),
                 title_display = T("People Details"),
                 title_list = T("People"),
                 title_update = T("Update People"),
-                title_search = T("Search People"),
-                subtitle_create = T("Add New People"),
                 label_list_button = T("List People"),
-                label_create_button = T("Add People"),
                 label_delete_button = T("Remove People"),
                 msg_record_created = T("People added"),
                 msg_record_modified = T("People updated"),
                 msg_record_deleted = T("People removed"),
                 msg_list_empty = T("No People currently recorded"))
             
-            if method in ("summary", "report2"):
+            # Custom Form (Read/Create/Update inc embedded Summary)
+            from s3.s3forms import S3SQLCustomForm, S3SQLInlineComponent
+            if method in ("create", "update", "summary"):
+                # Custom Widgets/Validators
+                from s3.s3validators import IS_LOCATION_SELECTOR2
+                from s3.s3widgets import S3LocationSelectorWidget2, S3MultiSelectWidget
+
+                table.parameter_id.widget = S3MultiSelectWidget(multiple=False)
+                s3db.stats_people_group.group_id.widget = S3MultiSelectWidget(multiple=False)
+
+                field = table.location_id
+                field.label = "" # Gets replaced by widget
+                levels = ("L3",)
+                field.requires = IS_LOCATION_SELECTOR2(levels=levels)
+                field.widget = S3LocationSelectorWidget2(levels=levels,
+                                                         hide_lx=False,
+                                                         reverse_lx=True,
+                                                         show_postcode=True,
+                                                         show_map=False,
+                                                         )
+                # L3s only
+                #from s3.s3fields import S3Represent
+                #from s3.s3validators import IS_ONE_OF
+                #field.requires = IS_ONE_OF(current.db, "gis_location.id",
+                #                           S3Represent(lookup="gis_location"),
+                #                           sort = True,
+                #                           filterby = "level",
+                #                           filter_opts = ("L3",)
+                #                           )
+                # Don't add new Locations here
+                #field.comment = None
+                # Simple dropdown
+                #field.widget = None
+                #field.label = T("City")
+
+                table.person_id.comment = None
+
+            # Custom Crud Form
+            crud_form = S3SQLCustomForm(
+                "name",
+                "parameter_id",
+                "value",
+                S3SQLInlineComponent(
+                    "people_group",
+                    label = T("Coalition"),
+                    fields = [("", "group_id")],
+                    multiple = False,
+                ),
+                "location_id",
+                "person_id",
+                S3SQLInlineComponent(
+                    "document",
+                    name = "file",
+                    label = T("Files"),
+                    fields = [("", "file"),
+                              #"comments",
+                              ],
+                ),
+                "comments",
+            )
+
+            s3db.configure(tablename,
+                           crud_form = crud_form,
+                           )
+
+            if method in ("summary", "report"):
                 from s3.s3filter import S3OptionsFilter, S3TextFilter
                 filter_widgets = [S3TextFilter(["name",
                                                 "people_group.group_id",
@@ -1503,15 +1564,12 @@ def customize_stats_people(**attr):
                                                 label = T("Search"),
                                                ),
                                   S3OptionsFilter("people_group.group_id",
-                                                  represent="%(name)s",
-                                                  widget="multiselect",
-                                                  header=True,
+                                                  represent = "%(name)s",
+                                                  header = True,
                                                   ),
                                   S3OptionsFilter("parameter_id",
-                                                  label=T("Type of People"),
-                                                  represent="%(name)s",
-                                                  widget="multiselect",
-                                                  header=True,
+                                                  label = T("Type of People"),
+                                                  header = True,
                                                   ),
                                   ]
 
@@ -1548,116 +1606,24 @@ def customize_stats_people(**attr):
                                # No Map for People
                                #summary = [s for s in settings.ui.summary if s["name"] != "map"],
                                )
-            else:
-                # Custom Form (Read/Create/Update)
-                from s3.s3forms import S3SQLCustomForm, S3SQLInlineComponent
-                if method in ("create", "update"):
-                    # Custom Widgets/Validators
-                    widgets = True
-                    from s3.s3validators import IS_ADD_PERSON_WIDGET2, IS_LOCATION_SELECTOR2
-                    from s3.s3widgets import S3AddPersonWidget2, S3LocationSelectorWidget2
-                else:
-                    widgets = False
-
-                if widgets:
-                    field = table.location_id
-                    field.label = "" # Gets replaced by widget
-                    field.requires = IS_LOCATION_SELECTOR2(levels=("L3",))
-                    field.widget = S3LocationSelectorWidget2(levels=("L3",),
-                                                             hide_lx=False,
-                                                             reverse_lx=True,
-                                                             show_postcode=True,
-                                                             show_map=False,
-                                                             )
-    
-                    # L3s only
-                    #from s3.s3fields import S3Represent
-                    #from s3.s3validators import IS_ONE_OF
-                    #field.requires = IS_ONE_OF(current.db, "gis_location.id",
-                    #                           S3Represent(lookup="gis_location"),
-                    #                           sort = True,
-                    #                           filterby = "level",
-                    #                           filter_opts = ["L3"]
-                    #                           )
-                    # Don't add new Locations here
-                    #field.comment = None
-                    # Simple dropdown
-                    #field.widget = None
-                    #field.label = T("City")
-
-                    field = table.person_id
-                    field.comment = None
-                    field.requires = IS_ADD_PERSON_WIDGET2()
-                    field.widget = S3AddPersonWidget2(controller="pr")
-    
-                # Hide Labels when just 1 column in inline form
-                s3db.doc_document.file.label = ""
-                current.db.stats_people_group.group_id.label = ""
-    
-                # Custom Crud Form
-                crud_form = S3SQLCustomForm(
-                    "name",
-                    "parameter_id",
-                    "value",
-                    S3SQLInlineComponent(
-                        "people_group",
-                        label = T("Coalition"),
-                        fields = ["group_id"],
-                        multiple = False,
-                    ),
-                    "location_id",
-                    "person_id",
-                    S3SQLInlineComponent(
-                        "document",
-                        name = "file",
-                        label = T("Files"),
-                        fields = ["file",
-                                  #"comments",
-                                  ],
-                    ),
-                    "comments",
-                )
-    
-                s3db.configure(tablename,
-                               crud_form = crud_form,
-                               )
 
         return True
     s3.prep = custom_prep
 
-    attr["hide_filter"] = False
-
     return attr
 
-settings.ui.customize_stats_people = customize_stats_people
+settings.customise_stats_people_controller = customise_stats_people_controller
 
 # -----------------------------------------------------------------------------
 # Evacuation Routes
 #
-def customize_vulnerability_evac_route(**attr):
-    """
-        Customize vulnerability_evac_route controller
-    """
+def customise_vulnerability_evac_route_controller(**attr):
 
-    s3db = current.s3db
-    request = current.request
-    if "summary" in request.args:
-        get_vars = request.get_vars
-        w = get_vars.get("w", None)
-        if not w:
-            # This is an interactive request
-            coalition = get_vars.get("evac_route_group.group_id__belongs", None)
-            if not coalition:
-                # Default the Coalition Filter
-                auth = current.auth
-                org_group_id = auth.is_logged_in() and auth.user.org_group_id
-                if org_group_id:
-                    get_vars["evac_route_group.group_id__belongs"] = str(org_group_id)
-                else:
-                    # Filter to all Coalitions
-                    gtable = s3db.org_group
-                    rows = current.db(gtable.deleted == False).select(gtable.id)
-                    get_vars["evac_route_group.group_id__belongs"] = ",".join([str(row.id) for row in rows])
+    if "summary" in current.request.args:
+        from s3.s3utils import s3_set_default_filter
+        s3_set_default_filter("evac_route_group.group_id",
+                              default_coalition_filter,
+                              tablename = "vulnerability_evac_route")
 
     # Custom PreP
     s3 = current.response.s3
@@ -1666,7 +1632,10 @@ def customize_vulnerability_evac_route(**attr):
         # Call standard prep
         if callable(standard_prep):
             result = standard_prep(r)
+            if not result:
+                return False
 
+        s3db = current.s3db
         tablename = "vulnerability_evac_route"
         table = s3db[tablename]
 
@@ -1690,9 +1659,57 @@ def customize_vulnerability_evac_route(**attr):
             # CRUD Strings / Represent
             s3.crud_strings[tablename].title_update = T("Update Evacuation Route")
 
+            table.name.label = T("Description")
             table.location_id.readable = False
 
-            if method in ("summary", "report2"):
+            # Custom Form (Read/Create/Update inc embedded summary)
+            from s3.s3forms import S3SQLCustomForm, S3SQLInlineComponent
+            if method in ("create", "update", "summary"):
+                # Custom Widgets/Validators
+                #from s3layouts import S3AddResourceLink
+                from s3.s3validators import IS_LOCATION_SELECTOR2
+                from s3.s3widgets import S3LocationSelectorWidget2, S3MultiSelectWidget
+
+                s3db.vulnerability_evac_route_group.group_id.widget = S3MultiSelectWidget(multiple=False)
+
+                table.location_id.label = "" # Gets replaced by widget
+                levels = ("L3",)
+                table.location_id.requires = IS_LOCATION_SELECTOR2(levels=levels)
+                table.location_id.widget = S3LocationSelectorWidget2(levels=levels,
+                                                                     lines=True,
+                                                                     )
+
+                #table.hazard_id.comment = S3AddResourceLink(c="vulnerability",
+                #                                            f="hazard",
+                #                                            title=T("Add Hazard Type")),
+
+            # Custom Crud Form
+            crud_form = S3SQLCustomForm(
+                "name",
+                #"hazard_id",
+                S3SQLInlineComponent(
+                    "evac_route_group",
+                    label = T("Coalition"),
+                    fields = [("", "group_id")],
+                    multiple = False,
+                ),
+                "location_id",
+                S3SQLInlineComponent(
+                    "document",
+                    name = "file",
+                    label = T("Files"),
+                    fields = [("", "file"),
+                              #"comments",
+                              ],
+                ),
+                "comments",
+            )
+
+            s3db.configure(tablename,
+                           crud_form = crud_form,
+                           )
+
+            if method in ("summary", "report"):
                 from s3.s3filter import S3OptionsFilter, S3TextFilter
                 filter_widgets = [S3TextFilter(["name",
                                                 "evac_route_group.group_id",
@@ -1702,15 +1719,12 @@ def customize_vulnerability_evac_route(**attr):
                                                 label = T("Search"),
                                                ),
                                   S3OptionsFilter("evac_route_group.group_id",
-                                                  represent="%(name)s",
-                                                  widget="multiselect",
-                                                  header=True,
+                                                  represent = "%(name)s",
+                                                  header = True,
                                                   ),
                                   #S3OptionsFilter("hazard_id",
-                                  #                label=T("Hazard Type"),
-                                  #                represent="%(name)s",
-                                  #                widget="multiselect",
-                                  #                header=True,
+                                  #                label = T("Hazard Type"),
+                                  #                header = True,
                                   #                ),
                                   ]
 
@@ -1742,91 +1756,23 @@ def customize_vulnerability_evac_route(**attr):
                                report_options = report_options,
                                )
 
-            else:
-                # Custom Form (Read/Create/Update)
-                from s3.s3forms import S3SQLCustomForm, S3SQLInlineComponent
-                if method in ("create", "update"):
-                    # Custom Widgets/Validators
-                    from s3.s3validators import IS_LOCATION_SELECTOR2
-                    from s3.s3widgets import S3LocationSelectorWidget2
-                    #from s3layouts import S3AddResourceLink
-
-                    table.location_id.label = "" # Gets replaced by widget
-                    table.location_id.requires = IS_LOCATION_SELECTOR2(levels=("L3",))
-                    table.location_id.widget = S3LocationSelectorWidget2(levels=("L3",),
-                                                                         lines=True,
-                                                                         )
-
-                    #table.hazard_id.comment = S3AddResourceLink(c="vulnerability",
-                    #                                            f="hazard",
-                    #                                            title=T("Add Hazard Type")),
-
-                # Hide Labels when just 1 column in inline form
-                s3db.doc_document.file.label = ""
-                current.db.vulnerability_evac_route_group.group_id.label = ""
-
-                # Custom Crud Form
-                crud_form = S3SQLCustomForm(
-                    "name",
-                    #"hazard_id",
-                    S3SQLInlineComponent(
-                        "evac_route_group",
-                        label = T("Coalition"),
-                        fields = ["group_id"],
-                        multiple = False,
-                    ),
-                    "location_id",
-                    S3SQLInlineComponent(
-                        "document",
-                        name = "file",
-                        label = T("Files"),
-                        fields = ["file",
-                                  #"comments",
-                                  ],
-                    ),
-                    "comments",
-                )
-    
-                s3db.configure(tablename,
-                               crud_form = crud_form,
-                               )
-
         return True
     s3.prep = custom_prep
 
-    attr["hide_filter"] = False
-
     return attr
 
-settings.ui.customize_vulnerability_evac_route = customize_vulnerability_evac_route
+settings.customise_vulnerability_evac_route_controller = customise_vulnerability_evac_route_controller
 
 # -----------------------------------------------------------------------------
-# Risks
+# Hazards (vulnerability_risk)
 #
-def customize_vulnerability_risk(**attr):
-    """
-        Customize vulnerability_risk controller
-    """
+def customise_vulnerability_risk_controller(**attr):
 
-    s3db = current.s3db
-    request = current.request
-    if "summary" in request.args:
-        get_vars = request.get_vars
-        w = get_vars.get("w", None)
-        if not w:
-            # This is an interactive request
-            coalition = get_vars.get("risk_group.group_id__belongs", None)
-            if not coalition:
-                # Default the Coalition Filter
-                auth = current.auth
-                org_group_id = auth.is_logged_in() and auth.user.org_group_id
-                if org_group_id:
-                    get_vars["risk_group.group_id__belongs"] = str(org_group_id)
-                else:
-                    # Filter to all Coalitions
-                    gtable = s3db.org_group
-                    rows = current.db(gtable.deleted == False).select(gtable.id)
-                    get_vars["risk_group.group_id__belongs"] = ",".join([str(row.id) for row in rows])
+    if "summary" in current.request.args:
+        from s3.s3utils import s3_set_default_filter
+        s3_set_default_filter("risk_group.group_id",
+                              default_coalition_filter,
+                              tablename = "vulnerability_risk")
 
     # Custom PreP
     s3 = current.response.s3
@@ -1835,7 +1781,10 @@ def customize_vulnerability_risk(**attr):
         # Call standard prep
         if callable(standard_prep):
             result = standard_prep(r)
+            if not result:
+                return False
 
+        s3db = current.s3db
         tablename = "vulnerability_risk"
         table = s3db[tablename]
 
@@ -1848,6 +1797,7 @@ def customize_vulnerability_risk(**attr):
                            #(T("Hazard Type"), "hazard_id"),
                            "risk_group.group_id",
                            "location_id",
+                           "location_id$addr_postcode",
                            "comments",
                            ]
 
@@ -1862,25 +1812,69 @@ def customize_vulnerability_risk(**attr):
             table.location_id.represent = s3db.gis_LocationRepresent(address_only=True)
 
             s3.crud_strings[tablename] = Storage(
-                title_create = T("Add Hazard"),
+                label_create = T("Create Hazard"),
                 title_display = T("Hazard Details"),
                 title_list = T("Hazards"),
                 title_update = T("Update Hazard"),
-                title_search = T("Search Hazards"),
-                subtitle_create = T("Add New Hazard"),
                 label_list_button = T("List Hazards"),
-                label_create_button = T("Add Hazard"),
                 label_delete_button = T("Remove Hazard"),
                 msg_record_created = T("Hazard added"),
                 msg_record_modified = T("Hazard updated"),
                 msg_record_deleted = T("Hazard removed"),
                 msg_list_empty = T("No Hazards currently recorded"))
             
-            if method in ("summary", "report2"):
+            # Custom Form (Read/Create/Update inc embedded summary)
+            from s3.s3forms import S3SQLCustomForm, S3SQLInlineComponent
+            if method in ("create", "update", "summary"):
+                # Custom Widgets/Validators
+                from s3.s3validators import IS_LOCATION_SELECTOR2
+                from s3.s3widgets import S3LocationSelectorWidget2, S3MultiSelectWidget
+
+                s3db.vulnerability_risk_group.group_id.widget = S3MultiSelectWidget(multiple=False)
+
+                field = table.location_id
+                field.label = "" # Gets replaced by widget
+                levels = ("L3",)
+                field.requires = IS_LOCATION_SELECTOR2(levels=levels)
+                field.widget = S3LocationSelectorWidget2(levels=levels,
+                                                         hide_lx=False,
+                                                         reverse_lx=True,
+                                                         polygons=True,
+                                                         show_address=True,
+                                                         show_postcode=True,
+                                                         )
+
+            # Custom Crud Form
+            crud_form = S3SQLCustomForm(
+                "name",
+                #"hazard_id",
+                S3SQLInlineComponent(
+                    "risk_group",
+                    label = T("Coalition"),
+                    fields = [("", "group_id")],
+                    multiple = False,
+                ),
+                "location_id",
+                S3SQLInlineComponent(
+                    "document",
+                    name = "file",
+                    label = T("Files"),
+                    fields = [("", "file"),
+                              #"comments",
+                              ],
+                ),
+                "comments",
+            )
+
+            s3db.configure(tablename,
+                           crud_form = crud_form,
+                           )
+
+            if method in ("summary", "report"):
                 # Not needed now that Risk data is moved to WMS
                 # Filter out data not associated with any Coalition
-                #from s3.s3resource import S3FieldSelector
-                #group_filter = (S3FieldSelector("group.id") != None)
+                #from s3.s3query import FS
+                #group_filter = (FS("group.id") != None)
                 #r.resource.add_filter(group_filter)
 
                 from s3.s3filter import S3OptionsFilter, S3TextFilter
@@ -1892,15 +1886,12 @@ def customize_vulnerability_risk(**attr):
                                                 label = T("Search"),
                                                ),
                                   S3OptionsFilter("risk_group.group_id",
-                                                  represent="%(name)s",
-                                                  widget="multiselect",
-                                                  header=True,
+                                                  represent = "%(name)s",
+                                                  header = True,
                                                   ),
                                   #S3OptionsFilter("hazard_id",
-                                  #                label=T("Hazard Type"),
-                                  #                represent="%(name)s",
-                                  #                widget="multiselect",
-                                  #                header=True,
+                                  #                label = T("Hazard Type"),
+                                  #                header = True,
                                   #                ),
                                   ]
 
@@ -1911,74 +1902,25 @@ def customize_vulnerability_risk(**attr):
                                  ]
 
                 report_options = Storage(
-                    rows=report_fields,
-                    cols=[],
-                    fact=[(T("Number of Risks"), "count(name)")],
-                    defaults=Storage(rows="risk_group.group_id",
-                                     #cols="risk.hazard_id",
-                                     fact="count(name)",
-                                     totals=True,
-                                     chart = "barchart:rows",
-                                     table = "collapse",
-                                     )
+                    rows = report_fields,
+                    cols = [],
+                    fact = [(T("Number of Hazards"), "count(name)")],
+                    defaults = Storage(rows = "risk_group.group_id",
+                                       #cols = "risk.hazard_id",
+                                       fact = "count(name)",
+                                       totals = True,
+                                       chart = "barchart:rows",
+                                       table = "collapse",
+                                       )
                     )
 
                 s3db.configure(tablename,
                                # Hide Open & Delete dataTable action buttons
-                               editable = False,
                                deletable = False,
-                               filter_widgets = filter_widgets,
+                               editable = False,
                                filter_formstyle = filter_formstyle,
+                               filter_widgets = filter_widgets,
                                report_options = report_options,
-                               )
-
-            else:
-                # Custom Form (Read/Create/Update)
-                from s3.s3forms import S3SQLCustomForm, S3SQLInlineComponent
-                if method in ("create", "update"):
-                    # Custom Widgets/Validators
-                    from s3.s3validators import IS_LOCATION_SELECTOR2
-                    from s3.s3widgets import S3LocationSelectorWidget2
-
-                    field = table.location_id
-                    field.label = "" # Gets replaced by widget
-                    field.requires = IS_LOCATION_SELECTOR2(levels=("L3",))
-                    field.widget = S3LocationSelectorWidget2(levels=("L3",),
-                                                             hide_lx=False,
-                                                             reverse_lx=True,
-                                                             polygons=True,
-                                                             show_address=True,
-                                                             show_postcode=True,
-                                                             )
-    
-                # Hide Labels when just 1 column in inline form
-                s3db.doc_document.file.label = ""
-                current.db.vulnerability_risk_group.group_id.label = ""
-    
-                # Custom Crud Form
-                crud_form = S3SQLCustomForm(
-                    "name",
-                    #"hazard_id",
-                    S3SQLInlineComponent(
-                        "risk_group",
-                        label = T("Coalition"),
-                        fields = ["group_id"],
-                        multiple = False,
-                    ),
-                    "location_id",
-                    S3SQLInlineComponent(
-                        "document",
-                        name = "file",
-                        label = T("Files"),
-                        fields = ["file",
-                                  #"comments",
-                                  ],
-                    ),
-                    "comments",
-                )
-    
-                s3db.configure(tablename,
-                               crud_form = crud_form,
                                )
 
         # Not needed now that Risk data is moved to WMS
@@ -1986,27 +1928,23 @@ def customize_vulnerability_risk(**attr):
         #    layer = current.request.get_vars.get("layer", None)
         #    if not layer:
         #        # Filter out data not associated with any Coalition
-        #        from s3.s3resource import S3FieldSelector
-        #        group_filter = (S3FieldSelector("group.id") != None)
+        #        from s3.s3query import FS
+        #        group_filter = (FS("group.id") != None)
         #        r.resource.add_filter(group_filter)
 
         return True
     s3.prep = custom_prep
 
-    attr["hide_filter"] = False
     attr["rheader"] = None
 
     return attr
 
-settings.ui.customize_vulnerability_risk = customize_vulnerability_risk
+settings.customise_vulnerability_risk_controller = customise_vulnerability_risk_controller
 
 # -----------------------------------------------------------------------------
 # Saved Maps
 #
-def customize_gis_config(**attr):
-    """
-        Customize gis_config controller
-    """
+def customise_gis_config_controller(**attr):
 
     # Custom PreP
     s3 = current.response.s3
@@ -2015,6 +1953,8 @@ def customize_gis_config(**attr):
         # Call standard prep
         if callable(standard_prep):
             result = standard_prep(r)
+            if not result:
+                return False
 
         if r.interactive:
             auth = current.auth
@@ -2043,6 +1983,7 @@ def customize_gis_config(**attr):
                                                coalition_pe_ids: T("My Coalition's Maps"),
                                                auth.user.pe_id: T("My Maps"),
                                                },
+                                    cols = 3,
                                     multiple = False,
                                     )
                     ]
@@ -2055,7 +1996,7 @@ def customize_gis_config(**attr):
 
     return attr
 
-settings.ui.customize_gis_config = customize_gis_config
+settings.customise_gis_config_controller = customise_gis_config_controller
 
 # -----------------------------------------------------------------------------
 # Site Activity Log
@@ -2197,21 +2138,16 @@ def render_log(list_id, item_id, resource, rfields, record):
 current.response.s3.render_log = render_log
 
 # -----------------------------------------------------------------------------
-def customize_s3_audit(**attr):
-    """
-        Customize s3_audit controller
-    """
+def customise_s3_audit_controller(**attr):
 
     from s3.s3utils import s3_auth_user_represent_name
     current.db.s3_audit.user_id.represent = s3_auth_user_represent_name
 
-    from s3.s3resource import S3FieldSelector
-    current.response.s3.filter = (S3FieldSelector("~.method") != "delete")
+    from s3.s3query import FS
+    current.response.s3.filter = (FS("~.method") != "delete")
 
     tablename = "s3_audit"
     current.s3db.configure(tablename,
-                           list_layout = render_log,
-                           orderby = "s3_audit.timestmp desc",
                            insertable = False,
                            list_fields = ["id",
                                           "method",
@@ -2219,11 +2155,13 @@ def customize_s3_audit(**attr):
                                           "tablename",
                                           "record_id",
                                           ],
+                           list_layout = render_log,
+                           orderby = "s3_audit.timestmp desc",
                            )
 
     return attr
 
-settings.ui.customize_s3_audit = customize_s3_audit
+settings.customise_s3_audit_controller = customise_s3_audit_controller
 
 # =============================================================================
 # Template Modules

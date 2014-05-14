@@ -676,6 +676,8 @@ class login():
 class mypage():
     """
         Custom page for a User to manage their Saved Search & Subscriptions
+
+        @todo: pr_saved_search no longer supported (S3Search deprecated)
     """
 
     def __call__(self):
@@ -774,8 +776,8 @@ class organisations():
         T = current.T
 
         s3request = s3_request("org", "organisation", extension="aadata")
-        # (S3FieldSelector("project.id") != None) & \
-        f = (S3FieldSelector("organisation_type_id$name").anyof(["Regional Organisation",
+        # (FS("project.id") != None) & \
+        f = (FS("organisation_type_id$name").anyof(["Regional Organisation",
                                                                  "Regional Office",
                                                                  "Regional Center"]))
         s3request.resource.add_filter(f)
@@ -804,11 +806,12 @@ class organisations():
 
         s3db = current.s3db
         table = s3db.org_organisation
-        table.address = Field.Lazy(s3db.org_organisation_address)
+        table.address = Field.Method("address",
+                                     s3db.org_organisation_address)
 
         s3request = s3_request("org", "organisation", extension="aadata")
-        #(S3FieldSelector("project.id") != None) & \
-        f = (S3FieldSelector("organisation_type_id$name").anyof(["Committees/Mechanism/Forum",
+        #(FS("project.id") != None) & \
+        f = (FS("organisation_type_id$name").anyof(["Committees/Mechanism/Forum",
                                                                  "Network"]))
         s3request.resource.add_filter(f)
 

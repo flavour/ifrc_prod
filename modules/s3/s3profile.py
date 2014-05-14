@@ -2,7 +2,7 @@
 
 """ S3 Profile
 
-    @copyright: 2009-2013 (c) Sahana Software Foundation
+    @copyright: 2009-2014 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -33,8 +33,8 @@ from gluon.http import redirect
 from gluon.storage import Storage
 
 from s3crud import S3CRUD
-from s3report2 import S3Report2
-from s3resource import S3FieldSelector
+from s3report import S3Report
+from s3query import FS
 
 # =============================================================================
 class S3Profile(S3CRUD):
@@ -69,7 +69,7 @@ class S3Profile(S3CRUD):
                 # Redirect to the List View
                 redirect(r.url(method=""))
         else:
-            r.error(405, r.ERROR.BAD_METHOD)
+            r.error(405, current.ERROR.BAD_METHOD)
         return output
 
     # -------------------------------------------------------------------------
@@ -81,10 +81,15 @@ class S3Profile(S3CRUD):
             @param attr: controller attributes for the request
         """
 
-        response = current.response
-
         tablename = self.tablename
         get_config = current.s3db.get_config
+
+        # Get the page widgets
+        widgets = get_config(tablename, "profile_widgets")
+        if not widgets:
+            # Profile page not configured:
+            # - redirect to the Read View
+            redirect(r.url(method="read"))
 
         # Page Title
         title = get_config(tablename, "profile_title")
@@ -105,100 +110,91 @@ class S3Profile(S3CRUD):
 
         output = dict(title=title, header=header)
 
-        cols = get_config(tablename, "profile_cols")
-        if not cols:
-            cols = 2
+        # Index the widgets by their position in the config
+        for index, widget in enumerate(widgets):
+            widget["index"] = index
 
-        # Get the page widgets
-        widgets = get_config(tablename, "profile_widgets")
-        if widgets:
+        if r.representation == "dl":
+            # Ajax-update of one datalist
+            index = r.get_vars.get("update", None)
+            if index:
+                try:
+                    index = int(index)
+                except ValueError:
+                    datalist = ""
+                else:
+                    # @ToDo: Check permissions to the Resource & do
+                    # something different if no permission
+                    datalist = self._datalist(r, widgets[index], **attr)
+            output["item"] = datalist
 
-            # Index the widgets by their position in the config
-            for index, widget in enumerate(widgets):
-                widget["index"] = index
-
-            if r.representation == "dl":
-                # Ajax-update of one datalist
-                get_vars = r.get_vars
-                index = r.get_vars.get("update", None)
-                if index:
-                    try:
-                        index = int(index)
-                    except ValueError:
-                        datalist = ""
-                    else:
-                        # @ToDo: Check permissions to the Resource & do
-                        # something different if no permission
-                        datalist = self._datalist(r, widgets[index], **attr)
-                output["item"] = datalist
-
-            elif r.representation == "aadata":
-                # Ajax-update of one datalist
-                get_vars = r.get_vars
-                index = r.get_vars.get("update", None)
-                if index:
-                    try:
-                        index = int(index)
-                    except ValueError:
-                        datalist = ""
-                    else:
-                        # @ToDo: Check permissions to the Resource & do
-                        # something different if no permission
-                        datatable = self._datatable(r, widgets[index], **attr)
-                return datatable
-
-            else:
-                # Default page-load
-                rows = []
-                append = rows.append
-                row = None
-                row_cols = 0
-                for widget in widgets:
-
-                    # Render the widget
-                    w_type = widget["type"]
-                    if w_type == "comments":
-                        w = self._comments(r, widget, **attr)
-                    elif w_type == "datalist":
-                        w = self._datalist(r, widget, **attr)
-                    elif w_type == "datatable":
-                        w = self._datatable(r, widget, **attr)
-                    elif w_type == "form":
-                        w = self._form(r, widget, **attr)
-                    elif w_type == "map":
-                        w = self._map(r, widget, **attr)
-                    elif w_type == "report":
-                        w = self._report(r, widget, **attr)
-                    else:
-                        if response.s3.debug:
-                            raise SyntaxError("Unsupported widget type %s" %
-                                              w_type)
-                        else:
-                            # ignore
-                            continue
-
-                    if row is None:
-                        # Start new row
-                        row = DIV(_class="row profile")
-                        row_cols = 0
-
-                    # Append widget to row
-                    row.append(w)
-                    colspan = widget.get("colspan", 1)
-                    row_cols += colspan
-                    if row_cols == cols:
-                        # Close this row
-                        append(row)
-                        row = None
-
-                if row:
-                    # We have an incomplete row of widgets
-                    append(row)
-                output["rows"] = rows
-                response.view = self._view(r, "profile.html")
+        elif r.representation == "aadata":
+            # Ajax-update of one datalist
+            index = r.get_vars.get("update", None)
+            if index:
+                try:
+                    index = int(index)
+                except ValueError:
+                    datalist = ""
+                else:
+                    # @ToDo: Check permissions to the Resource & do
+                    # something different if no permission
+                    datatable = self._datatable(r, widgets[index], **attr)
+            return datatable
 
         else:
-            output["rows"] = []
+            # Default page-load
+            response = current.response
+            rows = []
+            append = rows.append
+            row = None
+            cols = get_config(tablename, "profile_cols")
+            if not cols:
+                cols = 2
+            row_cols = 0
+            for widget in widgets:
+
+                # Render the widget
+                w_type = widget["type"]
+                if w_type == "comments":
+                    w = self._comments(r, widget, **attr)
+                elif w_type == "datalist":
+                    w = self._datalist(r, widget, **attr)
+                elif w_type == "datatable":
+                    w = self._datatable(r, widget, **attr)
+                elif w_type == "form":
+                    w = self._form(r, widget, **attr)
+                elif w_type == "map":
+                    w = self._map(r, widget, **attr)
+                elif w_type == "report":
+                    w = self._report(r, widget, **attr)
+                else:
+                    if response.s3.debug:
+                        raise SyntaxError("Unsupported widget type %s" %
+                                          w_type)
+                    else:
+                        # ignore
+                        continue
+
+                if row is None:
+                    # Start new row
+                    row = DIV(_class="row profile")
+                    row_cols = 0
+
+                # Append widget to row
+                row.append(w)
+                colspan = widget.get("colspan", 1)
+                row_cols += colspan
+                if row_cols == cols:
+                    # Close this row
+                    append(row)
+                    row = None
+
+            if row:
+                # We have an incomplete row of widgets
+                append(row)
+            output["rows"] = rows
+            response.view = self._view(r, "profile.html")
 
         return output
 
@@ -216,40 +212,39 @@ class S3Profile(S3CRUD):
         if not record_id:
             return None
 
-        s3db = current.s3db
-
         if not context:
             query = None
 
         elif type(context) is tuple:
             context, field = context
-            query = S3FieldSelector(context) == r.record[field]
+            query = (FS(context) == r.record[field])
 
         elif context == "location":
             # Show records linked to this Location & all it's Child Locations
             s = "(location)$path"
             # This version doesn't serialize_url
             #m = ("%(id)s/*,*/%(id)s/*" % dict(id=id)).split(",")
-            #filter = (S3FieldSelector(s).like(m)) | (S3FieldSelector(s) == id)
+            #filter = (FS(s).like(m)) | (FS(s) == id)
             m = ("%(id)s,%(id)s/*,*/%(id)s/*,*/%(id)s" % dict(id=record_id)).split(",")
             m = [f.replace("*", "%") for f in m]
-            query = S3FieldSelector(s).like(m)
+            query = (FS(s).like(m))
         # @ToDo:
         #elif context == "organisation":
         #    # Show records linked to this Organisation and all it's Branches
         #    s = "(%s)" % context
-        #    query = S3FieldSelector(s) == id
+        #    query = (FS(s) == id)
         else:
             # Normal: show just records linked directly to this master resource
             s = "(%s)" % context
-            query = S3FieldSelector(s) == record_id
+            query = (FS(s) == record_id)
 
         # Define target resource
-        resource = s3db.resource(tablename, filter=query)
+        resource = current.s3db.resource(tablename, filter=query)
         return resource, query
         
     # -------------------------------------------------------------------------
-    def _comments(self, r, widget, **attr):
+    @staticmethod
+    def _comments(r, widget, **attr):
         """
             Generate a Comments widget
 
@@ -267,14 +262,7 @@ class S3Profile(S3CRUD):
         if icon:
             icon = TAG[""](I(_class=icon), " ")
 
-        colspan = widget.get("colspan", 2)
-        if colspan == 1:
-            _class = "span6"
-        elif colspan == 2:
-            _class = "span12"
-        else:
-            # Unsupported
-            raise
+        _class = self._lookup_class(r, widget)
 
         # Render the widget
         output = DIV(H4(icon,
@@ -296,7 +284,6 @@ class S3Profile(S3CRUD):
         """
 
         T = current.T
-        s3db = current.s3db
         
         context = widget.get("context", None)
         tablename = widget.get("tablename", None)
@@ -313,7 +300,8 @@ class S3Profile(S3CRUD):
                                  config("list_layout", None))
         orderby = widget.get("orderby",
                              config("list_orderby",
-                                    ~resource.table.created_on))
+                                    config("orderby",
+                                           ~resource.table.created_on)))
 
         filter = widget.get("filter", None)
         if filter:
@@ -331,7 +319,7 @@ class S3Profile(S3CRUD):
             record_id = get_vars.get("record", None)
             if record_id is not None:
                 # Ajax-update of a single record
-                resource.add_filter(S3FieldSelector("id") == record_id)
+                resource.add_filter(FS("id") == record_id)
                 start, limit = 0, 1
             else:
                 # Ajax-update of full page
@@ -354,7 +342,7 @@ class S3Profile(S3CRUD):
             if "delete" in r.get_vars:
                 return self._dl_ajax_delete(r, resource)
             else:
-                r.error(405, r.ERROR.BAD_METHOD)
+                r.error(405, current.ERROR.BAD_METHOD)
 
         # dataList
         datalist, numrows, ids = resource.datalist(fields=list_fields,
@@ -388,8 +376,6 @@ class S3Profile(S3CRUD):
         icon = widget.get("icon", "")
         if icon:
             icon = TAG[""](I(_class=icon), " ")
-
-        s3 = current.response.s3
 
         if pagesize and numrows > pagesize:
             # Button to display the rest of the records in a Modal
@@ -427,14 +413,7 @@ class S3Profile(S3CRUD):
                                           context,
                                           numrows)
 
-        colspan = widget.get("colspan", 1)
-        if colspan == 1:
-            _class = "span6"
-        elif colspan == 2:
-            _class = "span12"
-        else:
-            # Unsupported
-            raise
+        _class = self._lookup_class(r, widget)
 
         # Render the widget
         output = DIV(create_popup,
@@ -461,8 +440,6 @@ class S3Profile(S3CRUD):
         """
 
         # Parse context
-        s3db = current.s3db
-        
         context = widget.get("context", None)
         tablename = widget.get("tablename", None)
         resource, context = self._resolve_context(r, tablename, context)
@@ -603,14 +580,7 @@ class S3Profile(S3CRUD):
             if icon:
                 icon = TAG[""](I(_class=icon), " ")
 
-            colspan = widget.get("colspan", 1)
-            if colspan == 1:
-                _class = "span6"
-            elif colspan == 2:
-                _class = "span12"
-            else:
-                # Unsupported
-                raise
+            _class = self._lookup_class(r, widget)
 
             # Render the widget
             output = DIV(create_popup,
@@ -678,7 +648,7 @@ class S3Profile(S3CRUD):
             
         else:
             # Really raise an exception here?
-            r.error(501, r.ERROR.BAD_FORMAT)
+            r.error(501, current.ERROR.BAD_FORMAT)
 
     # -------------------------------------------------------------------------
     def _form(self, r, widget, **attr):
@@ -689,8 +659,6 @@ class S3Profile(S3CRUD):
             @param widget: the widget as a tuple: (label, type, icon)
             @param attr: controller attributes for the request
         """
-
-        s3db = current.s3db
 
         label = widget.get("label", "")
         if label:
@@ -716,12 +684,10 @@ class S3Profile(S3CRUD):
 
         sqlform = widget.get("sqlform", None)
         if not sqlform:
-            sqlform = current.deployment_settings.get_ui_crud_form(tablename)
-            if not sqlform:
-                from s3forms import S3SQLDefaultForm
-                sqlform = S3SQLDefaultForm()
+            from s3forms import S3SQLDefaultForm
+            sqlform = S3SQLDefaultForm()
 
-        get_config = s3db.get_config
+        get_config = current.s3db.get_config
         if record_id:
             # Update form
             onvalidation = get_config(tablename, "create_onvalidation") or \
@@ -744,14 +710,7 @@ class S3Profile(S3CRUD):
                        onaccept = onaccept,
                        )
 
-        colspan = widget.get("colspan", 2)
-        if colspan == 1:
-            _class = "span6"
-        elif colspan == 2:
-            _class = "span12"
-        else:
-            # Unsupported
-            raise
+        _class = self._lookup_class(r, widget)
 
         # Render the widget
         output = DIV(H4(icon,
@@ -912,14 +871,7 @@ class S3Profile(S3CRUD):
             script = "/%s/static/scripts/S3/s3.gis.fullscreen.min.js" % current.request.application
         s3.scripts.append(script)
 
-        colspan = widget.get("colspan", 1)
-        if colspan == 1:
-            _class = "span6"
-        elif colspan == 2:
-            _class = "span12"
-        else:
-            # Unsupported
-            raise
+        _class = self._lookup_class(r, widget)
 
         # Render the widget
         output = DIV(fullscreen,
@@ -943,15 +895,9 @@ class S3Profile(S3CRUD):
         """
 
         # Parse context
-        s3db = current.s3db
-
         context = widget.get("context", None)
         tablename = widget.get("tablename", None)
         resource, context = self._resolve_context(r, tablename, context)
-
-        # Define target resource
-        table = resource.table
-        get_config = resource.get_config
 
         # Widget filter option
         widget_filter = widget.get("filter", None)
@@ -962,7 +908,7 @@ class S3Profile(S3CRUD):
         widget_id = "profile-report-%s-%s" % (tablename, widget["index"])
 
         # Define the Pivot Table
-        report = S3Report2()
+        report = S3Report()
         report.resource = resource
         ajaxurl = widget.get("ajaxurl", None)
         contents = report.widget(r,
@@ -978,14 +924,7 @@ class S3Profile(S3CRUD):
         if icon:
             icon = TAG[""](I(_class=icon), " ")
 
-        colspan = widget.get("colspan", 1)
-        if colspan == 1:
-            _class = "span6"
-        elif colspan == 2:
-            _class = "span12"
-        else:
-            # Unsupported
-            raise
+        _class = self._lookup_class(r, widget)
 
         # Render the widget
         output = DIV(H4(icon, label,
@@ -997,7 +936,23 @@ class S3Profile(S3CRUD):
         return output
 
     # -------------------------------------------------------------------------
-    def _create_popup(self, r, widget, list_id, resource, context, numrows):
+    @staticmethod
+    def _lookup_class(r, widget):
+        """
+            Provide the Bootstrap span class for the Widgets
+        """
+
+        page_cols = current.s3db.get_config(r.tablename, "profile_cols")
+        if not page_cols:
+            page_cols = 2
+        widget_cols = widget.get("colspan", 1)
+        span = int(12 / page_cols) * widget_cols
+
+        return "span%s" % span
+
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def _create_popup(r, widget, list_id, resource, context, numrows):
         """
             Render an action link for a create-popup (used in data lists
             and data tables).
@@ -1016,7 +971,6 @@ class S3Profile(S3CRUD):
         table = resource.table
         if insert and current.auth.s3_has_permission("create", table):
 
-            s3 = current.response.s3
             tablename = resource.tablename
             
             #if tablename = "org_organisation":
@@ -1025,31 +979,31 @@ class S3Profile(S3CRUD):
             # URL-serialize the widget filter
             widget_filter = widget.get("filter")
             if widget_filter:
-                vars = widget_filter.serialize_url(resource)
+                url_vars = widget_filter.serialize_url(resource)
             else:
-                vars = Storage()
+                url_vars = Storage()
 
             # URL-serialize the context filter
             if context:
                 filters = context.serialize_url(resource)
                 for f in filters:
-                    vars[f] = filters[f]
+                    url_vars[f] = filters[f]
 
             # URL-serialize the widget default
             default = widget.get("default")
             if default:
                 k, v = default.split("=", 1)
-                vars[k] = v
+                url_vars[k] = v
 
             # URL-serialize the list ID (refresh-target of the popup)
-            vars.refresh = list_id
+            url_vars.refresh = list_id
 
             # CRUD string
-            title_create = widget.get("title_create", None)
-            if title_create:
-                title_create = current.T(title_create)
+            label_create = widget.get("label_create", None)
+            if label_create:
+                label_create = current.T(label_create)
             else:
-                title_create = S3CRUD.crud_string(tablename, "title_create")
+                label_create = S3CRUD.crud_string(tablename, "label_create")
 
             # Popup URL
             # Default to primary REST controller for the resource being added
@@ -1061,22 +1015,22 @@ class S3Profile(S3CRUD):
                 args = [r.id, component, "create.popup"]
             else:
                 args = ["create.popup"]
-            add_url = URL(c=c, f=f, args=args, vars=vars)
+            add_url = URL(c=c, f=f, args=args, vars=url_vars)
 
             if callable(insert):
                 # Custom widget
-                create = insert(r, list_id, title_create, add_url)
+                create = insert(r, list_id, label_create, add_url)
                 
-            elif s3.crud.formstyle == "bootstrap":
+            elif current.deployment_settings.ui.formstyle == "bootstrap":
                 # Bootstrap-style action icon
                 create = A(I(_class="icon icon-plus-sign small-add"),
                            _href=add_url,
                            _class="s3_modal",
-                           _title=title_create,
+                           _title=label_create,
                            )
             else:
                 # Standard action button
-                create = A(title_create,
+                create = A(label_create,
                            _href=add_url,
                            _class="action-btn profile-add-btn s3_modal",
                            )
@@ -1101,7 +1055,7 @@ class S3Profile(S3CRUD):
 '''$('#%(list_id)s').on('listUpdate',function(){
 $('#%(createid)s').css({display:$(this).datalist('getTotalItems')?'none':'block'})
 })''' % dict(list_id=list_id, createid=createid)
-                    s3.jquery_ready.append(script)
+                    current.response.s3.jquery_ready.append(script)
 
         return create
 

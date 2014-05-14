@@ -23,10 +23,15 @@ def config():
     else:
         record_id = record.id
 
+    def postp(r, output):
+        if isinstance(output, dict) and "buttons" in output:
+            output["buttons"].pop("list_btn", None)
+        return output
+    s3.postp = postp
+    
     # Can't do anything else than update here
     r = s3_request(args=[str(record_id), "update"], extension="html")
-
-    return r(list_btn=None)
+    return r()
 
 # -----------------------------------------------------------------------------
 def repository():
@@ -61,6 +66,17 @@ def repository():
 
     def prep(r):
         if r.interactive:
+
+            # Make the UUID field editable in the form
+            field = r.table.uuid
+            field.label = "UUID"
+            field.readable = True
+            field.writable = True
+            field.comment = DIV(_class="tooltip",
+                                _title="%s|%s" % (
+                                       T("Repository UUID"),
+                                       T("Identifier which the remote site uses to authenticate at this site when sending synchronization requests.")))
+            
             if r.component and r.id:
                 if r.component.alias == "job":
                     s3task.configure_tasktable_crud(
@@ -124,7 +140,7 @@ def sync():
             output = r()
             return output
 
-    raise HTTP(400, body=s3mgr.ERROR.BAD_REQUEST)
+    raise HTTP(400, body=current.ERROR.BAD_REQUEST)
 
 # -----------------------------------------------------------------------------
 def log():

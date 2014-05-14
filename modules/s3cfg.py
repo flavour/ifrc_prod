@@ -4,7 +4,7 @@
 
     @requires: U{B{I{gluon}} <http://web2py.com>}
 
-    @copyright: 2009-2013 (c) Sahana Software Foundation
+    @copyright: 2009-2014 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -39,13 +39,49 @@ except:
     # Python 2.6
     from gluon.contrib.simplejson.ordered_dict import OrderedDict
 
-from gluon import current, URL, TR, TD
+from gluon import current, URL
 from gluon.storage import Storage
+
+from s3theme import *
 
 class S3Config(Storage):
     """
         Deployment Settings Helper Class
     """
+
+    # Used by modules/s3theme.py
+    FORMSTYLE = {
+        "bootstrap": formstyle_bootstrap,
+        "foundation": formstyle_foundation,
+        "foundation_inline": formstyle_foundation_inline,
+        "default": formstyle_default,
+        "default_inline": formstyle_default_inline,
+    }
+
+    # Formats from static/scripts/i18n/jquery-ui-i18n.js converted to Python style
+    date_formats = {"ar": "%d/%m/%Y",
+                    "de": "%d.%m.%Y",
+                    "el": "%d/%m/%Y",
+                    "es": "%d/%m/%Y",
+                    "fr": "%d/%m/%Y",
+                    "it": "%d/%m/%Y",
+                    "ja": "%Y/%m/%d",
+                    "km": "%d-%m-%Y",
+                    "ko": "%Y-%m-%d",
+                    #"ne": "",
+                    "prs": "%Y/%m/%d",
+                    "ps": "%Y/%m/%d",
+                    "pt": "%d/%m/%Y",
+                    "pt-br": "%d/%m/%Y",
+                    "ru": "%d.%m.%Y",
+                    "sv": "%Y-%m-%d",
+                    #"tet": "",
+                    #"tl": "",
+                    #"ur": "",
+                    "vi": "%d/%m/%Y",
+                    "zh-cn": "%Y-%m-%d",
+                    "zh-tw": "%Y/%m/%d",
+                    }
 
     def __init__(self):
         self.auth = Storage()
@@ -55,6 +91,7 @@ class S3Config(Storage):
         self.cms = Storage()
         self.database = Storage()
         self.deploy = Storage()
+        self.event = Storage()
         self.fin = Storage()
         # @ToDo: Move to self.ui
         self.frontpage = Storage()
@@ -65,6 +102,7 @@ class S3Config(Storage):
         self.inv = Storage()
         self.irs = Storage()
         self.L10n = Storage()
+        self.log = Storage()
         self.mail = Storage()
         self.msg = Storage()
         self.org = Storage()
@@ -75,7 +113,9 @@ class S3Config(Storage):
         self.supply = Storage()
         self.search = Storage()
         self.security = Storage()
+        self.sync = Storage()
         self.ui = Storage()
+        self.vulnerability = Storage()
 
     # -------------------------------------------------------------------------
     # Template
@@ -110,6 +150,28 @@ class S3Config(Storage):
             - specified as <themefolder>/xtheme-<filename>.css
         """
         return self.base.get("xtheme", None)
+
+    # -------------------------------------------------------------------------
+    # Customise Hooks
+    def customise_controller(self, tablename, **attr):
+        """
+            Customise a Controller
+            - runs before resource customisation
+            - but prep runs after resource customisation
+        """
+        customise = self.get("customise_%s_controller" % tablename)
+        if customise:
+            return customise(**attr)
+        else:
+            return attr
+
+    def customise_resource(self, tablename):
+        """
+            Get customisation callback for a resource
+            - runs after controller customisation
+            - but runs before prep
+        """
+        return self.get("customise_%s_resource" % tablename)
 
     # -------------------------------------------------------------------------
     def has_module(self, module_name):
@@ -244,6 +306,9 @@ class S3Config(Storage):
 
     def get_auth_opt_in_default(self):
         return self.auth.get("opt_in_default", False)
+
+    def get_auth_registration_requests_home_phone(self):
+        return self.auth.get("registration_requests_home_phone", False)
 
     def get_auth_registration_requests_mobile_phone(self):
         return self.auth.get("registration_requests_mobile_phone", False)
@@ -410,7 +475,7 @@ class S3Config(Storage):
     def get_auth_set_presence_on_login(self):
         return self.auth.get("set_presence_on_login", False)
     def get_auth_ignore_levels_for_presence(self):
-        return self.auth.get("ignore_levels_for_presence", ["L0"])
+        return self.auth.get("ignore_levels_for_presence", ("L0",))
     def get_auth_create_unknown_locations(self):
         return self.auth.get("create_unknown_locations", False)
 
@@ -531,6 +596,35 @@ class S3Config(Storage):
                 return default
 
     # -------------------------------------------------------------------------
+    # Logger settings
+    def get_log_level(self):
+        """
+            Minimum severity level for logger: "DEBUG", "INFO", "WARNING",
+            "ERROR", "CRITICAL". None = turn off logging
+        """
+        return "DEBUG" if self.base.get("debug") \
+                       else self.log.get("level", None)
+
+    def get_log_console(self):
+        """
+            True to enable console logging (sys.stderr)
+        """
+        return self.log.get("console", True)
+
+    def get_log_logfile(self):
+        """
+            Log file name, None to turn off log file output
+        """
+        return self.log.get("logfile", None)
+
+    def get_log_caller_info(self):
+        """
+            True to enable detailed caller info in log (filename,
+            line number, function name), useful for diagnostics
+        """
+        return self.log.get("caller_info", False)
+        
+    # -------------------------------------------------------------------------
     # Database settings
     def get_database_type(self):
         return self.database.get("db_type", "sqlite").lower()
@@ -615,6 +709,12 @@ class S3Config(Storage):
         """
         return self.gis.get("cluster_fill", None)
 
+    def get_gis_cluster_label(self):
+        """
+            Label Clustered points on Map?
+        """
+        return self.gis.get("cluster_label", True)
+
     def get_gis_cluster_stroke(self):
         """
             Stroke for Clustered points on Map, else default
@@ -632,6 +732,12 @@ class S3Config(Storage):
             Stroke for Selected points on Map, else default
         """
         return self.gis.get("select_stroke", None)
+
+    def get_gis_clear_layers(self):
+        """
+            Display Clear Layers Tool above Map's Layer Tree
+        """
+        return self.gis.get("clear_layers", False)
 
     def get_gis_countries(self):
         """
@@ -657,6 +763,12 @@ class S3Config(Storage):
     def get_gis_geocode_imported_addresses(self):
         " Should Addresses imported from CSV be passed to a Geocoder to try and automate Lat/Lon? "
         return self.gis.get("geocode_imported_addresses", False)
+
+    def get_gis_geonames_username(self):
+        """
+            Username for the GeoNames search box
+        """
+        return self.gis.get("geonames_username", None)
 
     def get_gis_geoserver_url(self):
         return self.gis.get("geoserver_url", "")
@@ -797,7 +909,9 @@ class S3Config(Storage):
                             ["cr_shelter", "hms_hospital", "org_office"])
 
     def get_gis_postcode_selector(self):
-        " Display Postcode form field when selecting Locations "
+        """
+            Display Postcode form field when selecting Locations
+        """
         return self.gis.get("postcode_selector", True)
 
     def get_gis_print_service(self):
@@ -806,6 +920,18 @@ class S3Config(Storage):
         """
         return self.gis.get("print_service", "")
 
+    def get_gis_scaleline(self):
+        """
+            Should the Map display a ScaleLine control?
+        """
+        return self.gis.get("scaleline", True)
+
+    def get_gis_search_geonames(self):
+        """
+            Whether the GeoNames search box should be visible on the map
+        """
+        return self.gis.get("search_geonames", True)
+
     def get_gis_simplify_tolerance(self):
         """
             Default Tolerance for the Simplification of Polygons
@@ -813,12 +939,6 @@ class S3Config(Storage):
             - a higher value is suitable for global views
         """
         return self.gis.get("simplify_tolerance", 0.01)
-
-    def get_gis_scaleline(self):
-        """
-            Should the Map display a ScaleLine control?
-        """
-        return self.gis.get("scaleline", True)
 
     def get_gis_spatialdb(self):
         """
@@ -831,6 +951,21 @@ class S3Config(Storage):
         else:
             return self.gis.get("spatialdb", False)
 
+    def get_gis_widget_catalogue_layers(self):
+        """
+            Should Map Widgets display Catalogue Layers?
+            - e.g. Profile & Summary pages
+        """
+        return self.gis.get("widget_catalogue_layers", False)
+
+    def get_gis_widget_wms_browser(self):
+        """
+            Should Map Widgets display a WMS Browser?
+            - e.g. Profile & Summary pages
+            NB This also requires the active gis_config to have one configured
+        """
+        return self.gis.get("widget_wms_browser", False)
+
     def get_gis_toolbar(self):
         """
             Should the main Map display a Toolbar?
@@ -842,6 +977,13 @@ class S3Config(Storage):
             Should the Map display a Zoom control?
         """
         return self.gis.get("zoomcontrol", True)
+
+    def get_gis_lookup_code(self):
+        """
+            Should the gis_location deduplication try codes as well as names?
+            - if-desired, set to the Key of a Key/Value pair (e.g. "PCode")
+        """
+        return self.gis.get("lookup_code", False)
 
     # -------------------------------------------------------------------------
     # L10N Settings
@@ -862,7 +1004,11 @@ class S3Config(Storage):
                                                        ("es", "Español"),
                                                        ("it", "Italiano"),
                                                        ("ja", "日本語"),
+                                                       ("km", "ភាសាខ្មែរ"),         # Khmer
                                                        ("ko", "한국어"),
+                                                       ("ne", "नेपाली"),          # Nepali
+                                                       ("prs", "دری"),         # Dari
+                                                       ("ps", "پښتو"),         # Pashto
                                                        ("pt", "Português"),
                                                        ("pt-br", "Português (Brasil)"),
                                                        ("ru", "русский"),
@@ -881,29 +1027,41 @@ class S3Config(Storage):
             http://eden.sahanafoundation.org/ticket/594
         """
         T = current.T
-        return self.L10n.get("religions", {
-                "none":T("none"),
-                "christian":T("Christian"),
-                "muslim":T("Muslim"),
-                "jewish":T("Jewish"),
-                "buddhist":T("Buddhist"),
-                "hindu":T("Hindu"),
-                "bahai":T("Bahai"),
-                "other":T("other")
-            })
+        return self.L10n.get("religions", {"none": T("none"),
+                                           "christian": T("Christian"),
+                                           "muslim": T("Muslim"),
+                                           "jewish": T("Jewish"),
+                                           "buddhist": T("Buddhist"),
+                                           "hindu": T("Hindu"),
+                                           "bahai": T("Bahai"),
+                                           "other": T("other")
+                                           })
+
     def get_L10n_date_format(self):
-        return self.L10n.get("date_format", "%Y-%m-%d")
+        """
+            Lookup the Date Format - either by locale or by global setting
+        """
+        language = current.session.s3.language
+        if language in self.date_formats:
+            return self.date_formats.get(language)
+        else:
+            return self.L10n.get("date_format", "%Y-%m-%d")
+
     def get_L10n_time_format(self):
         return self.L10n.get("time_format", "%H:%M")
+
     def get_L10n_datetime_separator(self):
         return self.L10n.get("datetime_separator", " ")
+
     def get_L10n_datetime_format(self):
         return "%s%s%s" % (self.get_L10n_date_format(),
                            self.get_L10n_datetime_separator(),
                            self.get_L10n_time_format()
                            )
+
     def get_L10n_utc_offset(self):
         return self.L10n.get("utc_offset", "UTC +0000")
+
     def get_L10n_firstDOW(self):
         return self.L10n.get("firstDOW", 1)
 
@@ -926,12 +1084,21 @@ class S3Config(Storage):
     def get_L10n_mandatory_lastname(self):
         return self.L10n.get("mandatory_lastname", False)
 
+    def get_L10n_decimal_separator(self):
+        """
+            What should the decimal separator be in formatted numbers?
+            - falls back to ISO standard of a comma
+        """
+        return self.L10n.get("decimal_separator", ",")
+
     def get_L10n_thousands_separator(self):
+        """
+            What should the thousands separator be in formatted numbers?
+            - falls back to ISO standard of a space
+        """
         return self.L10n.get("thousands_separator", " ")
     def get_L10n_thousands_grouping(self):
         return self.L10n.get("thousands_grouping", 3)
-    def get_L10n_decimal_separator(self):
-        return self.L10n.get("decimal_separator", ",")
 
     def get_L10n_translate_cms_series(self):
         """
@@ -987,38 +1154,30 @@ class S3Config(Storage):
     # -------------------------------------------------------------------------
     # UI Settings
     #
-    @staticmethod
-    def default_formstyle(id, label, widget, comment, hidden=False):
-        """
-            Provide the default Sahana Eden Form Style
-            Label above the Inputs:
-            http://uxmovement.com/design-articles/faster-with-top-aligned-labels
-
-            Things that need to be looked at for custom formstyles:
-            * subheadings (s3forms.py)
-            * S3AddPersonWidget (s3widgets.py)
-            * S3EmbedComponentWidget (s3widgets.py)
-        """
-
-        row = []
-        if hidden:
-            _class = "hide"
-        else:
-            _class = ""
-        # Label on the 1st row
-        row.append(TR(TD(label, _class="w2p_fl"),
-                      TD(""),
-                      _id=id + "1",
-                      _class=_class))
-        # Widget & Comment on the 2nd Row
-        row.append(TR(widget,
-                      TD(comment, _class="w2p_fc"),
-                      _id=id,
-                      _class=_class))
-        return tuple(row)
-
     def get_ui_formstyle(self):
-        return self.ui.get("formstyle", self.default_formstyle)
+        """ Get the current form style """
+
+        setting = self.ui.get("formstyle", "default")
+        if setting in self.FORMSTYLE:
+            # One of the standard supported formstyles
+            return self.FORMSTYLE[setting]
+        elif callable(setting):
+            # A custom formstyle defined in the template
+            return setting
+        else:
+            # A default web2py formstyle
+            return setting
+
+    def get_ui_filter_formstyle(self):
+        """ Get the current filter form style """
+
+        setting = self.ui.get("filter_formstyle", "default_inline")
+        if callable(setting):
+            return setting
+        elif setting in self.FORMSTYLE:
+            return self.FORMSTYLE[setting]
+        else:
+            return setting
 
     # -------------------------------------------------------------------------
     def get_ui_auth_user_represent(self):
@@ -1035,22 +1194,6 @@ class S3Config(Storage):
                 http://code.google.com/p/selenium/issues/detail?id=1604
         """
         return self.ui.get("confirm", True)
-
-    def get_ui_crud_form(self, tablename):
-        """
-            Get custom crud_forms for diffent tables
-        """
-        return self.ui.get("crud_form_%s" % tablename, None)
-
-    def ui_customize(self, tablename, **attr):
-        """
-            Customize a Controller
-        """
-        customize = self.ui.get("customize_%s" % tablename)
-        if customize:
-            return customize(**attr)
-        else:
-            return attr
 
     def get_ui_export_formats(self):
         """
@@ -1116,7 +1259,17 @@ class S3Config(Storage):
         """
         return self.ui.get("update_label", "Open")
 
+    def get_ui_multiselect_widget(self):
+        """
+            Whether all dropdowns should use the S3MultiSelectWidget
+            - currently respected by Auth Registration & S3LocationSelectorWidget2
+        """
+        return self.ui.get("multiselect_widget", False)
+
     def get_ui_navigate_away_confirm(self):
+        """
+            Whether to enable a warning when users navigate away from a page with unsaved changes
+        """
         return self.ui.get("navigate_away_confirm", True)
 
     def get_ui_search_submit_button(self):
@@ -1182,6 +1335,12 @@ class S3Config(Storage):
             automatically update the filter target(s), set to 0 to disable
         """
         return self.ui.get("report_auto_submit", 800)
+
+    def get_ui_use_button_glyphicons(self):
+        """
+            Use glyphicons on action buttons (requires bootstrap CSS)
+        """
+        return self.ui.get("use_button_glyphicons", False)
 
     # =========================================================================
     # Messaging
@@ -1268,6 +1427,17 @@ class S3Config(Storage):
         """
         return self.msg.get("notify_renderer", None)
 
+    # -------------------------------------------------------------------------
+    # SMS
+    #
+    def get_msg_require_international_phone_numbers(self):
+        """
+            Requires the E.123 international phone number
+            notation where needed (e.g. SMS)
+        """
+
+        return self.msg.get("require_international_phone_numbers", True)
+    
     # =========================================================================
     # Search
 
@@ -1279,14 +1449,6 @@ class S3Config(Storage):
             Lower this number to get extra performance from an overloaded server.
         """
         return self.search.get("max_results", 200)
-
-    # -------------------------------------------------------------------------
-    # Save Search and Subscription
-    def get_search_save_widget(self):
-        """
-            Enable the Saved Search widget
-        """
-        return self.search.get("save_widget", True)
 
     # -------------------------------------------------------------------------
     # Filter Manager Widget
@@ -1313,6 +1475,28 @@ class S3Config(Storage):
     def get_search_filter_manager_load(self):
         """ Text for saved filter load-button """
         return self.search.get("filter_manager_load", None)
+
+    # =========================================================================
+    # Sync
+    #
+    def get_sync_mcb_resource_identifiers(self):
+        """
+            Resource (=data type) identifiers for synchronization with
+            Mariner CommandBridge, a dict {tablename:id}
+        """
+
+        return self.sync.get("mcb_resource_identifiers", {})
+
+    def get_sync_mcb_domain_identifiers(self):
+        """
+            Domain (of origin) identifiers for synchronization with
+            Mariner CommandBridge, a dict {domain: id} where
+            "domain" means the domain prefix of the record UUID
+            (e.g. uuid "wrike/IKY0192834" => domain "wrike"),
+            default domain is "sahana"
+        """
+
+        return self.sync.get("mcb_domain_identifiers", {})
 
     # =========================================================================
     # Modules
@@ -1425,17 +1609,84 @@ class S3Config(Storage):
         """
         return self.cms.get("bookmarks", False)
 
+    def get_cms_filter_open(self):
+        """
+            Whether the filter form on the Newsfeed should default to Open or Closed
+        """
+        return self.cms.get("filter_open", False)
+
+    def get_cms_location_click_filters(self):
+        """
+            Whether clicking on a location in the Newsfeed should activate
+            the filter to that location, instead of opening the profile page
+        """
+        return self.cms.get("location_click_filters", False)
+
+    def get_cms_organisation(self):
+        """
+            Which field to use for the Organisation of Posts:
+                * None
+                * created_by$organisation_id
+                * post_organisation.organisation_id
+        """
+        return self.cms.get("organisation", "created_by$organisation_id")
+
+    def get_cms_organisation_group(self):
+        """
+            Which field to use for the Organisation Group of Posts:
+                * None
+                * created_by$org_group_id
+                * post_organisation_group.group_id
+        """
+        return self.cms.get("organisation_group", None)
+
+    def get_cms_person(self):
+        """
+            Which field to use for the Author of Posts:
+                * None
+                * created_by
+                * person_id
+        """
+        return self.cms.get("person", "created_by")
+
     def get_cms_richtext(self):
         """
             Whether to use RichText editor in News feed
         """
         return self.cms.get("richtext", False)
 
+    def get_cms_show_events(self):
+        """
+            Whether to show Events in News Feed
+        """
+        return self.cms.get("show_events", False)
+
+    def get_cms_show_links(self):
+        """
+            Whether to show Links (such as Sources) in News Feed
+        """
+        return self.cms.get("show_links", False)
+
     def get_cms_show_tags(self):
         """
             Whether to show Tags in News Feed
         """
         return self.cms.get("show_tags", False)
+
+    def get_cms_show_titles(self):
+        """
+            Whether to show post Titles in News Feed
+        """
+        return self.cms.get("show_titles", False)
+
+    # -------------------------------------------------------------------------
+    # Events
+    #
+    def get_event_types_hierarchical(self):
+        """
+            Whether Event Types are Hierarchical or not
+        """
+        return self.event.get("types_hierarchical", False)
 
     # -------------------------------------------------------------------------
     # Deployments
@@ -1477,6 +1728,12 @@ class S3Config(Storage):
             If set to True then Staff & Volunteers require an email address
         """
         return self.hrm.get("email_required", True)
+
+    def get_hrm_org_dependent_job_titles(self):
+        """
+            If set to True then the Job Titles Catalog is Organisation-dependent (i.e. each root org sees a different Catalog)
+        """
+        return self.hrm.get("org_dependent_job_titles", False)
 
     def get_hrm_org_required(self):
         """
@@ -1525,6 +1782,20 @@ class S3Config(Storage):
             - options are: False, "experience"
         """
         return self.hrm.get("staff_experience", "experience")
+
+    def get_hrm_vol_active(self):
+        """
+            Whether to use a 'Active' field for Volunteers &, if so, whether
+            this is set manually or calculated by a function
+            - options are: False, True or a function
+        """
+        return self.hrm.get("vol_active", False)
+
+    def get_hrm_vol_active_tooltip(self):
+        """
+            The tooltip to show when viewing the Active status in the Volunteer RHeader
+        """
+        return self.hrm.get("vol_active_tooltip", None)
 
     def get_hrm_vol_experience(self):
         """
@@ -1576,6 +1847,12 @@ class S3Config(Storage):
         """
         return self.hrm.get("use_certificates", True)
 
+    def get_hrm_use_code(self):
+        """
+            Whether Human Resources should use Staff/Volunteer IDs
+        """
+        return self.hrm.get("use_code", False)
+
     def get_hrm_use_credentials(self):
         """
             Whether Human Resources should use Credentials
@@ -1596,7 +1873,7 @@ class S3Config(Storage):
 
     def get_hrm_use_id(self):
         """
-            Whether Human Resources should use Staff ID
+            Whether Human Resources should show ID Tab
         """
         return self.hrm.get("use_id", True)
 
@@ -1751,6 +2028,12 @@ class S3Config(Storage):
         """
         return self.org.get("branches", False)
 
+    def get_org_facility_types_hierarchical(self):
+        """
+            Whether Facility Types are Hierarchical or not
+        """
+        return self.org.get("facility_types_hierarchical", False)
+
     def get_org_groups(self):
         """
             Whether to support Organisation Groups or not
@@ -1765,6 +2048,18 @@ class S3Config(Storage):
             Whether to support Organisation Regions or not
         """
         return self.org.get("regions", False)
+
+    def get_org_regions_hierarchical(self):
+        """
+            Whether Organisation Regions are Hierarchical or not
+        """
+        return self.org.get("regions_hierarchical", False)
+
+    def get_org_services_hierarchical(self):
+        """
+            Whether Organisation Servics are Hierarchical or not
+        """
+        return self.org.get("services_hierarchical", False)
 
     def get_org_site_code_len(self):
         """
@@ -1794,13 +2089,7 @@ class S3Config(Storage):
         """
             Which extra fields should be returned in S3SiteAutocompleteWidget
         """
-        return self.org.get("site_autocomplete_fields", ["instance_type"])
-
-    def get_org_site_address_autocomplete(self):
-        """
-            Whether site_id Autocomplete fields should search Address fields as well as name
-        """
-        return self.org.get("site_address_autocomplete", False)
+        return self.org.get("site_autocomplete_fields", ("instance_type",))
 
     def get_org_site_last_contacted(self):
         """
@@ -1838,15 +2127,8 @@ class S3Config(Storage):
                     # Admins see all fields unless disabled for all orgs in this deployment
                     enabled = True
                 else:
-                    s3db = current.s3db
-                    otable = s3db.org_organisation
-                    root_org_id = auth.root_org()
-                    root_org = current.db(otable.id == root_org_id).select(otable.name,
-                                                                           limitby=(0, 1),
-                                                                           cache=s3db.cache
-                                                                           ).first()
-                    if root_org:
-                        enabled = root_org.name in org_name_list
+                    root_org = auth.root_org_name()
+                    enabled = root_org in org_name_list
 
         if enable_field:
             field = current.s3db[tablename][fieldname]
@@ -1879,6 +2161,21 @@ class S3Config(Storage):
                 group = "60+"
         return group
 
+    def get_pr_import_update_requires_email(self):
+        """
+            During imports, records are only updated if the import
+            item contains a (matching) email address
+        """
+        return self.pr.get("import_update_requires_email", True)
+
+    def get_pr_lookup_duplicates(self):
+        """
+            Whether the AddPersonWidget2 does a fuzzy search for duplicates
+
+            NB This setting has no effect with the old AddPersonWidget
+        """
+        return self.pr.get("lookup_duplicates", False)
+
     def get_pr_request_dob(self):
         """ Include Date of Birth in the AddPersonWidget[2] """
         return self.pr.get("request_dob", True)
@@ -1891,20 +2188,25 @@ class S3Config(Storage):
         """ Include Home Phone in the AddPersonWidget2 """
         return self.pr.get("request_home_phone", False)
 
+    def get_pr_name_format(self):
+        """ Format with which to represent Person Names """
+        return self.pr.get("name_format", "%(first_name)s %(middle_name)s %(last_name)s")
+
     def get_pr_select_existing(self):
         """
             Whether the AddPersonWidget allows selecting existing PRs
             - set to True if Persons can be found in multiple contexts
             - set to False if just a single context
+
+            NB This setting has no effect with the new AddPersonWidget2
         """
         return self.pr.get("select_existing", True)
 
-    def get_pr_import_update_requires_email(self):
+    def get_pr_search_shows_hr_details(self):
         """
-            During imports, records are only updated if the import
-            item contains a (matching) email address
+            Whether S3PersonAutocompleteWidget results show the details of their HR record
         """
-        return self.pr.get("import_update_requires_email", True)
+        return self.pr.get("search_shows_hr_details", True)
 
     # -------------------------------------------------------------------------
     # Proc
@@ -1938,7 +2240,7 @@ class S3Config(Storage):
 
     def get_project_activities(self):
         """
-            Use Activities in Projects
+            Use Activities in Projects & Tasks
         """
         return self.project.get("activities", False)
 
@@ -1975,13 +2277,13 @@ class S3Config(Storage):
 
     def get_project_milestones(self):
         """
-            Use Milestones in Projects
+            Use Milestones in Projects & Tasks
         """
         return self.project.get("milestones", False)
 
     def get_project_projects(self):
         """
-            Link Activities to Projects
+            Link Activities & Tasks to Projects
         """
         return self.project.get("projects", False)
 
@@ -2019,7 +2321,7 @@ class S3Config(Storage):
         T = current.T
         return self.project.get("organisation_roles", {
                 1: T("Lead Implementer"), # T("Host National Society")
-                2: T("Partner"), # T("Partner National Society")
+                2: T("Partner"),          # T("Partner National Society")
                 3: T("Donor"),
                 #4: T("Customer"), # T("Beneficiary")?
                 #5: T("Supplier")  # T("Beneficiary")?
@@ -2027,7 +2329,51 @@ class S3Config(Storage):
 
     def get_project_organisation_lead_role(self):
         return self.project.get("organisation_lead_role", 1)
-    
+
+    def get_project_task_status_opts(self):
+        """
+            The list of options for the Status of a Task.
+            NB Whilst the list can be customised, doing so makes it harder to
+            do synchronization.
+            There are also hard-coded elements within XSL & styling of
+            project_task_list_layout which will break if these are changed.
+            Best bet is simply to comment statuses that you don't wish to use
+            & tweak the label (whilst keeping the meaning) of those you retain
+            Those which are deemed as 'active' are currently not customisable
+            for this reason.
+        """
+        T = current.T
+        return self.project.get("task_status_opts", {1: T("Draft"),
+                                                     2: T("New"),
+                                                     3: T("Assigned"),
+                                                     4: T("Feedback"),
+                                                     5: T("Blocked"),
+                                                     6: T("On Hold"),
+                                                     7: T("Cancelled"),
+                                                     8: T("Duplicate"),
+                                                     9: T("Ready"),
+                                                    10: T("Verified"),
+                                                    11: T("Reopened"),
+                                                    12: T("Completed"),
+                                                    })
+
+    def get_project_task_priority_opts(self):
+        """
+            The list of options for the Priority of a Task.
+            NB Whilst the list can be customised, doing so makes it harder to
+            do synchronization.
+            There are also hard-coded elements within XSL & styling of
+            project_task_list_layout which will break if these are changed.
+            Best bet is simply to comment statuses that you don't wish to use
+            & tweak the label (whilst keeping the meaning) of those you retain
+        """
+        T = current.T
+        return self.project.get("task_priority_opts", {1: T("Urgent"),
+                                                       2: T("High"),
+                                                       3: T("Normal"),
+                                                       4: T("Low")
+                                                       })
+
     # -------------------------------------------------------------------------
     # Requests Management Settings
     #
@@ -2186,5 +2532,11 @@ class S3Config(Storage):
 
     def get_supply_use_alt_name(self):
         return self.supply.get("use_alt_name", True)
+
+    # -------------------------------------------------------------------------
+    # Vulnerability
+    #
+    def get_vulnerability_indicator_hierarchical(self):
+        return self.vulnerability.get("indicator_hierarchical", False)
 
 # END =========================================================================

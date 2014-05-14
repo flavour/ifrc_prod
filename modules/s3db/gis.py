@@ -2,7 +2,7 @@
 
 """ Sahana Eden GIS Model
 
-    @copyright: 2009-2013 (c) Sahana Software Foundation
+    @copyright: 2009-2014 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -63,6 +63,9 @@ from gluon.storage import Storage
 from ..s3 import *
 from s3layouts import S3AddResourceLink
 
+# Compact JSON encoding
+SEPARATORS = (",", ":")
+
 # =============================================================================
 class S3LocationModel(S3Model):
     """
@@ -89,7 +92,7 @@ class S3LocationModel(S3Model):
         NONE = messages["NONE"]
 
         # Shortcuts
-        add_component = self.add_component
+        add_components = self.add_components
         #define_table = self.define_table
 
         # ---------------------------------------------------------------------
@@ -120,40 +123,42 @@ class S3LocationModel(S3Model):
         gis_location_represent = gis_LocationRepresent()
 
         tablename = "gis_location"
-        table = self.define_table(tablename,
+        self.define_table(tablename,
             Field("name", length=128,
+                  label = T("Name"),
                   # Placenames don't have to be unique.
                   # Waypoints don't need to have a name at all.
                   #requires = IS_NOT_EMPTY()
-                  label = T("Name"),
                   ),
             Field("level", length=2,
                   label = T("Level"),
-                  requires = IS_NULL_OR(IS_IN_SET(hierarchy_level_keys)),
                   represent = self.gis_level_represent,
+                  requires = IS_EMPTY_OR(IS_IN_SET(hierarchy_level_keys)),
                   ),
             Field("parent", "reference gis_location", # This form of hierarchy may not work on all Databases
                   label = T("Parent"),
+                  ondelete = "RESTRICT",
                   represent = gis_location_represent,
-                  widget=S3LocationAutocompleteWidget(level=hierarchy_level_keys),
-                    ondelete = "RESTRICT"),
+                  widget = S3LocationAutocompleteWidget(level=hierarchy_level_keys),
+                  ),
             # Materialised Path
             Field("path", length=256,
-                  readable=False,
-                  writable=False),
-            Field("gis_feature_type", "integer",
-                  default=1, notnull=True,
-                  requires = IS_IN_SET(gis_feature_type_opts,
-                                       zero=None),
+                  readable = False,
+                  writable = False,
+                  ),
+            Field("gis_feature_type", "integer", notnull=True,
+                  default = 1,
+                  label = T("Feature Type"),
                   represent = lambda opt: \
                     gis_feature_type_opts.get(opt,
                                               messages.UNKNOWN_OPT),
-                  label = T("Feature Type")
+                  requires = IS_IN_SET(gis_feature_type_opts,
+                                       zero=None),
                   ),
             # Points or Centroid for Polygons
             Field("lat", "double",
                   label = T("Latitude"),
-                  requires = IS_NULL_OR(IS_LAT()),
+                  requires = IS_EMPTY_OR(IS_LAT()),
                   comment = DIV(_class="tooltip",
                                 _id="gis_location_lat_tooltip",
                                 _title="%s|%s|%s|%s|%s|%s" % \
@@ -166,73 +171,94 @@ class S3LocationModel(S3Model):
                   ),
             Field("lon", "double",
                   label = T("Longitude"),
-                  requires = IS_NULL_OR(IS_LON()),
+                  requires = IS_EMPTY_OR(IS_LON()),
                   ),
             Field("wkt", "text",
+                  label = "WKT (Well-Known Text)",
+                  represent = self.gis_wkt_represent,
                   # Full WKT validation is done in the onvalidation callback
                   # - all we do here is allow longer fields than the default (2 ** 16)
                   # - this size handles the standard USA_L0
                   requires = IS_LENGTH(2 ** 27),
-                  represent = self.gis_wkt_represent,
-                  label = "WKT (Well-Known Text)"
                   ),
             Field("inherited", "boolean",
-                  label = T("Inherited?"),
                   default = False,
-                  writable = False,
+                  label = T("Inherited?"),
                   represent = s3_yes_no_represent,
+                  writable = False,
                   ),
             # Bounding box
             Field("lat_min", "double",
-                  readable=False, writable=False),
+                  readable = False,
+                  writable = False,
+                  ),
             Field("lat_max", "double",
-                  readable=False, writable=False),
+                  readable = False,
+                  writable = False,
+                  ),
             Field("lon_min", "double",
-                  readable=False, writable=False),
+                  readable = False,
+                  writable = False,
+                  ),
             Field("lon_max", "double",
-                  readable=False, writable=False),
+                  readable = False,
+                  writable = False,
+                  ),
             # m in height above WGS84 ellipsoid (approximately sea-level).
             Field("elevation", "double",
-                  readable=False, writable=False),
+                  readable = False,
+                  writable = False,
+                  ),
             # Street Address (other address fields come from hierarchy)
             Field("addr_street", "text",
+                  label = T("Street Address"),
                   represent = lambda v: v or NONE,
-                  label = T("Street Address")),
+                  ),
             Field("addr_postcode", length=128,
+                  label = settings.get_ui_label_postcode(),
                   represent = lambda v: v or NONE,
-                  label = T("Postcode")),
+                  ),
             s3_date("start_date",
-                    label = T("Start Date")),
+                    label = T("Start Date"),
+                    ),
             s3_date("end_date",
-                    label = T("End Date")),
+                    label = T("End Date"),
+                    ),
             s3_comments(),
             Field("L5",
                   represent = lambda v: v or NONE,
-                  readable=False,
-                  writable=False),
+                  readable = False,
+                  writable = False,
+                  ),
             Field("L4",
                   represent = lambda v: v or NONE,
-                  readable=False,
-                  writable=False),
+                  readable = False,
+                  writable = False,
+                  ),
             Field("L3",
                   represent = lambda v: v or NONE,
-                  readable=False,
-                  writable=False),
+                  readable = False,
+                  writable = False,
+                  ),
             Field("L2",
                   represent = lambda v: v or NONE,
-                  readable=False,
-                  writable=False),
+                  readable = False,
+                  writable = False,
+                  ),
             Field("L1",
                   represent = lambda v: v or NONE,
-                  readable=False,
-                  writable=False),
+                  readable = False,
+                  writable = False,
+                  ),
             Field("L0",
                   #label=current.messages.COUNTRY,
                   represent = lambda v: v or NONE,
-                  readable=False,
-                  writable=False),
+                  readable = False,
+                  writable = False,
+                  ),
             *meta_spatial_fields)
 
+        table = db[tablename]
         # Default the owning role to Authenticated. This can be used to allow the site
         # to control whether authenticated users get to create / update locations, or
         # just read them. Having an owner and using ACLs also allows us to take away
@@ -242,7 +268,7 @@ class S3LocationModel(S3Model):
         table.owned_by_group.default = current.session.s3.system_roles.AUTHENTICATED
 
         # Can't be defined in-line as otherwise get a circular reference
-        table.parent.requires = IS_NULL_OR(
+        table.parent.requires = IS_EMPTY_OR(
                                     IS_ONE_OF(db, "gis_location.id",
                                               gis_location_represent,
                                               # @ToDo: If level is known, filter on higher than that?
@@ -252,17 +278,13 @@ class S3LocationModel(S3Model):
                                               orderby="gis_location.name"))
 
         # CRUD Strings
-        ADD_LOCATION = messages.ADD_LOCATION
         current.response.s3.crud_strings[tablename] = Storage(
-            title_create = ADD_LOCATION,
+            label_create = messages.ADD_LOCATION,
             title_display = T("Location Details"),
             title_list = T("Locations"),
             title_update = T("Edit Location"),
-            title_search = T("Search Locations"),
             title_upload = T("Import Locations"),
-            subtitle_create = T("Add New Location"),
             label_list_button = T("List Locations"),
-            label_create_button = ADD_LOCATION,
             label_delete_button = T("Delete Location"),
             msg_record_created = T("Location added"),
             msg_record_modified = T("Location updated"),
@@ -270,30 +292,39 @@ class S3LocationModel(S3Model):
             msg_list_empty = T("No Locations currently available"))
 
         # Reusable field to include in other table definitions
-        location_id = S3ReusableField("location_id", table,
+        location_id = S3ReusableField("location_id", "reference %s" % tablename,
                                       sortby = "name",
                                       label = T("Location"),
+                                      ondelete = "RESTRICT",
                                       represent = gis_location_represent,
-                                      requires = IS_NULL_OR(
-                                                    IS_LOCATION_SELECTOR()
+                                      requires = IS_EMPTY_OR(
+                                                    IS_LOCATION_SELECTOR2()
                                                     ),
-                                      widget = S3LocationSelectorWidget(),
+                                      widget = S3LocationSelectorWidget2(show_address=True,
+                                                                         show_map=settings.get_gis_map_selector(),
+                                                                         show_postcode=settings.get_gis_postcode_selector(),
+                                                                         ),
+                                      # Alternate LocationSelector for when you don't have the Location Hierarchy available to load
+                                      #requires = IS_EMPTY_OR(
+                                      #              IS_LOCATION_SELECTOR()
+                                      #              ),
+                                      #widget = S3LocationSelectorWidget(),
                                       # Alternate simple Autocomplete (e.g. used by pr_person_presence)
-                                      #requires = IS_NULL_OR(IS_LOCATION()),
+                                      #requires = IS_EMPTY_OR(IS_LOCATION()),
                                       #widget = S3LocationAutocompleteWidget(),
-                                      ondelete = "RESTRICT")
+                                      )
 
         represent = S3Represent(lookup=tablename, translate=True)
-        country_requires = IS_NULL_OR(IS_ONE_OF(db, "gis_location.id",
-                                                represent,
-                                                filterby = "level",
-                                                filter_opts = ["L0"],
-                                                sort=True))
-        country_id = S3ReusableField("location_id", table,
+        country_requires = IS_EMPTY_OR(IS_ONE_OF(db, "gis_location.id",
+                                                 represent,
+                                                 filterby = "level",
+                                                 filter_opts = ["L0"],
+                                                 sort=True))
+        country_id = S3ReusableField("location_id", "reference %s" % tablename,
                                      sortby = "name",
                                      label = messages.COUNTRY,
                                      requires = country_requires,
-                                     widget = S3SelectChosenWidget(),
+                                     widget = S3MultiSelectWidget(multiple=False),
                                      represent = represent,
                                      ondelete = "RESTRICT")
 
@@ -315,55 +346,56 @@ class S3LocationModel(S3Model):
             list_fields.insert(2, "name.name_l10n")
             
         self.configure(tablename,
-                       onvalidation=self.gis_location_onvalidation,
-                       onaccept=self.gis_location_onaccept,
-                       deduplicate=self.gis_location_duplicate,
-                       list_orderby=table.name,
-                       list_fields = list_fields,
                        context = {"location": "parent",
                                   },
+                       deduplicate = self.gis_location_duplicate,
+                       list_fields = list_fields,
+                       list_orderby = "gis_location.name",
+                       onaccept = self.gis_location_onaccept,
+                       onvalidation = self.gis_location_onvalidation,
                        )
 
         # Custom Method for S3LocationAutocompleteWidget
         self.set_method("gis", "location",
-                        method="search_ac",
-                        action=self.gis_search_ac)
+                        method = "search_ac",
+                        action = self.gis_search_ac)
 
-        # Tags as component of Locations
-        add_component("gis_location_tag",
-                      gis_location=dict(joinby="location_id",
-                                        name="tag"))
+        # Components
+        add_components(tablename,
+                       # Tags
+                       gis_location_tag = {"name": "tag",
+                                           "joinby": "location_id",
+                                           },
+                       # Names
+                       gis_location_name = {"name": "name",
+                                            "joinby": "location_id",
+                                            },
+                       # Child Locations
+                       #gis_location = {"joinby": "parent",
+                       #                "multiple": False,
+                       #                },
 
-        # Names as component of Locations
-        add_component("gis_location_name",
-                      gis_location=dict(joinby="location_id",
-                                        name="name"))
-
-        # Locations as component of Locations ('Parent')
-        #add_component(table, joinby=dict(gis_location="parent"),
-        #              multiple=False)
-
-        # Sites as component of Locations
-        add_component("org_site",
-                      gis_location="location_id")
+                       # Sites
+                       org_site = "location_id",
+                       )
 
         # ---------------------------------------------------------------------
         # Error
         # - needed for COT support
         #
         # tablename = "gis_location_error"
-        # table = define_table(tablename,
-                             # location_id(),
-                             ##Circular 'Error' around Lat/Lon (in m).
-                             # Field("ce", "integer",
-                                   # writable=False,
-                                   # readable=False),
-                             ##Linear 'Error' for the Elevation (in m).
-                             # Field("le", "integer",
-                                   # writable=False,
-                                   # readable=False),
-                             # s3_comments(),
-                             # *s3_meta_fields())
+        # define_table(tablename,
+                        # location_id(),
+                        ##Circular 'Error' around Lat/Lon (in m).
+                        # Field("ce", "integer",
+                            # writable=False,
+                            # readable=False),
+                        ##Linear 'Error' for the Elevation (in m).
+                        # Field("le", "integer",
+                            # writable=False,
+                            # readable=False),
+                        # s3_comments(),
+                        # *s3_meta_fields())
 
         # Pass names back to global scope (s3.*)
         return dict(
@@ -454,7 +486,7 @@ class S3LocationModel(S3Model):
                 results = gis.geocode(addr_street, postcode, Lx_ids, geocoder)
                 if isinstance(results, basestring):
                     # Error
-                    s3_debug(results)
+                    current.log.error(results)
                     form.errors["addr_street"] = results
                     return
                 else:
@@ -555,7 +587,7 @@ class S3LocationModel(S3Model):
                                 error = T("Sorry location appears to be outside the area of parent %(parent)s.") % \
                                     dict(parent=parent_name)
                             response.error = error
-                            s3_debug(error)
+                            current.log.error(error)
                             return
 
                         # @ToDo: Precise (GIS function)
@@ -587,11 +619,11 @@ class S3LocationModel(S3Model):
                             else:
                                 error = T("Sorry location appears to be outside the area supported by this deployment.")
                             response.error = error
-                            s3_debug(error)
+                            current.log.error(error)
                             lat_error =  "%s: %s & %s" % (T("Latitude should be between"),
                                                           str(lat_min), str(lat_max))
                             form.errors["lat"] = lat_error
-                            s3_debug(lat_error)
+                            current.log.error(lat_error)
                             return
                         elif (lon > lon_max) or (lon < lon_min):
                             if name:
@@ -600,22 +632,23 @@ class S3LocationModel(S3Model):
                             else:
                                 error = T("Sorry location appears to be outside the area supported by this deployment.")
                             response.error = error
-                            s3_debug(error)
+                            current.log.error(error)
                             lon_error = "%s: %s & %s" % (T("Longitude should be between"),
                                                          str(lon_min), str(lon_max))
                             form.errors["lon"] = lon_error
-                            s3_debug(lon_error)
+                            current.log.error(lon_error)
                             return
 
-        # Add the bounds (& Centroid for Polygons)
+        # Add the WKT, bounds (& Centroid for Polygons)
         gis.wkt_centroid(form)
 
-        if form.record:
-            inherited = form.record.inherited
-            if inherited:
-                # Have we provided more accurate data?
-                if lat != form.record.lat or lon != form.record.lon:
-                    form_vars.inherited = False
+        if form_vars.wkt and not form_vars.wkt.startswith("POI"):
+            # Polygon cannot be inherited
+            form_vars.inherited = False
+        elif form.record and form.record.inherited:
+            # Have we provided more accurate data?
+            if form_vars.wkt != form.record.wkt:
+                form_vars.inherited = False
         return
 
     # -------------------------------------------------------------------------
@@ -632,13 +665,11 @@ class S3LocationModel(S3Model):
 
           Rules for finding a duplicate:
            - Don't do deduplication if there is no level
-           - Look for a record with the same name, ignopring case
+           - Look for a record with the same name, ignoring case
            - If no match, also check name_l10n
            - If parent exists in the import, the same parent
            - If start_date exists in the import, the same start_date
            - If end_date exists in the import, the same end_date
-
-            @ToDo: Use codes that we know are unique
 
             @ToDo: Check soundex? (only good in English)
                    http://eden.sahanafoundation.org/ticket/481
@@ -663,6 +694,26 @@ class S3LocationModel(S3Model):
                 job.method = None
                 return
 
+            code = current.deployment_settings.get_gis_lookup_code()
+            if code and name[0].isdigit():
+                # The name is a Code
+                kv_table = current.s3db.gis_location_tag
+                query = (kv_table.tag == code) & \
+                        (kv_table.value == name) & \
+                        (kv_table.location_id == table.id)
+                duplicate = current.db(query).select(table.id,
+                                                     table.name,
+                                                     orderby=~table.end_date,
+                                                     limitby=(0, 1)).first()
+                
+                if duplicate:
+                    # @ToDo: Import Log
+                    #current.log.debug("Location PCode Match")
+                    data.name = duplicate.name # Don't update the name with the code
+                    job.id = duplicate.id
+                    job.method = job.METHOD.UPDATE
+                    return
+
             parent = data.get("parent", None)
             start_date = data.get("start_date", None)
             end_date = data.get("end_date", None)
@@ -683,14 +734,16 @@ class S3LocationModel(S3Model):
             if start_date:
                 query &= (table.start_date == start_date)
 
-            _duplicate = current.db(query).select(table.id,
-                                                  orderby=~table.end_date,
-                                                  limitby=(0, 1)).first()
-            if _duplicate:
+            duplicate = current.db(query).select(table.id,
+                                                 orderby=~table.end_date,
+                                                 limitby=(0, 1)).first()
+            if duplicate:
                 # @ToDo: Import Log
-                #s3_debug("Location Match")
-                job.id = _duplicate.id
+                #current.log.debug("Location Match")
+                job.id = duplicate.id
                 job.method = job.METHOD.UPDATE
+                return
+
             elif current.deployment_settings.get_L10n_translate_gis_location():
                 # See if this a name_l10n
                 ltable = current.s3db.gis_location_name
@@ -704,20 +757,19 @@ class S3LocationModel(S3Model):
                 if start_date:
                     query &= (table.start_date == start_date)
 
-                _duplicate = current.db(query).select(table.id,
-                                                      table.name,
-                                                      orderby=~table.end_date,
-                                                      limitby=(0, 1)).last()
-                if _duplicate:
+                duplicate = current.db(query).select(table.id,
+                                                     table.name,
+                                                     orderby=~table.end_date,
+                                                     limitby=(0, 1)).first()
+                if duplicate:
                     # @ToDo: Import Log
-                    #s3_debug("Location l10n Match")
-                    data.name = _duplicate.name # Don't update the name
-                    job.id = _duplicate.id
+                    #current.log.debug("Location l10n Match")
+                    data.name = duplicate.name # Don't update the name
+                    job.id = duplicate.id
                     job.method = job.METHOD.UPDATE
                 else:
                     # @ToDo: Import Log
-                    #s3_debug("No Match:")
-                    #s3_debug(name)
+                    #current.log.debug("No Match", name)
                     pass
 
     # -------------------------------------------------------------------------
@@ -847,19 +899,19 @@ class S3LocationModel(S3Model):
             response.headers["Content-Type"] = "application/json"
             return output
 
-        query = S3FieldSelector("name").lower().like(value + "%")
+        query = FS("name").lower().like(value + "%")
         field2 = _vars.get("field2", None)
         if field2:
             # S3LocationSelectorWidget's s3_gis_autocomplete_search
             # addr_street
             fieldname = str.lower(field2)
             fields.append(fieldname)
-            query |= S3FieldSelector(fieldname).lower().like(value + "%")
+            query |= FS(fieldname).lower().like(value + "%")
         elif loc_select:
             fields.append("level")
             fields.append("parent")
         elif search_l10n:
-            query |= S3FieldSelector("name.name_l10n").lower().like(value + "%")
+            query |= FS("name.name_l10n").lower().like(value + "%")
         resource.add_filter(query)
 
         if level:
@@ -889,9 +941,9 @@ class S3LocationModel(S3Model):
         MAX_SEARCH_RESULTS = current.deployment_settings.get_search_max_results()
         if (not limit or limit > MAX_SEARCH_RESULTS) and \
            resource.count() > MAX_SEARCH_RESULTS:
-            output = json.dumps([dict(id="",
-                                      name="Search results are over %d. Please input more characters." \
-                                          % MAX_SEARCH_RESULTS)])
+            output = json.dumps([
+                dict(label=str(current.T("There are more than %(max)s results, please input more characters.") % dict(max=MAX_SEARCH_RESULTS)))
+                ], separators=SEPARATORS)
 
         elif loc_select:
             # LocationSelector
@@ -1007,7 +1059,7 @@ class S3LocationModel(S3Model):
 
                 iappend(item)
 
-            output = json.dumps(items)
+            output = json.dumps(items, separators=SEPARATORS)
                                        
         response.headers["Content-Type"] = "application/json"
         return output
@@ -1033,21 +1085,26 @@ class S3LocationNameModel(S3Model):
         # Local/Alternate Names
         #
         tablename = "gis_location_name"
-        table = self.define_table(tablename,
-                                  self.gis_location_id(),
-                                  Field("language",
-                                        label = T("Language"),
-                                        requires = IS_IN_SET(l10n_languages),
-                                        represent = lambda opt: \
+        self.define_table(tablename,
+                          self.gis_location_id(empty = False,
+                                               ondelete = "CASCADE",
+                                               ),
+                          Field("language",
+                                label = T("Language"),
+                                represent = lambda opt: \
                                             l10n_languages.get(opt,
-                                                               current.messages.UNKNOWN_OPT)),
-                                  Field("name_l10n",
-                                        label = T("Local Name")),
-                                  s3_comments(),
-                                  *s3_meta_fields())
+                                               current.messages.UNKNOWN_OPT),
+                                requires = IS_IN_SET(l10n_languages),
+                                ),
+                          Field("name_l10n",
+                                label = T("Local Name"),
+                                ),
+                          s3_comments(),
+                          *s3_meta_fields())
 
         self.configure(tablename,
-                       deduplicate=self.gis_location_name_deduplicate)
+                       deduplicate = self.gis_location_name_deduplicate,
+                       )
 
         # Pass names back to global scope (s3.*)
         return dict()
@@ -1109,16 +1166,23 @@ class S3LocationTagModel(S3Model):
         # - can be a Triple Store for Semantic Web support
         #
         tablename = "gis_location_tag"
-        table = self.define_table(tablename,
-                                  self.gis_location_id(),
-                                  # key is a reserved word in MySQL
-                                  Field("tag", label=T("Key")),
-                                  Field("value", label=T("Value")),
-                                  s3_comments(),
-                                  *s3_meta_fields())
+        self.define_table(tablename,
+                          self.gis_location_id(empty = False,
+                                               ondelete = "CASCADE",
+                                               ),
+                          # key is a reserved word in MySQL
+                          Field("tag",
+                                label = T("Key"),
+                                ),
+                          Field("value",
+                                label = T("Value"),
+                                ),
+                          s3_comments(),
+                          *s3_meta_fields())
 
         self.configure(tablename,
-                       deduplicate=self.gis_location_tag_deduplicate)
+                       deduplicate = self.gis_location_tag_deduplicate,
+                       )
 
         # Pass names back to global scope (s3.*)
         return dict(gis_country_opts = self.gis_country_opts,
@@ -1196,29 +1260,35 @@ class S3LocationGroupModel(S3Model):
         # Location Groups
         #
         tablename = "gis_location_group"
-        table = define_table(tablename,
-                             Field("name",
-                                   label = T("Name")),
-                             # Optional Polygon for the overall Group
-                             location_id(),
-                             s3_comments(),
-                             *s3_meta_fields())
+        define_table(tablename,
+                     Field("name",
+                           label = T("Name"),
+                           ),
+                     # Optional Polygon for the overall Group
+                     location_id(empty = False,
+                                 ondelete = "CASCADE",
+                                 ),
+                     s3_comments(),
+                     *s3_meta_fields())
 
-        self.add_component("gis_location_group_member",
-                           gis_location_group="location_group_id")
+        self.add_components(tablename,
+                            gis_location_group_member = "location_group_id",
+                            )
 
         # ---------------------------------------------------------------------
         # Location Group Membership
         #
         tablename = "gis_location_group_member"
-        table = define_table(tablename,
-                             Field("location_group_id",
-                                   db.gis_location_group,
-                                   label = T("Location Group"),
-                                   ondelete = "RESTRICT"),
-                             location_id(),
-                             s3_comments(),
-                             *s3_meta_fields())
+        define_table(tablename,
+                     Field("location_group_id", "reference gis_location_group",
+                           label = T("Location Group"),
+                           ondelete = "RESTRICT",
+                           ),
+                     location_id(empty = False,
+                                 ondelete = "CASCADE",
+                                 ),
+                     s3_comments(),
+                     *s3_meta_fields())
 
         # Pass names back to global scope (s3.*)
         return dict()
@@ -1244,42 +1314,58 @@ class S3LocationHierarchyModel(S3Model):
         #
 
         tablename = "gis_hierarchy"
-        table = self.define_table(tablename,
-                                  self.gis_country_id(),
-                                  Field("L1", default = "State / Province"),
-                                  Field("L2", default = "County / District"),
-                                  Field("L3", default = "City / Town / Village"),
-                                  Field("L4", default = ""),   # Default: off
-                                  Field("L5", default = ""),   # Default: off
-                                  # Do all levels of the hierarchy need to be filled-out?
-                                  Field("strict_hierarchy", "boolean",
-                                        # Currently not fully used
-                                        readable = False,
-                                        writable = False,
-                                        default=False),
-                                  # Do we minimally need a parent for every non-L0 location?
-                                  Field("location_parent_required", "boolean",
-                                        # Currently completely unused
-                                        readable = False,
-                                        writable = False,
-                                        default=False),
-                                  Field("edit_L1", "boolean", default=True),
-                                  Field("edit_L2", "boolean", default=True),
-                                  Field("edit_L3", "boolean", default=True),
-                                  Field("edit_L4", "boolean", default=True),
-                                  Field("edit_L5", "boolean", default=True),
-                                  *s3_meta_fields())
+        self.define_table(tablename,
+                          self.gis_country_id(),
+                          Field("L1",
+                                default = "State / Province",
+                                ),
+                          Field("L2",
+                                default = "County / District",
+                                ),
+                          Field("L3",
+                                default = "City / Town / Village",
+                                ),
+                          Field("L4",
+                                # Default: off
+                                default = "",
+                                ),
+                          Field("L5",
+                                # Default: off
+                                default = "",
+                                ),
+                          # Do all levels of the hierarchy need to be filled-out?
+                          Field("strict_hierarchy", "boolean",
+                                default = False,
+                                # Currently not fully used
+                                readable = False,
+                                writable = False,
+                                ),
+                          # Do we minimally need a parent for every non-L0 location?
+                          Field("location_parent_required", "boolean",
+                                default = False,
+                                # Currently completely unused
+                                readable = False,
+                                writable = False,
+                                ),
+                          Field("edit_L1", "boolean",
+                                default = True),
+                          Field("edit_L2", "boolean",
+                                default = True),
+                          Field("edit_L3", "boolean",
+                                default = True),
+                          Field("edit_L4", "boolean",
+                                default = True),
+                          Field("edit_L5", "boolean",
+                                default = True),
+                          *s3_meta_fields())
 
-        ADD_HIERARCHY = T("Add Location Hierarchy")
+        ADD_HIERARCHY = T("Create Location Hierarchy")
         current.response.s3.crud_strings[tablename] = Storage(
-            title_create = ADD_HIERARCHY,
+            label_create = ADD_HIERARCHY,
             title_display = T("Location Hierarchy"),
             title_list = T("Location Hierarchies"),
             title_update = T("Edit Location Hierarchy"),
-            title_search = T("Search Location Hierarchies"),
-            subtitle_create = T("Add New Location Hierarchy"),
             label_list_button = T("List Location Hierarchies"),
-            label_create_button = ADD_HIERARCHY,
             label_delete_button = T("Delete Location Hierarchy"),
             msg_record_created = T("Location Hierarchy added"),
             msg_record_modified = T("Location Hierarchy updated"),
@@ -1288,7 +1374,7 @@ class S3LocationHierarchyModel(S3Model):
         )
 
         self.configure(tablename,
-                       onvalidation=self.gis_hierarchy_onvalidation,
+                       onvalidation = self.gis_hierarchy_onvalidation,
                        )
 
         # Pass names back to global scope (s3.*)
@@ -1366,12 +1452,12 @@ class S3LocationHierarchyModel(S3Model):
             If strict, hierarchy names must not have gaps.
         """
 
-        vars = form.vars
+        form_vars = form.vars
 
-        if vars.strict_hierarchy:
+        if form_vars.strict_hierarchy:
             gis = current.gis
             hierarchy_level_keys = gis.hierarchy_level_keys
-            level_names = [vars[key] if key in vars else None
+            level_names = [form_vars[key] if key in form_vars else None
                            for key in hierarchy_level_keys]
             # L0 is always missing because its label is hard-coded
             gaps = filter(None, map(lambda n:
@@ -1416,7 +1502,7 @@ class S3GISConfigModel(S3Model):
         NONE = current.messages["NONE"]
 
         # Shortcuts
-        add_component = self.add_component
+        add_components = self.add_components
         configure = self.configure
         crud_strings = current.response.s3.crud_strings
         define_table = self.define_table
@@ -1425,39 +1511,43 @@ class S3GISConfigModel(S3Model):
         # =====================================================================
         # GIS Markers (Icons)
         tablename = "gis_marker"
-        table = define_table(tablename,
-                             Field("name", length=64, notnull=True, unique=True,
-                                   label = T("Name")),
-                             Field("image", "upload", autodelete=False,
-                                   label = T("Image"),
-                                   # upload folder needs to be visible to the download() function as well as the upload
-                                   uploadfolder = os.path.join(current.request.folder,
-                                                               "static",
-                                                               "img",
-                                                               "markers"),
-                                   custom_retrieve = self.gis_marker_retrieve,
-                                   custom_retrieve_file_properties = self.gis_marker_retrieve_file_properties,
-                                   represent = lambda filename: \
-                                      (filename and [DIV(IMG(_src=URL(c="static",
-                                                                      f="img",
-                                                                      args=["markers",
-                                                                            filename]),
-                                                             _height=40))] or [""])[0]),
-                             Field("height", "integer", writable=False), # In Pixels, for display purposes
-                             Field("width", "integer", writable=False),  # We could get size client-side using Javascript's Image() class, although this is unreliable!
-                             *s3_meta_fields())
+        define_table(tablename,
+                     Field("name", length=64, notnull=True, unique=True,
+                           label = T("Name"),
+                           ),
+                     Field("image", "upload", autodelete=False,
+                           label = T("Image"),
+                           # upload folder needs to be visible to the download() function as well as the upload
+                           uploadfolder = os.path.join(current.request.folder,
+                                                       "static",
+                                                       "img",
+                                                       "markers"),
+                           custom_retrieve = self.gis_marker_retrieve,
+                           custom_retrieve_file_properties = self.gis_marker_retrieve_file_properties,
+                           represent = lambda filename: \
+                               (filename and [DIV(IMG(_src=URL(c="static",
+                                                               f="img",
+                                                               args=["markers",
+                                                                     filename]),
+                                                      _height=40))] or [""])[0],
+                           ),
+                     # We could get size client-side using Javascript's Image() class, although this is unreliable!
+                     Field("height", "integer", # In Pixels, for display purposes
+                           writable = False,
+                           ),
+                     Field("width", "integer",
+                           writable = False,
+                           ),
+                     *s3_meta_fields())
 
         # CRUD Strings
-        ADD_MARKER = T("Add Marker")
+        ADD_MARKER = T("Create Marker")
         crud_strings[tablename] = Storage(
-            title_create = ADD_MARKER,
+            label_create = ADD_MARKER,
             title_display = T("Marker Details"),
             title_list = T("Markers"),
             title_update = T("Edit Marker"),
-            title_search = T("Search Markers"),
-            subtitle_create = T("Add New Marker"),
             label_list_button = T("List Markers"),
-            label_create_button = ADD_MARKER,
             label_delete_button = T("Delete Marker"),
             msg_record_created = T("Marker added"),
             msg_record_modified = T("Marker updated"),
@@ -1466,9 +1556,9 @@ class S3GISConfigModel(S3Model):
 
         # Reusable field to include in other table definitions
         marker_represent = gis_MarkerRepresent()
-        marker_id = S3ReusableField("marker_id", table,
+        marker_id = S3ReusableField("marker_id", "reference %s" % tablename,
                                     sortby="name",
-                                    requires = IS_NULL_OR(
+                                    requires = IS_EMPTY_OR(
                                                 IS_ONE_OF(db, "gis_marker.id",
                                                           "%(name)s",
                                                           zero=T("Use default"))),
@@ -1486,62 +1576,64 @@ class S3GISConfigModel(S3Model):
                                     ondelete = "SET NULL")
 
         # Components
-        # Layers
-        add_component("gis_layer_entity",
-                      gis_marker=dict(link="gis_layer_symbology",
-                                      joinby="marker_id",
-                                      key="layer_id",
-                                      actuate="hide",
-                                      autocomplete="name",
-                                      autodelete=False))
+        add_components(tablename,
+                       gis_layer_entity = {"link": "gis_layer_symbology",
+                                           "joinby": "marker_id",
+                                           "key": "layer_id",
+                                           "actuate": "hide",
+                                           "autocomplete": "name",
+                                           "autodelete": False,
+                                           },
+                       )
 
         configure(tablename,
-                  onvalidation=self.gis_marker_onvalidation,
-                  deduplicate=self.gis_marker_deduplicate,
+                  deduplicate = self.gis_marker_deduplicate,
+                  onvalidation = self.gis_marker_onvalidation,
                   )
 
         # =====================================================================
         # GIS Projections
         tablename = "gis_projection"
         proj4js = T("%(proj4js)s definition") % dict(proj4js="Proj4js")
-        table = define_table(tablename,
-                             Field("name", length=64, notnull=True, unique=True,
-                                   label = T("Name")),
-                             Field("epsg", "integer", notnull=True,
-                                   label="EPSG",
-                                   requires = IS_NOT_EMPTY()),
-                             Field("maxExtent", length=64, notnull=True,
-                                   label = T("Maximum Extent"),
-                                   comment = DIV(_class="tooltip",
-                                                 _title="%s|%s" % (T("Maximum Extent"),
-                                                                   T("The Maximum valid bounds, in projected coordinates"))),
-                                   # @ToDo: Add a specialised validator
-                                   requires = IS_NOT_EMPTY()),
-                             Field("proj4js",
-                                   label = proj4js,
-                                   comment = DIV(_class="stickytip",
-                                                 _title="%s|%s" % (proj4js,
-                                                                   T("String used to configure Proj4js. Can be found from %(url)s") % dict(url=A("http://spatialreference.org",
-                                                                                                                                                 _href="http://spatialreference.org",
-                                                                                                                                                 _target="_blank")))),
-                                   ),
-                             Field("units", notnull=True,
-                                   label = T("Units"),
-                                   requires = IS_IN_SET(["m", "degrees"],
-                                                        zero=None)),
-                             *s3_meta_fields())
+        define_table(tablename,
+                     Field("name", length=64, notnull=True, unique=True,
+                           label = T("Name"),
+                           ),
+                     Field("epsg", "integer", notnull=True,
+                           label = "EPSG",
+                           requires = IS_NOT_EMPTY(),
+                           ),
+                     Field("maxExtent", length=64, notnull=True,
+                           label = T("Maximum Extent"),
+                           comment = DIV(_class="tooltip",
+                                         _title="%s|%s" % (T("Maximum Extent"),
+                                                           T("The Maximum valid bounds, in projected coordinates"))),
+                           # @ToDo: Add a specialised validator
+                           requires = IS_NOT_EMPTY(),
+                           ),
+                     Field("proj4js",
+                           label = proj4js,
+                           comment = DIV(_class="stickytip",
+                                         _title="%s|%s" % (proj4js,
+                                                           T("String used to configure Proj4js. Can be found from %(url)s") % dict(url=A("http://spatialreference.org",
+                                                                                                                                            _href="http://spatialreference.org",
+                                                                                                                                            _target="_blank")))),
+                           ),
+                     Field("units", notnull=True,
+                           label = T("Units"),
+                           requires = IS_IN_SET(["m", "degrees"],
+                                                zero=None),
+                           ),
+                     *s3_meta_fields())
 
         # CRUD Strings
-        ADD_PROJECTION = T("Add Projection")
+        ADD_PROJECTION = T("Create Projection")
         crud_strings[tablename] = Storage(
-            title_create = ADD_PROJECTION,
+            label_create = ADD_PROJECTION,
             title_display = T("Projection Details"),
             title_list = T("Projections"),
             title_update = T("Edit Projection"),
-            title_search = T("Search Projections"),
-            subtitle_create = T("Add New Projection"),
             label_list_button = T("List Projections"),
-            label_create_button = ADD_PROJECTION,
             label_delete_button = T("Delete Projection"),
             msg_record_created = T("Projection added"),
             msg_record_modified = T("Projection updated"),
@@ -1550,9 +1642,9 @@ class S3GISConfigModel(S3Model):
 
         # Reusable field to include in other table definitions
         represent = S3Represent(lookup=tablename)
-        projection_id = S3ReusableField("projection_id", table,
+        projection_id = S3ReusableField("projection_id", "reference %s" % tablename,
                                         sortby="name",
-                                        requires = IS_NULL_OR(
+                                        requires = IS_EMPTY_OR(
                                                     IS_ONE_OF(db, "gis_projection.id",
                                                               represent)),
                                         represent = represent,
@@ -1567,31 +1659,28 @@ class S3GISConfigModel(S3Model):
                                         ondelete = "RESTRICT")
 
         configure(tablename,
-                  deduplicate=self.gis_projection_deduplicate,
-                  deletable=False,
+                  deduplicate = self.gis_projection_deduplicate,
+                  deletable = False,
                   )
 
         # =====================================================================
         # GIS Symbology
         # - currently unused
         tablename = "gis_symbology"
-        table = define_table(tablename,
-                             Field("name", length=32,
-                                   notnull=True, unique=True),
-                             marker_id(label = T("Default Marker"),
-                                       empty=False),
-                             *s3_meta_fields())
+        define_table(tablename,
+                     Field("name", length=32, notnull=True, unique=True),
+                     marker_id(empty = False,
+                               label = T("Default Marker"),
+                               ),
+                     *s3_meta_fields())
 
-        ADD_SYMBOLOGY = T("Add Symbology")
+        ADD_SYMBOLOGY = T("Create Symbology")
         crud_strings[tablename] = Storage(
-            title_create = ADD_SYMBOLOGY,
+            label_create = ADD_SYMBOLOGY,
             title_display = T("Symbology"),
             title_list = T("Symbologies"),
             title_update = T("Edit Symbology"),
-            title_search = T("Search Symbologies"),
-            subtitle_create = T("Add New Symbology"),
             label_list_button = T("List Symbologies"),
-            label_create_button = ADD_SYMBOLOGY,
             label_delete_button = T("Delete Symbology"),
             msg_record_created = T("Symbology added"),
             msg_record_modified = T("Symbology updated"),
@@ -1601,9 +1690,9 @@ class S3GISConfigModel(S3Model):
 
         # Reusable field to include in other table definitions
         represent = S3Represent(lookup=tablename)
-        symbology_id = S3ReusableField("symbology_id", table,
+        symbology_id = S3ReusableField("symbology_id", "reference %s" % tablename,
                                        sortby="name",
-                                       requires = IS_NULL_OR(
+                                       requires = IS_EMPTY_OR(
                                                     IS_ONE_OF(db, "gis_symbology.id",
                                                               represent)),
                                        represent = represent,
@@ -1611,26 +1700,28 @@ class S3GISConfigModel(S3Model):
                                        ondelete = "SET NULL")
 
         # Components
-        # Layers
-        add_component("gis_layer_entity",
-                      gis_symbology=dict(link="gis_layer_symbology",
-                                         joinby="symbology_id",
-                                         key="layer_id",
-                                         actuate="hide",
-                                         autocomplete="name",
-                                         autodelete=False))
-
-        # Markers
-        add_component("gis_marker",
-                      gis_symbology=dict(link="gis_layer_symbology",
-                                         joinby="symbology_id",
-                                         key="marker_id",
-                                         actuate="replace",
-                                         autocomplete="name",
-                                         autodelete=False))
+        add_components(tablename,
+                       # Layers
+                       gis_layer_entity = {"link": "gis_layer_symbology",
+                                           "joinby": "symbology_id",
+                                           "key": "layer_id",
+                                           "actuate": "hide",
+                                           "autocomplete": "name",
+                                           "autodelete": False,
+                                           },
+                       # Markers
+                       gis_marker = {"link": "gis_layer_symbology",
+                                     "joinby": "symbology_id",
+                                     "key": "marker_id",
+                                     "actuate": "replace",
+                                     "autocomplete": "name",
+                                     "autodelete": False,
+                                     },
+                       )
 
         configure(tablename,
-                  deduplicate=self.gis_symbology_deduplicate)
+                  deduplicate = self.gis_symbology_deduplicate,
+                  )
 
         # =====================================================================
         # GIS Config
@@ -1650,102 +1741,111 @@ class S3GISConfigModel(S3Model):
                     }
 
         tablename = "gis_config"
-        table = define_table(tablename,
-                             # Name displayed in the GIS config menu.
-                             Field("name"),
+        define_table(tablename,
+                     # Name displayed in the GIS config menu.
+                     Field("name"),
 
-                             # pe_id for Personal/OU configs
-                             super_link("pe_id", "pr_pentity"),
-                             # Gets populated onvalidation
-                             Field("pe_type", "integer",
-                                   requires = IS_NULL_OR(IS_IN_SET(pe_types)),
-                                   readable=False,
-                                   writable=False,
+                     # pe_id for Personal/OU configs
+                     super_link("pe_id", "pr_pentity"),
+                     # Gets populated onvalidation
+                     Field("pe_type", "integer",
+                           requires = IS_EMPTY_OR(IS_IN_SET(pe_types)),
+                           readable = False,
+                           writable = False,
+                           ),
+                     # Default:
+                     # If a person has multiple saved configs then this decides
+                     # which is the one to use
+                     Field("pe_default", "boolean",
+                           default = False,
+                           ),
+
+                     # Region field
+                     location_id("region_location_id",
+                                 requires = IS_EMPTY_OR(IS_LOCATION(level=gis.hierarchy_level_keys)),
+                                 widget = S3LocationAutocompleteWidget(),
+                                 ),
+
+                     # CRUD Settings
+                     # Default Location
+                     location_id("default_location_id",
+                                 requires = IS_EMPTY_OR(IS_LOCATION()),
+                                 widget = S3LocationAutocompleteWidget(),
+                                 ),
+                     # Map Settings
+                     Field("zoom", "integer",
+                           requires = IS_EMPTY_OR(IS_INT_IN_RANGE(1, 20)),
+                           ),
+                     Field("lat", "double",
+                           requires = IS_EMPTY_OR(IS_LAT()),
+                           ),
+                     Field("lon", "double",
+                           requires = IS_EMPTY_OR(IS_LON()),
+                           ),
+                     projection_id(#empty=False,
+                                   # Nice if we could get this set to epsg field
+                                   #default=900913
                                    ),
-                             # Default:
-                             # If a person has multiple saved configs then this decides
-                             # which is the one to use
-                             Field("pe_default", "boolean",
-                                   default = False,
-                                   ),
+                     symbology_id(),
+                     # Overall Bounding Box for sanity-checking inputs
+                     Field("lat_min", "double",
+                           # @ToDo: Remove default once we have cascading working
+                           default = -90,
+                           requires = IS_EMPTY_OR(IS_LAT()),
+                           ),
+                     Field("lat_max", "double",
+                           # @ToDo: Remove default once we have cascading working
+                           default = 90,
+                           requires = IS_EMPTY_OR(IS_LAT()),
+                           ),
+                     Field("lon_min", "double",
+                           # @ToDo: Remove default once we have cascading working
+                           default = -180,
+                           requires = IS_EMPTY_OR(IS_LON()),
+                           ),
+                     Field("lon_max", "double",
+                           # @ToDo: Remove default once we have cascading working
+                           default = 180,
+                           requires = IS_EMPTY_OR(IS_LON()),
+                           ),
 
-                             # Region field
-                             location_id("region_location_id",
-                                         widget = S3LocationAutocompleteWidget(),
-                                         requires = IS_NULL_OR(IS_LOCATION(level=gis.hierarchy_level_keys))),
+                     # This should be turned off for Offline deployments or expensive SatComms, such as BGAN
+                     Field("geocoder", "boolean"),
+                     Field("wmsbrowser_url"),
+                     Field("wmsbrowser_name",
+                           default = "Web Map Service",
+                           ),
+                     # Note: This hasn't yet been changed for any instance
+                     # Do we really need it to be configurable?
+                     Field("zoom_levels", "integer",
+                           # @ToDo: Remove default once we have cascading working
+                           default = 22,
+                           requires = IS_EMPTY_OR(IS_INT_IN_RANGE(1, 30)),
+                           readable = False,
+                           writable = False,
+                           ),
 
-                             # CRUD Settings
-                             # Default Location
-                             location_id("default_location_id",
-                                         widget = S3LocationAutocompleteWidget(),
-                                         requires = IS_NULL_OR(IS_LOCATION())),
-                             # Map Settings
-                             Field("zoom", "integer",
-                                   requires = IS_NULL_OR(IS_INT_IN_RANGE(1, 20))),
-                             Field("lat", "double",
-                                   requires = IS_NULL_OR(IS_LAT())),
-                             Field("lon", "double",
-                                   requires = IS_NULL_OR(IS_LON())),
-                             projection_id(#empty=False,
-                                           # Nice if we could get this set to epsg field
-                                           #default=900913
-                                           ),
-                             symbology_id(),
-                             # Overall Bounding Box for sanity-checking inputs
-                             Field("lat_min", "double",
-                                   # @ToDo: Remove default once we have cascading working
-                                   default=-90,
-                                   requires = IS_NULL_OR(IS_LAT())),
-                             Field("lat_max", "double",
-                                   # @ToDo: Remove default once we have cascading working
-                                   default=90,
-                                   requires = IS_NULL_OR(IS_LAT())),
-                             Field("lon_min", "double",
-                                   # @ToDo: Remove default once we have cascading working
-                                   default=-180,
-                                   requires = IS_NULL_OR(IS_LON())),
-                             Field("lon_max", "double",
-                                   # @ToDo: Remove default once we have cascading working
-                                   default=180,
-                                   requires = IS_NULL_OR(IS_LON())),
-
-                             # This should be turned off for Offline deployments or expensive SatComms, such as BGAN
-                             Field("geocoder", "boolean"),
-                             Field("wmsbrowser_url"),
-                             Field("wmsbrowser_name",
-                                   default="Web Map Service"),
-                             # Note: This hasn't yet been changed for any instance
-                             # Do we really need it to be configurable?
-                             Field("zoom_levels", "integer",
-                                   requires = IS_NULL_OR(IS_INT_IN_RANGE(1, 30)),
-                                   readable=False,
-                                   writable=False,
-                                   # @ToDo: Remove default once we have cascading working
-                                   default = 22),
-
-                             *s3_meta_fields())
+                     *s3_meta_fields())
 
         # Reusable field - used by Events & Scenarios
         represent = S3Represent(lookup=tablename)
-        config_id = S3ReusableField("config_id", table,
-                                    #readable=False,
-                                    #writable=False,
+        config_id = S3ReusableField("config_id", "reference %s" % tablename,
+                                    label = T("Map Configuration"),
+                                    ondelete = "CASCADE",
+                                    represent = represent,
                                     requires = IS_ONE_OF(db, "gis_config.id",
                                                          represent),
-                                    represent = represent,
-                                    label = T("Map Configuration"),
-                                    ondelete = "CASCADE")
+                                    #readable=False,
+                                    #writable=False,
+                                    )
 
-        ADD_CONFIG = T("Add Map Configuration")
+        ADD_CONFIG = T("Create Map Configuration")
         crud_strings[tablename] = Storage(
-            title_create = ADD_CONFIG,
+            label_create = ADD_CONFIG,
             title_display = T("Map Configuration"),
             title_list = T("Map Configurations"),
             title_update = T("Edit Map Configuration"),
-            title_search = T("Search Map Configurations"),
-            subtitle_create = T("Add New Map Configuration"),
             label_list_button = T("List Map Configurations"),
-            label_create_button = ADD_CONFIG,
             label_delete_button = T("Delete Map Configuration"),
             msg_record_created = T("Map Configuration added"),
             msg_record_modified = T("Map Configuration updated"),
@@ -1753,29 +1853,32 @@ class S3GISConfigModel(S3Model):
             msg_list_empty = T("No Map Configurations currently defined")
         )
 
-        # Components
-        # Layers
-        add_component("gis_layer_entity",
-                      gis_config=dict(link="gis_layer_config",
-                                      joinby="config_id",
-                                      key="layer_id",
-                                      actuate="hide",
-                                      autocomplete="name",
-                                      autodelete=False))
-
         configure(tablename,
-                  deduplicate=self.gis_config_deduplicate,
-                  onvalidation=self.gis_config_onvalidation,
-                  onaccept=self.gis_config_onaccept,
-                  create_next=URL(c="gis", f="config",
-                                  args=["[id]", "layer_entity"]),
-                  ondelete=self.gis_config_ondelete,
+                  create_next = URL(c="gis", f="config",
+                                    args=["[id]", "layer_entity"]),
+                  deduplicate = self.gis_config_deduplicate,
+                  onaccept = self.gis_config_onaccept,
+                  ondelete = self.gis_config_ondelete,
+                  onvalidation = self.gis_config_onvalidation,
                   )
+
+        # Components
+        add_components(tablename,
+                       # Layers
+                       gis_layer_entity = {"link": "gis_layer_config",
+                                           "joinby": "config_id",
+                                           "key": "layer_id",
+                                           "actuate": "hide",
+                                           "autocomplete": "name",
+                                           "autodelete": False,
+                                           },
+                       )
 
         if current.deployment_settings.get_security_map() and not \
            current.auth.s3_has_role("MapAdmin"):
             configure(tablename,
-                      deletable=False)
+                      deletable = False,
+                      )
 
         # =====================================================================
         # GIS Menu Entries
@@ -1789,23 +1892,20 @@ class S3GISConfigModel(S3Model):
         # @ToDo: Check for OUs too
 
         tablename = "gis_menu"
-        table = define_table(tablename,
-                             config_id(),
-                             super_link("pe_id", "pr_pentity"),
-                             *s3_meta_fields())
+        define_table(tablename,
+                     config_id(),
+                     super_link("pe_id", "pr_pentity"),
+                     *s3_meta_fields())
 
         # Initially will be populated only when a Personal config is created
         # CRUD Strings
         # ADD_MENU = T("Add Menu Entry")
         # crud_strings[tablename] = Storage(
-            # title_create = ADD_MENU,
+            # label_create = ADD_MENU,
             # title_display = T("Menu Entry Details"),
             # title_list = T("Menu Entries"),
             # title_update = T("Edit Menu Entry"),
-            # title_search = T("Search Menu Entries"),
-            # subtitle_create = T("Add New Menu Entry"),
             # label_list_button = T("List Menu Entries"),
-            # label_create_button = ADD_MENU,
             # label_delete_button = T("Delete Menu Entry"),
             # msg_record_created = T("Menu Entry added"),
             # msg_record_modified = T("Menu Entry updated"),
@@ -1962,7 +2062,6 @@ class S3GISConfigModel(S3Model):
             if duplicate:
                 item.id = duplicate.id
                 item.method = item.METHOD.UPDATE
-        return
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -1971,11 +2070,11 @@ class S3GISConfigModel(S3Model):
             Set the pe_type
         """
 
-        vars = form.vars
-        if vars.uuid == "SITE_DEFAULT":
-            vars.pe_type = 9
-        elif "pe_id" in vars:
-            pe_id = vars.pe_id
+        form_vars = form.vars
+        if form_vars.uuid == "SITE_DEFAULT":
+            form_vars.pe_type = 9
+        elif "pe_id" in form_vars:
+            pe_id = form_vars.pe_id
             if pe_id:
                 # Populate the pe_type
                 db = current.db
@@ -1987,11 +2086,11 @@ class S3GISConfigModel(S3Model):
                 if pe:
                     pe_type = pe.instance_type
                     if pe_type == "pr_person":
-                        vars.pe_type = 1
+                        form_vars.pe_type = 1
                     elif pe_type == "pr_group":
-                        vars.pe_type = 2
+                        form_vars.pe_type = 2
                     elif pe_type == "org_office":
-                        vars.pe_type = 4
+                        form_vars.pe_type = 4
                     elif pe_type == "org_organisation":
                         if current.deployment_settings.get_org_branches():
                             # Check if we're a branch
@@ -2002,14 +2101,14 @@ class S3GISConfigModel(S3Model):
                             branch = db(query).select(btable.id,
                                                       limitby=(0, 1)).first()
                             if branch:
-                                vars.pe_type = 6
+                                form_vars.pe_type = 6
                             else:
-                                vars.pe_type = 7
+                                form_vars.pe_type = 7
                         else:
-                            vars.pe_type = 7
+                            form_vars.pe_type = 7
         elif "config" in current.request.args:
             # Personal Config
-            vars.pe_type = 1
+            form_vars.pe_type = 1
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -2028,15 +2127,15 @@ class S3GISConfigModel(S3Model):
         db = current.db
         auth = current.auth
 
-        vars = form.vars
-        id = vars.id
-        pe_id = vars.get("pe_id", None)
+        form_vars = form.vars
+        id = form_vars.id
+        pe_id = form_vars.get("pe_id", None)
         if pe_id:
             user = auth.user
             if user and user.pe_id == pe_id:
                 # Clear the current config
                 current.response.s3.gis.config = None
-            if vars.pe_default:
+            if form_vars.pe_default:
                 # Ensure no other records for this PE are marked as default
                 table = db.gis_config
                 query = (table.pe_id == pe_id) & \
@@ -2063,10 +2162,10 @@ class S3GISConfigModel(S3Model):
         # Locations which are referenced by Map Configs should be owned by MapAdmin.
         # That makes Authenticated no longer an owner, so they only get whatever
         # is permitted by uacl (usually READ).
-        if vars.region_location_id:
+        if form_vars.region_location_id:
             MAP_ADMIN = current.session.s3.system_roles.MAP_ADMIN
             table = db.gis_location
-            query = (table.id == vars.region_location_id)
+            query = (table.id == form_vars.region_location_id)
             db(query).update(owned_by_group = MAP_ADMIN)
 
     # -------------------------------------------------------------------------
@@ -2079,7 +2178,8 @@ class S3GISConfigModel(S3Model):
         s3 = current.response.s3
         if s3.gis.config and \
            s3.gis.config.id == row.id:
-                s3.gis.config = None  
+                s3.gis.config = None
+
     # -------------------------------------------------------------------------
     @staticmethod
     def gis_marker_onvalidation(form):
@@ -2107,8 +2207,6 @@ class S3GISConfigModel(S3Model):
         vars.width = width
         vars.height = height
 
-        return
-
     # -------------------------------------------------------------------------
     @staticmethod
     def gis_marker_deduplicate(item):
@@ -2134,7 +2232,6 @@ class S3GISConfigModel(S3Model):
             if duplicate:
                 item.id = duplicate.id
                 item.method = item.METHOD.UPDATE
-        return
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -2202,7 +2299,6 @@ class S3GISConfigModel(S3Model):
             if duplicate:
                 item.id = duplicate.id
                 item.method = item.METHOD.UPDATE
-        return
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -2229,7 +2325,6 @@ class S3GISConfigModel(S3Model):
             if duplicate:
                 item.id = duplicate.id
                 item.method = item.METHOD.UPDATE
-        return
 
 # =============================================================================
 class gis_MarkerRepresent(S3Represent):
@@ -2274,7 +2369,7 @@ class S3LayerEntityModel(S3Model):
         T = current.T
 
         # Shortcuts
-        add_component = self.add_component
+        add_components = self.add_components
         crud_strings = current.response.s3.crud_strings
         define_table = self.define_table
 
@@ -2305,22 +2400,19 @@ class S3LayerEntityModel(S3Model):
                               )
 
         tablename = "gis_layer_entity"
-        table = self.super_entity(tablename, "layer_id", layer_types,
-                                  name_field()(),
-                                  desc_field()(),
-                                  #role_required(),       # Single Role
-                                  ##roles_permitted(),    # Multiple Roles (needs implementing in modules/s3gis.py)
-                                  )
+        self.super_entity(tablename, "layer_id", layer_types,
+                          name_field()(),
+                          desc_field()(),
+                          #role_required(),       # Single Role
+                          ##roles_permitted(),    # Multiple Roles (needs implementing in modules/s3gis.py)
+                          )
 
         crud_strings[tablename] = Storage(
-            title_create = T("Add Layer"),
+            label_create = T("Create Layer"),
             title_display = T("Layer Details"),
             title_list = T("Layers"),
             title_update = T("Edit Layer"),
-            title_search = T("Search Layers"),
-            subtitle_create = T("Add New Layer"),
             label_list_button = T("List Layers"),
-            label_create_button = T("Add Layer"),
             label_delete_button = T("Delete Layer"),
             msg_record_created = T("Layer added"),
             msg_record_modified = T("Layer updated"),
@@ -2334,33 +2426,33 @@ class S3LayerEntityModel(S3Model):
                                    readable=True, writable=True)
 
         # Components
-        # Configs
-        add_component("gis_config",
-                      gis_layer_entity=dict(link="gis_layer_config",
-                                            pkey="layer_id",
-                                            joinby="layer_id",
-                                            key="config_id",
-                                            actuate="hide",
-                                            autocomplete="name",
-                                            autodelete=False))
-
-        # Symbologies
-        add_component("gis_symbology",
-                      gis_layer_entity=dict(link="gis_layer_symbology",
-                                            pkey="layer_id",
-                                            joinby="layer_id",
-                                            key="symbology_id",
-                                            actuate="hide",
-                                            autocomplete="name",
-                                            autodelete=False))
-
-        # Posts
-        add_component("cms_post",
-                      gis_layer_entity=dict(link="cms_post_layer",
-                                            pkey="layer_id",
-                                            joinby="layer_id",
-                                            key="post_id"))
-
+        add_components(tablename,
+                       # Configs
+                       gis_config={"link": "gis_layer_config",
+                                   "pkey": "layer_id",
+                                   "joinby": "layer_id",
+                                   "key": "config_id",
+                                   "actuate": "hide",
+                                   "autocomplete": "name",
+                                   "autodelete": False,
+                                  },
+                       # Symbologies
+                       gis_symbology={"link": "gis_layer_symbology",
+                                      "pkey": "layer_id",
+                                      "joinby": "layer_id",
+                                      "key": "symbology_id",
+                                      "actuate": "hide",
+                                      "autocomplete": "name",
+                                      "autodelete": False,
+                                     },
+                       # Posts
+                       cms_post={"link": "cms_post_layer",
+                                 "pkey": "layer_id",
+                                 "joinby": "layer_id",
+                                 "key": "post_id",
+                                },
+                      )
+                      
         # =====================================================================
         #  Layer Config link table
 
@@ -2390,39 +2482,40 @@ class S3LayerEntityModel(S3Model):
         #}]
 
         tablename = "gis_layer_config"
-        table = define_table(tablename,
-                             layer_id,
-                             self.gis_config_id(),
-                             Field("enabled", "boolean", default=True,
-                                   represent = s3_yes_no_represent,
-                                   label=T("Available in Viewer?")),
-                             Field("visible", "boolean", default=True,
-                                   represent = s3_yes_no_represent,
-                                   label=T("On by default?")),
-                             Field("base", "boolean", default=False,
-                                   represent = s3_yes_no_represent,
-                                   label=T("Default Base layer?")),
-                             # @ToDo: Move to style_id
-                             Field("style", "text",
-                                   # Used by Layers: Feature, GeoJSON, KML, Shapefile, Theme & WFS
-                                   readable=False, writable=False,
-                                   comment = DIV(_class="tooltip",
-                                                 _title="%s|%s" % (T("Style"),
-                                                                   T("This is normally edited using the Widget in the Style Tab in the Layer Properties on the Map."))),
-                                   label=T("Style")),
-                             *s3_meta_fields())
+        define_table(tablename,
+                     layer_id,
+                     self.gis_config_id(),
+                     Field("enabled", "boolean", default=True,
+                           represent = s3_yes_no_represent,
+                           label=T("Available in Viewer?")),
+                     Field("visible", "boolean", default=True,
+                           represent = s3_yes_no_represent,
+                           label=T("On by default?")),
+                     Field("base", "boolean", default=False,
+                           represent = s3_yes_no_represent,
+                           label=T("Default Base layer?")),
+                     # @ToDo: Move to style_id
+                     # @ToDo: Switch type to "json" & Test
+                     Field("style", "text",
+                           label = T("Style"),
+                           # Used by Layers: Feature, GeoJSON, KML, Shapefile, Theme & WFS
+                           readable = False,
+                           writable = False,
+                           comment = DIV(_class="tooltip",
+                                         _title="%s|%s" % (T("Style"),
+                                                           T("This is normally edited using the Widget in the Style Tab in the Layer Properties on the Map."))),
+                           ),
+                     *s3_meta_fields())
 
         # Default to the Layer -> Config view
         # since there are many diff layers
         # - override for single Config -> Layer
         crud_strings[tablename] = Storage(
-            title_create = T("Add Profile Configuration for this Layer"),
+            label_create = T("Add Profile Configuration for this Layer"),
             title_display = T("Profile Configuration"),
             title_list = T("Profile Configurations"),
             title_update = T("Edit Profile Configuration"),
-            subtitle_create = T("Add New Profile Configuration"),
             label_list_button = T("List Profiles configured for this Layer"),
-            label_create_button = T("Add Profile Configuration"),
             label_delete_button = T("Remove Profile Configuration for Layer"),
             msg_record_created = T("Profile Configured"),
             msg_record_modified = T("Profile Configuration updated"),
@@ -2438,33 +2531,31 @@ class S3LayerEntityModel(S3Model):
         #  Layer Symbology link table
 
         tablename = "gis_layer_symbology"
-        table = define_table(tablename,
-                             layer_id,
-                             self.gis_symbology_id(),
-                             self.gis_marker_id(),
-                             Field("gps_marker",
-                                   label = T("GPS Marker"),
-                                   comment = DIV(_class="tooltip",
-                                                 _title="%s|%s" % (T("GPS Marker"),
-                                                                   T("Defines the icon used for display of features on handheld GPS."))),
-                                   # This is the list of GPS Markers for Garmin devices
-                                   requires = IS_NULL_OR(
-                                                IS_IN_SET(current.gis.gps_symbols(),
-                                                          zero=T("Use default")))
-                                                          ),
-                             *s3_meta_fields())
+        define_table(tablename,
+                     layer_id,
+                     self.gis_symbology_id(),
+                     self.gis_marker_id(),
+                     Field("gps_marker",
+                           label = T("GPS Marker"),
+                           comment = DIV(_class="tooltip",
+                                         _title="%s|%s" % (T("GPS Marker"),
+                                                           T("Defines the icon used for display of features on handheld GPS."))),
+                           # This is the list of GPS Markers for Garmin devices
+                           requires = IS_EMPTY_OR(
+                                        IS_IN_SET(current.gis.gps_symbols(),
+                                                  zero=T("Use default")))
+                           ),
+                     *s3_meta_fields())
 
         # Default to the Layer -> Symbology view
         # since there are many diff layers
         # - override for single Symbology -> Layer
         crud_strings[tablename] = Storage(
-            title_create = T("Add Symbology for Layer"),
+            label_create = T("Add Symbology to Layer"),
             title_display = T("Symbology"),
             title_list = T("Symbologies"),
             title_update = T("Edit Symbology"),
-            subtitle_create = T("Add New Symbology for Layer"),
             label_list_button = T("List Symbologies for Layer"),
-            label_create_button = T("Add Symbology for Layer"),
             label_delete_button = T("Remove Symbology from Layer"),
             msg_record_created = T("Symbology added"),
             msg_record_modified = T("Symbology updated"),
@@ -2541,109 +2632,106 @@ class S3FeatureLayerModel(S3Model):
         T = current.T
         db = current.db
 
-        add_component = self.add_component
+        add_components = self.add_components
         crud_strings = current.response.s3.crud_strings
 
         # =====================================================================
         # Feature Layers
 
         tablename = "gis_layer_feature"
-        table = self.define_table(tablename,
-                                  self.super_link("layer_id", "gis_layer_entity"),
-                                  name_field()(),
-                                  desc_field()(),
-                                  # REST Query added to Map JS to call back to server
-                                  Field("controller",
-                                        requires = IS_NOT_EMPTY(),
-                                        label = T("Controller"),
-                                        comment = DIV(_class="tooltip",
-                                                      _title="%s|%s /" % (T("Controller"),
-                                                                          T("Part of the URL to call to access the Features"))),
-                                        ),
-                                  Field("function",
-                                        requires = IS_NOT_EMPTY(),
-                                        label = T("Function"),
-                                        comment = DIV(_class="tooltip",
-                                                      _title="%s|%s /" % (T("Function"),
-                                                                          T("Part of the URL to call to access the Features"))),
-                                        ),
-                                  Field("filter",
-                                        label = T("Filter"),
-                                        comment = DIV(_class="stickytip",
-                                                      _title="%s|%s" % (T("Filter"),
-                                                                        "%s: <a href='http://eden.sahanafoundation.org/wiki/S3XRC/RESTfulAPI/URLFormat#BasicQueryFormat' target='_blank'>Wiki</a>" % \
-                                                                          T("Uses the REST Query Format defined in"))),
-                                        ),
-                                  # @ToDo: Replace with s3.crud_strings[tablename]?
-                                  Field("popup_label",
-                                        label = T("Popup Label"),
-                                        comment=DIV(_class="tooltip",
-                                                    _title="%s|%s" % (T("Popup Label"),
-                                                                      T("Used in onHover Tooltip & Cluster Popups to differentiate between types."))),
-                                        ),
-                                  # @ToDo: Build Popups from Attributes & Format to avoid duplication
-                                  Field("popup_fields", "list:string",
-                                        # Want to be able to prepop layers with this empty to prevent popups from showing
-                                        #default = "name",
-                                        label = T("Popup Fields"),
-                                        comment = DIV(_class="tooltip",
-                                                      _title="%s|%s" % (T("Popup Fields"),
-                                                                        T("Used to build onHover Tooltip & 1st field also used in Cluster Popups to differentiate between records."))),
-                                        ),
-                                  Field("attr_fields", "list:string",
-                                        label = T("Attributes"),
-                                        comment = DIV(_class="tooltip",
-                                                      _title="%s|%s" % (T("Attributes"),
-                                                                        T("Used to populate feature attributes which can be used for Styling."))),
-                                        ),
-                                  Field("style_default", "boolean",
-                                        default=False,
-                                        label=T("Default"),
-                                        represent = s3_yes_no_represent,
-                                        comment = DIV(_class="tooltip",
-                                                      _title="%s|%s" % (T("Default"),
-                                                                        T("Whether calls to this resource should use this configuration as the default one"))),
-                                        ),
-                                  Field("polygons", "boolean",
-                                        default=False,
-                                        represent = s3_yes_no_represent,
-                                        label=T("Display Polygons?")),
-                                  Field("trackable", "boolean",
-                                        label = T("Trackable"),
-                                        represent = s3_yes_no_represent,
-                                        default = False,
-                                        comment = DIV(_class="tooltip",
-                                                      _title="%s|%s" % (T("Trackable"),
-                                                                        T("Whether the resource should be tracked using S3Track rather than just using the Base Location"))),
-                                        ),
-                                  Field("use_site", "boolean",
-                                        default = False,
-                                        label = T("Use Site?"),
-                                        comment = DIV(_class="tooltip",
-                                                      _title="%s|%s" % (T("Use Site?"),
-                                                                        T("Select this if you need this resource to be mapped from site_id instead of location_id."))),
-                                        ),
-                                  gis_layer_folder()(),
-                                  gis_opacity()(),
-                                  gis_refresh()(),
-                                  cluster_attribute()(),
-                                  cluster_distance()(),
-                                  cluster_threshold()(),
-                                  s3_role_required(),    # Single Role
-                                  #s3_roles_permitted(), # Multiple Roles (needs implementing in modules/s3gis.py)
-                                  *s3_meta_fields())
+        self.define_table(tablename,
+                          self.super_link("layer_id", "gis_layer_entity"),
+                          name_field()(),
+                          desc_field()(),
+                          # REST Query added to Map JS to call back to server
+                          Field("controller",
+                                requires = IS_NOT_EMPTY(),
+                                label = T("Controller"),
+                                comment = DIV(_class="tooltip",
+                                              _title="%s|%s /" % (T("Controller"),
+                                                                  T("Part of the URL to call to access the Features"))),
+                                ),
+                          Field("function",
+                                requires = IS_NOT_EMPTY(),
+                                label = T("Function"),
+                                comment = DIV(_class="tooltip",
+                                              _title="%s|%s /" % (T("Function"),
+                                                                  T("Part of the URL to call to access the Features"))),
+                                ),
+                          Field("filter",
+                                label = T("Filter"),
+                                comment = DIV(_class="stickytip",
+                                              _title="%s|%s" % (T("Filter"),
+                                                                "%s: <a href='http://eden.sahanafoundation.org/wiki/S3XRC/RESTfulAPI/URLFormat#BasicQueryFormat' target='_blank'>Wiki</a>" % \
+                                                                T("Uses the REST Query Format defined in"))),
+                                ),
+                          # @ToDo: Replace with s3.crud_strings[tablename]?
+                          Field("popup_label",
+                                label = T("Popup Label"),
+                                comment=DIV(_class="tooltip",
+                                            _title="%s|%s" % (T("Popup Label"),
+                                                              T("Used in onHover Tooltip & Cluster Popups to differentiate between types."))),
+                                ),
+                          # @ToDo: Build Popups from Attributes & Format to avoid duplication
+                          Field("popup_fields", "list:string",
+                                # Want to be able to prepop layers with this empty to prevent popups from showing
+                                #default = "name",
+                                label = T("Popup Fields"),
+                                comment = DIV(_class="tooltip",
+                                              _title="%s|%s" % (T("Popup Fields"),
+                                                                T("Used to build onHover Tooltip & 1st field also used in Cluster Popups to differentiate between records."))),
+                                ),
+                          Field("attr_fields", "list:string",
+                                label = T("Attributes"),
+                                comment = DIV(_class="tooltip",
+                                              _title="%s|%s" % (T("Attributes"),
+                                                                T("Used to populate feature attributes which can be used for Styling."))),
+                                ),
+                          Field("style_default", "boolean",
+                                default=False,
+                                label=T("Default"),
+                                represent = s3_yes_no_represent,
+                                comment = DIV(_class="tooltip",
+                                              _title="%s|%s" % (T("Default"),
+                                                                T("Whether calls to this resource should use this configuration as the default one"))),
+                                ),
+                          Field("polygons", "boolean",
+                                default=False,
+                                represent = s3_yes_no_represent,
+                                label=T("Display Polygons?")),
+                          Field("trackable", "boolean",
+                                label = T("Trackable"),
+                                represent = s3_yes_no_represent,
+                                default = False,
+                                comment = DIV(_class="tooltip",
+                                              _title="%s|%s" % (T("Trackable"),
+                                                                T("Whether the resource should be tracked using S3Track rather than just using the Base Location"))),
+                                ),
+                          Field("use_site", "boolean",
+                                default = False,
+                                label = T("Use Site?"),
+                                comment = DIV(_class="tooltip",
+                                              _title="%s|%s" % (T("Use Site?"),
+                                                                T("Select this if you need this resource to be mapped from site_id instead of location_id."))),
+                                ),
+                          gis_layer_folder()(),
+                          gis_opacity()(),
+                          gis_refresh()(),
+                          cluster_attribute()(),
+                          cluster_distance()(),
+                          cluster_threshold()(),
+                          s3_role_required(),    # Single Role
+                          #s3_roles_permitted(), # Multiple Roles (needs implementing in modules/s3gis.py)
+                          *s3_meta_fields())
 
         # CRUD Strings
-        ADD_FEATURE_LAYER = T("Add Feature Layer")
+        ADD_FEATURE_LAYER = T("Create Feature Layer")
         crud_strings[tablename] = Storage(
-            title_create = ADD_FEATURE_LAYER,
+            label_create = ADD_FEATURE_LAYER,
             title_display = T("Feature Layer Details"),
             title_list = T("Feature Layers"),
             title_update = T("Edit Feature Layer"),
-            title_search = T("Search Feature Layers"),
-            subtitle_create = T("Add New Feature Layer"),
             label_list_button = T("List Feature Layers"),
-            label_create_button = ADD_FEATURE_LAYER,
             label_delete_button = T("Delete Feature Layer"),
             msg_record_created = T("Feature Layer added"),
             msg_record_modified = T("Feature Layer updated"),
@@ -2667,25 +2755,26 @@ class S3FeatureLayerModel(S3Model):
                                     ])
 
         # Components
-        # Configs
-        add_component("gis_config",
-                      gis_layer_feature=dict(link="gis_layer_config",
-                                             pkey="layer_id",
-                                             joinby="layer_id",
-                                             key="config_id",
-                                             actuate="hide",
-                                             autocomplete="name",
-                                             autodelete=False))
-
-        # Symbologies
-        add_component("gis_symbology",
-                      gis_layer_feature=dict(link="gis_layer_symbology",
-                                             pkey="layer_id",
-                                             joinby="layer_id",
-                                             key="symbology_id",
-                                             actuate="hide",
-                                             autocomplete="name",
-                                             autodelete=False))
+        add_components(tablename,
+                       # Configs
+                       gis_config={"link": "gis_layer_config",
+                                   "pkey": "layer_id",
+                                   "joinby": "layer_id",
+                                   "key": "config_id",
+                                   "actuate": "hide",
+                                   "autocomplete": "name",
+                                   "autodelete": False,
+                                  },
+                       # Symbologies
+                       gis_symbology={"link": "gis_layer_symbology",
+                                      "pkey": "layer_id",
+                                      "joinby": "layer_id",
+                                      "key": "symbology_id",
+                                      "actuate": "hide",
+                                      "autocomplete": "name",
+                                      "autodelete": False,
+                                     },
+                      )
 
         # Pass names back to global scope (s3.*)
         return dict()
@@ -2745,7 +2834,6 @@ class S3FeatureLayerModel(S3Model):
             if duplicate:
                 item.id = duplicate.id
                 item.method = item.METHOD.UPDATE
-        return
 
 # =============================================================================
 class S3MapModel(S3Model):
@@ -2786,7 +2874,7 @@ class S3MapModel(S3Model):
         projection_id = self.gis_projection_id
 
         # Shortcuts
-        add_component = self.add_component
+        add_components = self.add_components
         configure = self.configure
         define_table = self.define_table
 
@@ -2807,104 +2895,117 @@ class S3MapModel(S3Model):
         # BBOX queries, Clustering, Refresh, Client-side Filtering, etc
         #
         tablename = "gis_feature_query"
-        table = define_table(tablename,
-                             Field("name", length=128, notnull=True),
-                             Field("lat", "double",
-                                   requires=IS_LAT()),
-                             Field("lon", "double",
-                                   requires=IS_LON()),
-                             Field("popup_url"),
-                             Field("popup_label"),
-                             # Optional Marker
-                             Field("marker_url"),
-                             Field("marker_height", "integer"),
-                             Field("marker_width", "integer"),
-                             # or Shape/Size/Colour
-                             Field("shape",
-                                   requires=IS_NULL_OR(
-                                                IS_IN_SET(["circle",
-                                                           "square",
-                                                           "star",
-                                                           "x",
-                                                           "cross",
-                                                           "triangle",
-                                                           ]))
-                                                ),
-                             Field("size", "integer"),
-                             Field("colour", requires=IS_NULL_OR(IS_HTML_COLOUR()),
-                                 widget=S3ColorPickerWidget(),),
-                             gis_opacity()(),
-                             *s3_meta_fields())
+        define_table(tablename,
+                     Field("name", length=128, notnull=True),
+                     Field("lat", "double",
+                           requires = IS_LAT(),
+                           ),
+                     Field("lon", "double",
+                           requires = IS_LON(),
+                           ),
+                     Field("popup_url"),
+                     Field("popup_label"),
+                     # Optional Marker
+                     Field("marker_url"),
+                     Field("marker_height", "integer"),
+                     Field("marker_width", "integer"),
+                     # or Shape/Size/Colour
+                     Field("shape",
+                           requires = IS_EMPTY_OR(
+                                        IS_IN_SET(["circle",
+                                                   "square",
+                                                   "star",
+                                                   "x",
+                                                   "cross",
+                                                   "triangle",
+                                                   ]))
+                           ),
+                     Field("size", "integer"),
+                     Field("colour",
+                           requires = IS_EMPTY_OR(IS_HTML_COLOUR()),
+                           widget = S3ColorPickerWidget(),
+                           ),
+                     gis_opacity()(),
+                     *s3_meta_fields())
 
         # ---------------------------------------------------------------------
         # GPS Waypoints
         #tablename = "gis_waypoint"
-        #table = define_table(tablename,
-        #                     Field("name", length=128, notnull=True,
-        #                           label = T("Name")),
-        #                     Field("description", length=128,
-        #                           label = DESCRIPTION),
-        #                     Field("category", length=128,
-        #                           label = T("Category")),
-        #                     location_id(),
-        #                     *s3_meta_fields())
+        #define_table(tablename,
+        #             Field("name", length=128, notnull=True,
+        #                   label = T("Name"),
+        #                   ),
+        #             Field("description", length=128,
+        #                   label = DESCRIPTION,
+        #                   ),
+        #             Field("category", length=128,
+        #                   label = T("Category"),
+        #                   ),
+        #             location_id(),
+        #             *s3_meta_fields())
 
         # ---------------------------------------------------------------------
         # GPS Tracks (stored as 1 record per point)
         #tablename = "gis_trackpoint"
-        #table = define_table(tablename,
-        #                     location_id(),
-        #                     #track_id(),        # link to the uploaded file?
-        #                     *s3_meta_fields())
+        #define_table(tablename,
+        #             location_id(),
+        #             #track_id(),        # link to the uploaded file?
+        #             *s3_meta_fields())
 
         # ---------------------------------------------------------------------
         # ArcGIS REST
         #
         tablename = "gis_layer_arcrest"
-        table = define_table(tablename,
-                             layer_id,
-                             name_field()(),
-                             desc_field()(),
-                             Field("url",
-                                   label=LOCATION,
-                                   requires=IS_NOT_EMPTY(),
-                                   comment=DIV(_class="stickytip",
-                                               _title="%s|%s" % (LOCATION,
-                                                                 "%s:%s" % (T("This should be an export service URL, see"),
-                                                                            A("http://sampleserver1.arcgisonline.com/ArcGIS/SDK/REST/export.html",
-                                                                              _href="http://sampleserver1.arcgisonline.com/ArcGIS/SDK/REST/export.html",
-                                                                              _target="_blank"))))
-                                   ),
-                             Field("layers", "list:integer",
-                                   default=[0],
-                                   label=T("Layers")),
-                             Field("base", "boolean",
-                                   represent = s3_yes_no_represent,
-                                   default=False,
-                                   label=BASE_LAYER),
-                             Field("transparent", "boolean",
-                                   represent = s3_yes_no_represent,
-                                   default=True,
-                                   label=TRANSPARENT),
-                             gis_layer_folder()(),
-                             s3_role_required(),       # Single Role
-                             #s3_roles_permitted(),    # Multiple Roles (needs implementing in modules/s3gis.py)
-                             *s3_meta_fields())
+        define_table(tablename,
+                     layer_id,
+                     name_field()(),
+                     desc_field()(),
+                     Field("url",
+                           label = LOCATION,
+                           requires = IS_NOT_EMPTY(),
+                           comment = DIV(_class="stickytip",
+                                         _title="%s|%s" % (LOCATION,
+                                                           "%s:%s" % (T("This should be an export service URL, see"),
+                                                                      A("http://sampleserver1.arcgisonline.com/ArcGIS/SDK/REST/export.html",
+                                                                        _href="http://sampleserver1.arcgisonline.com/ArcGIS/SDK/REST/export.html",
+                                                                        _target="_blank"))))
+                           ),
+                     Field("layers", "list:integer",
+                           default = [0],
+                           label = T("Layers"),
+                           ),
+                     Field("base", "boolean",
+                           default = False,
+                           label = BASE_LAYER,
+                           represent = s3_yes_no_represent,
+                           ),
+                     Field("transparent", "boolean",
+                           default = True,
+                           label = TRANSPARENT,
+                           represent = s3_yes_no_represent,
+                           ),
+                     gis_layer_folder()(),
+                     s3_role_required(),       # Single Role
+                     #s3_roles_permitted(),    # Multiple Roles (needs implementing in modules/s3gis.py)
+                     *s3_meta_fields())
 
         configure(tablename,
-                  onaccept=gis_layer_onaccept,
-                  super_entity="gis_layer_entity")
+                  onaccept = gis_layer_onaccept,
+                  super_entity = "gis_layer_entity",
+                  )
 
         # Components
-        # Configs
-        add_component("gis_config",
-                      gis_layer_arcrest=dict(link="gis_layer_config",
-                                             pkey="layer_id",
-                                             joinby="layer_id",
-                                             key="config_id",
-                                             actuate="hide",
-                                             autocomplete="name",
-                                             autodelete=False))
+        add_components(tablename,
+                       # Configs
+                       gis_config = {"link": "gis_layer_config",
+                                     "pkey": "layer_id",
+                                     "joinby": "layer_id",
+                                     "key": "config_id",
+                                     "actuate": "hide",
+                                     "autocomplete": "name",
+                                     "autodelete": False,
+                                     },
+                       )
 
         # ---------------------------------------------------------------------
         # Bing tiles
@@ -2912,194 +3013,211 @@ class S3MapModel(S3Model):
         bing_layer_types = ["aerial", "road", "hybrid"]
 
         tablename = "gis_layer_bing"
-        table = define_table(tablename,
-                             layer_id,
-                             name_field()(),
-                             desc_field()(),
-                             Field("type", length=16,
-                                   label=TYPE,
-                                   requires=IS_IN_SET(bing_layer_types)),
-                             s3_role_required(),       # Single Role
-                             #s3_roles_permitted(),    # Multiple Roles (needs implementing in modules/s3gis.py)
-                             *s3_meta_fields())
+        define_table(tablename,
+                     layer_id,
+                     name_field()(),
+                     desc_field()(),
+                     Field("type", length=16,
+                           label = TYPE,
+                           requires = IS_IN_SET(bing_layer_types),
+                           ),
+                     s3_role_required(),       # Single Role
+                     #s3_roles_permitted(),    # Multiple Roles (needs implementing in modules/s3gis.py)
+                     *s3_meta_fields())
 
         configure(tablename,
                   onaccept=gis_layer_onaccept,
                   super_entity="gis_layer_entity")
 
         # Components
-        # Configs
-        add_component("gis_config",
-                      gis_layer_bing=dict(link="gis_layer_config",
-                                          pkey="layer_id",
-                                          joinby="layer_id",
-                                          key="config_id",
-                                          actuate="hide",
-                                          autocomplete="name",
-                                          autodelete=False))
+        add_components(tablename,
+                       # Configs
+                       gis_config = {"link": "gis_layer_config",
+                                     "pkey": "layer_id",
+                                     "joinby": "layer_id",
+                                     "key": "config_id",
+                                     "actuate": "hide",
+                                     "autocomplete": "name",
+                                     "autodelete": False,
+                                     },
+                       )
 
         # ---------------------------------------------------------------------
         # Coordinate grid
         #
         tablename = "gis_layer_coordinate"
-        table = define_table(tablename,
-                             layer_id,
-                             name_field()(),
-                             desc_field()(),
-                             gis_layer_folder()(),
-                             s3_role_required(),       # Single Role
-                             #s3_roles_permitted(),    # Multiple Roles (needs implementing in modules/s3gis.py)
-                             *s3_meta_fields())
+        define_table(tablename,
+                     layer_id,
+                     name_field()(),
+                     desc_field()(),
+                     gis_layer_folder()(),
+                     s3_role_required(),       # Single Role
+                     #s3_roles_permitted(),    # Multiple Roles (needs implementing in modules/s3gis.py)
+                     *s3_meta_fields())
 
         configure(tablename,
-                  onaccept=gis_layer_onaccept,
-                  super_entity="gis_layer_entity")
+                  onaccept = gis_layer_onaccept,
+                  super_entity = "gis_layer_entity",
+                  )
 
         # Components
-        # Configs
-        add_component("gis_config",
-                      gis_layer_coordinate=dict(link="gis_layer_config",
-                                                pkey="layer_id",
-                                                joinby="layer_id",
-                                                key="config_id",
-                                                actuate="hide",
-                                                autocomplete="name",
-                                                autodelete=False))
+        add_components(tablename,
+                       # Configs
+                       gis_config = {"link": "gis_layer_config",
+                                     "pkey": "layer_id",
+                                     "joinby": "layer_id",
+                                     "key": "config_id",
+                                     "actuate": "hide",
+                                     "autocomplete": "name",
+                                     "autodelete": False,
+                                     },
+                       )
 
         # ---------------------------------------------------------------------
         # Empty (no baselayer, so can display just overlays)
         #
         tablename = "gis_layer_empty"
-        table = define_table(tablename,
-                             layer_id,
-                             name_field()(),
-                             desc_field()(),
-                             gis_layer_folder()(),
-                             s3_role_required(),       # Single Role
-                             #s3_roles_permitted(),    # Multiple Roles (needs implementing in modules/s3gis.py)
-                             *s3_meta_fields())
+        define_table(tablename,
+                     layer_id,
+                     name_field()(),
+                     desc_field()(),
+                     gis_layer_folder()(),
+                     s3_role_required(),       # Single Role
+                     #s3_roles_permitted(),    # Multiple Roles (needs implementing in modules/s3gis.py)
+                     *s3_meta_fields())
 
         configure(tablename,
-                  onaccept=gis_layer_onaccept,
-                  super_entity="gis_layer_entity")
+                  onaccept = gis_layer_onaccept,
+                  super_entity = "gis_layer_entity",
+                  )
 
         # Components
-        # Configs
-        add_component("gis_config",
-                      gis_layer_coordinate=dict(link="gis_layer_config",
-                                                pkey="layer_id",
-                                                joinby="layer_id",
-                                                key="config_id",
-                                                actuate="hide",
-                                                autocomplete="name",
-                                                autodelete=False))
+        add_components(tablename,
+                       # Configs
+                       gis_config = {"link": "gis_layer_config",
+                                     "pkey": "layer_id",
+                                     "joinby": "layer_id",
+                                     "key": "config_id",
+                                     "actuate": "hide",
+                                     "autocomplete": "name",
+                                     "autodelete": False,
+                                     },
+                       )
 
         # ---------------------------------------------------------------------
         # GeoJSON
         #
         tablename = "gis_layer_geojson"
-        table = define_table(tablename,
-                             layer_id,
-                             name_field()(),
-                             desc_field()(),
-                             Field("url",
-                                   label=LOCATION,
-                                   requires=IS_NOT_EMPTY()),
-                             projection_id(# Nice if we could get this set to epsg field
-                                           #default=4326,
-                                           empty=False,
-                                           ),
-                             gis_layer_folder()(),
-                             gis_opacity()(),
-                             gis_refresh()(),
-                             cluster_attribute()(),
-                             cluster_distance()(),
-                             cluster_threshold()(),
-                             s3_role_required(),       # Single Role
-                             #s3_roles_permitted(),    # Multiple Roles (needs implementing in modules/s3gis.py)
-                             *s3_meta_fields())
+        define_table(tablename,
+                     layer_id,
+                     name_field()(),
+                     desc_field()(),
+                     Field("url",
+                           label = LOCATION,
+                           requires = IS_NOT_EMPTY(),
+                           ),
+                     projection_id(# Nice if we could get this set to epsg field
+                                   #default = 4326,
+                                   empty = False,
+                                   ),
+                     gis_layer_folder()(),
+                     gis_opacity()(),
+                     gis_refresh()(),
+                     cluster_attribute()(),
+                     cluster_distance()(),
+                     cluster_threshold()(),
+                     s3_role_required(),       # Single Role
+                     #s3_roles_permitted(),    # Multiple Roles (needs implementing in modules/s3gis.py)
+                     *s3_meta_fields())
 
         configure(tablename,
-                  onaccept=gis_layer_onaccept,
-                  super_entity="gis_layer_entity")
+                  onaccept = gis_layer_onaccept,
+                  super_entity = "gis_layer_entity",
+                  )
 
         # Components
-        # Configs
-        add_component("gis_config",
-                      gis_layer_geojson=dict(link="gis_layer_config",
-                                             pkey="layer_id",
-                                             joinby="layer_id",
-                                             key="config_id",
-                                             actuate="hide",
-                                             autocomplete="name",
-                                             autodelete=False))
-
-        # Symbologies
-        add_component("gis_symbology",
-                      gis_layer_geojson=dict(link="gis_layer_symbology",
-                                             pkey="layer_id",
-                                             joinby="layer_id",
-                                             key="symbology_id",
-                                             actuate="hide",
-                                             autocomplete="name",
-                                             autodelete=False))
+        add_components(tablename,
+                       # Configs
+                       gis_config = {"link": "gis_layer_config",
+                                     "pkey": "layer_id",
+                                     "joinby": "layer_id",
+                                     "key": "config_id",
+                                     "actuate": "hide",
+                                     "autocomplete": "name",
+                                     "autodelete": False,
+                                     },
+                       # Symbologies
+                       gis_symbology = {"link": "gis_layer_symbology",
+                                        "pkey": "layer_id",
+                                        "joinby": "layer_id",
+                                        "key": "symbology_id",
+                                        "actuate": "hide",
+                                        "autocomplete": "name",
+                                        "autodelete": False,
+                                        },
+                       )
 
         # ---------------------------------------------------------------------
         # GeoRSS
         #
         tablename = "gis_layer_georss"
-        table = define_table(tablename,
-                             layer_id,
-                             name_field()(),
-                             desc_field()(),
-                             Field("url",
-                                   label=LOCATION,
-                                   requires = IS_NOT_EMPTY()),
-                             Field("data",
-                                   label=T("Data"),
-                                   comment=DIV(_class="tooltip",
-                                               _title="%s|%s|%s" % (T("Data"),
-                                                                    T("Optional. The name of an element whose contents should be put into Popups."),
-                                                                    T("If it is a URL leading to HTML, then this will downloaded.")))),
-                             Field("image",
-                                   label=T("Image"),
-                                   comment=DIV(_class="tooltip",
-                                               _title="%s|%s" % (T("Image"),
-                                                                 T("Optional. The name of an element whose contents should be a URL of an Image file put into Popups.")))),
-                             gis_layer_folder()(),
-                             gis_opacity()(),
-                             gis_refresh()(),
-                             cluster_distance()(),
-                             cluster_threshold()(),
-                             s3_role_required(),       # Single Role
-                             #s3_roles_permitted(),    # Multiple Roles (needs implementing in modules/s3gis.py)
-                             *s3_meta_fields())
+        define_table(tablename,
+                     layer_id,
+                     name_field()(),
+                     desc_field()(),
+                     Field("url",
+                           label = LOCATION,
+                           requires = IS_NOT_EMPTY(),
+                           ),
+                     Field("data",
+                           label = T("Data"),
+                           comment = DIV(_class="tooltip",
+                                         _title="%s|%s|%s" % (T("Data"),
+                                                              T("Optional. The name of an element whose contents should be put into Popups."),
+                                                              T("If it is a URL leading to HTML, then this will downloaded."))),
+                           ),
+                     Field("image",
+                           label = T("Image"),
+                           comment = DIV(_class="tooltip",
+                                         _title="%s|%s" % (T("Image"),
+                                                           T("Optional. The name of an element whose contents should be a URL of an Image file put into Popups."))),
+                           ),
+                     gis_layer_folder()(),
+                     gis_opacity()(),
+                     gis_refresh()(),
+                     cluster_distance()(),
+                     cluster_threshold()(),
+                     s3_role_required(),       # Single Role
+                     #s3_roles_permitted(),    # Multiple Roles (needs implementing in modules/s3gis.py)
+                     *s3_meta_fields())
 
         configure(tablename,
-                  onaccept=gis_layer_onaccept,
                   deduplicate = self.gis_layer_georss_deduplicate,
-                  super_entity="gis_layer_entity")
+                  onaccept = gis_layer_onaccept,
+                  super_entity = "gis_layer_entity",
+                  )
 
         # Components
-        # Configs
-        add_component("gis_config",
-                      gis_layer_georss=dict(link="gis_layer_config",
-                                            pkey="layer_id",
-                                            joinby="layer_id",
-                                            key="config_id",
-                                            actuate="hide",
-                                            autocomplete="name",
-                                            autodelete=False))
-
-        # Symbologies
-        add_component("gis_symbology",
-                      gis_layer_georss=dict(link="gis_layer_symbology",
-                                            pkey="layer_id",
-                                            joinby="layer_id",
-                                            key="symbology_id",
-                                            actuate="hide",
-                                            autocomplete="name",
-                                            autodelete=False))
+        add_components(tablename,
+                       # Configs
+                       gis_config = {"link": "gis_layer_config",
+                                     "pkey": "layer_id",
+                                     "joinby": "layer_id",
+                                     "key": "config_id",
+                                     "actuate": "hide",
+                                     "autocomplete": "name",
+                                     "autodelete": False,
+                                     },
+                       # Symbologies
+                       gis_symbology = {"link": "gis_layer_symbology",
+                                        "pkey": "layer_id",
+                                        "joinby": "layer_id",
+                                        "key": "symbology_id",
+                                        "actuate": "hide",
+                                        "autocomplete": "name",
+                                        "autodelete": False,
+                                        },
+                       )
 
         # ---------------------------------------------------------------------
         # Google tiles
@@ -3109,143 +3227,159 @@ class S3MapModel(S3Model):
                               "earth", "streetview"]
 
         tablename = "gis_layer_google"
-        table = define_table(tablename,
-                             layer_id,
-                             name_field()(),
-                             desc_field()(),
-                             Field("type", length=16,
-                                   label=TYPE,
-                                   requires=IS_IN_SET(google_layer_types)),
-                             s3_role_required(),       # Single Role
-                             #s3_roles_permitted(),    # Multiple Roles (needs implementing in modules/s3gis.py)
-                             *s3_meta_fields())
+        define_table(tablename,
+                     layer_id,
+                     name_field()(),
+                     desc_field()(),
+                     Field("type", length=16,
+                           label = TYPE,
+                           requires = IS_IN_SET(google_layer_types),
+                           ),
+                     s3_role_required(),       # Single Role
+                     #s3_roles_permitted(),    # Multiple Roles (needs implementing in modules/s3gis.py)
+                     *s3_meta_fields())
 
         configure(tablename,
-                  onaccept=gis_layer_onaccept,
-                  super_entity="gis_layer_entity")
+                  onaccept = gis_layer_onaccept,
+                  super_entity = "gis_layer_entity",
+                  )
 
         # Components
-        # Configs
-        add_component("gis_config",
-                      gis_layer_google=dict(link="gis_layer_config",
-                                            pkey="layer_id",
-                                            joinby="layer_id",
-                                            key="config_id",
-                                            actuate="hide",
-                                            autocomplete="name",
-                                            autodelete=False))
+        add_components(tablename,
+                       # Configs
+                       gis_config = {"link": "gis_layer_config",
+                                     "pkey": "layer_id",
+                                     "joinby": "layer_id",
+                                     "key": "config_id",
+                                     "actuate": "hide",
+                                     "autocomplete": "name",
+                                     "autodelete": False,
+                                     },
+                       )
 
         # ---------------------------------------------------------------------
         # GPX - GPS eXchange format
         #
         tablename = "gis_layer_gpx"
-        table = define_table(tablename,
-                             layer_id,
-                             name_field()(),
-                             desc_field()(),
-                             Field("track", "upload", autodelete=True,
-                                   label = T("GPS Track File"),
-                                   requires = IS_UPLOAD_FILENAME(extension="gpx"),
-                                   # upload folder needs to be visible to the download() function as well as the upload
-                                   uploadfolder = os.path.join(request.folder,
-                                                               "uploads",
-                                                               "tracks"),
-                                   comment = DIV(_class="tooltip",
-                                                 _title="%s|%s" % (T("GPS Track"),
-                                                                   T("A file in GPX format taken from a GPS."),
-                                                                    #T("Timestamps can be correlated with the timestamps on the photos to locate them on the map.")
-                                                                  ))),
-                             Field("waypoints", "boolean",
-                                   represent = s3_yes_no_represent,
-                                   default=True,
-                                   label=T("Display Waypoints?")),
-                             Field("tracks", "boolean",
-                                   represent = s3_yes_no_represent,
-                                   default=True,
-                                   label=T("Display Tracks?")),
-                             Field("routes", "boolean",
-                                   represent = s3_yes_no_represent,
-                                   default=False,
-                                   label=T("Display Routes?")),
-                             gis_layer_folder()(),
-                             gis_opacity()(),
-                             cluster_distance()(),
-                             cluster_threshold()(),
-                             s3_role_required(),       # Single Role
-                             #s3_roles_permitted(),    # Multiple Roles (needs implementing in modules/s3gis.py)
-                             *s3_meta_fields())
+        define_table(tablename,
+                     layer_id,
+                     name_field()(),
+                     desc_field()(),
+                     Field("track", "upload", autodelete=True,
+                           label = T("GPS Track File"),
+                           requires = IS_UPLOAD_FILENAME(extension="gpx"),
+                           # upload folder needs to be visible to the download() function as well as the upload
+                           uploadfolder = os.path.join(request.folder,
+                                                       "uploads",
+                                                       "tracks"),
+                           comment = DIV(_class="tooltip",
+                                         _title="%s|%s" % (T("GPS Track"),
+                                                           T("A file in GPX format taken from a GPS."),
+                                                           #T("Timestamps can be correlated with the timestamps on the photos to locate them on the map.")
+                                                          )),
+                           ),
+                     Field("waypoints", "boolean",
+                           default = True,
+                           label = T("Display Waypoints?"),
+                           represent = s3_yes_no_represent,
+                           ),
+                     Field("tracks", "boolean",
+                           default = True,
+                           label = T("Display Tracks?"),
+                           represent = s3_yes_no_represent,
+                           ),
+                     Field("routes", "boolean",
+                           default = False,
+                           label = T("Display Routes?"),
+                           represent = s3_yes_no_represent,
+                           ),
+                     gis_layer_folder()(),
+                     gis_opacity()(),
+                     cluster_distance()(),
+                     cluster_threshold()(),
+                     s3_role_required(),       # Single Role
+                     #s3_roles_permitted(),    # Multiple Roles (needs implementing in modules/s3gis.py)
+                     *s3_meta_fields())
 
         configure(tablename,
-                  onaccept=gis_layer_onaccept,
-                  super_entity="gis_layer_entity")
+                  onaccept = gis_layer_onaccept,
+                  super_entity = "gis_layer_entity",
+                  )
 
         # Components
-        # Configs
-        add_component("gis_config",
-                      gis_layer_gpx=dict(link="gis_layer_config",
-                                         pkey="layer_id",
-                                         joinby="layer_id",
-                                         key="config_id",
-                                         actuate="hide",
-                                         autocomplete="name",
-                                         autodelete=False))
+        add_components(tablename,
+                       # Configs
+                       gis_config = {"link": "gis_layer_config",
+                                     "pkey": "layer_id",
+                                     "joinby": "layer_id",
+                                     "key": "config_id",
+                                     "actuate": "hide",
+                                     "autocomplete": "name",
+                                     "autodelete": False,
+                                     },
+                       )
 
         # ---------------------------------------------------------------------
         # KML
         #
         tablename = "gis_layer_kml"
-        table = define_table(tablename,
-                             layer_id,
-                             name_field()(),
-                             desc_field()(),
-                             Field("url",
-                                   label=LOCATION,
-                                   requires=IS_NOT_EMPTY(),
-                                   comment=DIV(_class="tooltip",
-                                               _title="%s|%s" % (LOCATION,
-                                                                 T("The URL to access the service.")))),
-                             Field("title",
-                                   label=T("Title"),
-                                   default="name",
-                                   comment=T("The attribute within the KML which is used for the title of popups.")),
-                             Field("body",
-                                   label=T("Body"),
-                                   default="description",
-                                   comment=T("The attribute(s) within the KML which are used for the body of popups. (Use a space between attributes)")),
-                             gis_layer_folder()(),
-                             gis_opacity()(),
-                             gis_refresh()(),
-                             cluster_distance()(),
-                             cluster_threshold()(),
-                             s3_role_required(),       # Single Role
-                             #s3_roles_permitted(),    # Multiple Roles (needs implementing in modules/s3gis.py)
-                             *s3_meta_fields())
+        define_table(tablename,
+                     layer_id,
+                     name_field()(),
+                     desc_field()(),
+                     Field("url",
+                           label = LOCATION,
+                           requires = IS_NOT_EMPTY(),
+                           comment = DIV(_class="tooltip",
+                                         _title="%s|%s" % (LOCATION,
+                                                           T("The URL to access the service."))),
+                           ),
+                     Field("title",
+                           default = "name",
+                           label = T("Title"),
+                           comment = T("The attribute within the KML which is used for the title of popups."),
+                           ),
+                     Field("body",
+                           default = "description",
+                           label = T("Body"),
+                           comment = T("The attribute(s) within the KML which are used for the body of popups. (Use a space between attributes)"),
+                           ),
+                     gis_layer_folder()(),
+                     gis_opacity()(),
+                     gis_refresh()(),
+                     cluster_distance()(),
+                     cluster_threshold()(),
+                     s3_role_required(),       # Single Role
+                     #s3_roles_permitted(),    # Multiple Roles (needs implementing in modules/s3gis.py)
+                     *s3_meta_fields())
 
         configure(tablename,
-                  onaccept=gis_layer_onaccept,
                   deduplicate = self.gis_layer_kml_deduplicate,
-                  super_entity="gis_layer_entity")
+                  onaccept = gis_layer_onaccept,
+                  super_entity="gis_layer_entity",
+                  )
 
         # Components
-        # Configs
-        add_component("gis_config",
-                      gis_layer_kml=dict(link="gis_layer_config",
-                                         pkey="layer_id",
-                                         joinby="layer_id",
-                                         key="config_id",
-                                         actuate="hide",
-                                         autocomplete="name",
-                                         autodelete=False))
-
-        # Symbologies
-        add_component("gis_symbology",
-                      gis_layer_kml=dict(link="gis_layer_symbology",
-                                         pkey="layer_id",
-                                         joinby="layer_id",
-                                         key="symbology_id",
-                                         actuate="hide",
-                                         autocomplete="name",
-                                         autodelete=False))
+        add_components(tablename,
+                       # Configs
+                       gis_config = {"link": "gis_layer_config",
+                                     "pkey": "layer_id",
+                                     "joinby": "layer_id",
+                                     "key": "config_id",
+                                     "actuate": "hide",
+                                     "autocomplete": "name",
+                                     "autodelete": False,
+                                     },
+                       # Symbologies
+                       gis_symbology = {"link": "gis_layer_symbology",
+                                        "pkey": "layer_id",
+                                        "joinby": "layer_id",
+                                        "key": "symbology_id",
+                                        "actuate": "hide",
+                                        "autocomplete": "name",
+                                        "autodelete": False,
+                                        },
+                       )
 
         # ---------------------------------------------------------------------
         # JS
@@ -3253,64 +3387,72 @@ class S3MapModel(S3Model):
         # @ToDo: Move to a Plugin (more flexible)
         #
         tablename = "gis_layer_js"
-        table = define_table(tablename,
-                             layer_id,
-                             name_field()(),
-                             desc_field()(),
-                             Field("code", "text",
-                                   label=T("Code"),
-                                   default="var myNewLayer = new OpenLayers.Layer.XYZ();\nmap.addLayer(myNewLayer);"),
-                             gis_layer_folder()(),
-                             s3_role_required(),       # Single Role
-                             #s3_roles_permitted(),    # Multiple Roles (needs implementing in modules/s3gis.py)
-                             *s3_meta_fields())
+        define_table(tablename,
+                     layer_id,
+                     name_field()(),
+                     desc_field()(),
+                     Field("code", "text",
+                           default = "var myNewLayer = new OpenLayers.Layer.XYZ();\nmap.addLayer(myNewLayer);",
+                           label = T("Code"),
+                           ),
+                     gis_layer_folder()(),
+                     s3_role_required(),       # Single Role
+                     #s3_roles_permitted(),    # Multiple Roles (needs implementing in modules/s3gis.py)
+                     *s3_meta_fields())
 
         configure(tablename,
-                  onaccept=gis_layer_onaccept,
-                  super_entity="gis_layer_entity")
+                  onaccept = gis_layer_onaccept,
+                  super_entity = "gis_layer_entity",
+                  )
 
         # Components
-        # Configs
-        # add_component("gis_config",
-                      # gis_layer_js=dict(link="gis_layer_config",
-                                        # pkey="layer_id",
-                                        # joinby="layer_id",
-                                        # key="config_id",
-                                        # actuate="hide",
-                                        # autocomplete="name",
-                                        # autodelete=False))
+        #add_components(tablename,
+                       ## Configs
+                       #gis_config = {"link": "gis_layer_config",
+                                     #"pkey": "layer_id",
+                                     #"joinby": "layer_id",
+                                     #"key": "config_id",
+                                     #"actuate": "hide",
+                                     #"autocomplete": "name",
+                                     #"autodelete": False,
+                                     #},
+                       #)
 
         # ---------------------------------------------------------------------
         # MGRS
         #
         tablename = "gis_layer_mgrs"
-        table = define_table(tablename,
-                             layer_id,
-                             name_field()(),
-                             desc_field()(),
-                             Field("url",
-                                   label=LOCATION,
-                                   comment=DIV(_class="tooltip",
-                                               _title="%s|%s" % (LOCATION,
-                                                                 T("The URL to access the service.")))),
-                             s3_role_required(),       # Single Role
-                             #s3_roles_permitted(),    # Multiple Roles (needs implementing in modules/s3gis.py)
-                             *s3_meta_fields())
+        define_table(tablename,
+                     layer_id,
+                     name_field()(),
+                     desc_field()(),
+                     Field("url",
+                           label = LOCATION,
+                           comment = DIV(_class="tooltip",
+                                         _title="%s|%s" % (LOCATION,
+                                                           T("The URL to access the service."))),
+                           ),
+                     s3_role_required(),       # Single Role
+                     #s3_roles_permitted(),    # Multiple Roles (needs implementing in modules/s3gis.py)
+                     *s3_meta_fields())
 
         configure(tablename,
-                  onaccept=gis_layer_onaccept,
-                  super_entity="gis_layer_entity")
+                  onaccept = gis_layer_onaccept,
+                  super_entity = "gis_layer_entity",
+                  )
 
         # Components
-        # Configs
-        # add_component("gis_config",
-                      # gis_layer_mgrs=dict(link="gis_layer_config",
-                                          # pkey="layer_id",
-                                          # joinby="layer_id",
-                                          # key="config_id",
-                                          # actuate="hide",
-                                          # autocomplete="name",
-                                          # autodelete=False))
+        #add_components(tablename,
+                       ## Configs
+                       #gis_config = {"link": "gis_layer_config",
+                                     #"pkey": "layer_id",
+                                     #"joinby": "layer_id",
+                                     #"key": "config_id",
+                                     #"actuate": "hide",
+                                     #"autocomplete": "name",
+                                     #"autodelete": False,
+                                     #},
+                       #)
 
         # ---------------------------------------------------------------------
         # OpenStreetMap tiles
@@ -3320,49 +3462,58 @@ class S3MapModel(S3Model):
         #        fully-custom layers.
         #
         tablename = "gis_layer_openstreetmap"
-        table = define_table(tablename,
-                             layer_id,
-                             name_field()(),
-                             desc_field()(),
-                             Field("url1",
-                                   label=LOCATION,
-                                   requires=IS_NOT_EMPTY(),
-                                   comment=DIV(_class="tooltip",
-                                               _title="%s|%s" % (LOCATION,
-                                                                 T("The URL to access the service.")))),
-                             Field("url2",
-                                   label=T("Secondary Server (Optional)")),
-                             Field("url3",
-                                   label=T("Tertiary Server (Optional)")),
-                             Field("base", "boolean",
-                                   represent = s3_yes_no_represent,
-                                   default=True,
-                                   label=BASE_LAYER),
-                             Field("attribution",
-                                   label=T("Attribution")),
-                             Field("zoom_levels", "integer",
-                                   requires = IS_INT_IN_RANGE(1, 30),
-                                   label=T("Zoom Levels"),
-                                   default=19),
-                             gis_layer_folder()(),
-                             s3_role_required(),       # Single Role
-                             #s3_roles_permitted(),    # Multiple Roles (needs implementing in modules/s3gis.py)
-                             *s3_meta_fields())
+        define_table(tablename,
+                     layer_id,
+                     name_field()(),
+                     desc_field()(),
+                     Field("url1",
+                           label = LOCATION,
+                           requires = IS_NOT_EMPTY(),
+                           comment = DIV(_class="tooltip",
+                                         _title="%s|%s" % (LOCATION,
+                                                           T("The URL to access the service."))),
+                           ),
+                     Field("url2",
+                           label = T("Secondary Server (Optional)"),
+                           ),
+                     Field("url3",
+                           label = T("Tertiary Server (Optional)"),
+                           ),
+                     Field("base", "boolean",
+                           default = True,
+                           label = BASE_LAYER,
+                           represent = s3_yes_no_represent,
+                           ),
+                     Field("attribution",
+                           label = T("Attribution"),
+                           ),
+                     Field("zoom_levels", "integer",
+                           default = 19,
+                           label = T("Zoom Levels"),
+                           requires = IS_INT_IN_RANGE(1, 30),
+                           ),
+                     gis_layer_folder()(),
+                     s3_role_required(),       # Single Role
+                     #s3_roles_permitted(),    # Multiple Roles (needs implementing in modules/s3gis.py)
+                     *s3_meta_fields())
 
         configure(tablename,
-                  onaccept=gis_layer_onaccept,
-                  super_entity="gis_layer_entity")
+                  onaccept = gis_layer_onaccept,
+                  super_entity = "gis_layer_entity",
+                  )
 
         # Components
-        # Configs
-        add_component("gis_config",
-                      gis_layer_openstreetmap=dict(link="gis_layer_config",
-                                                   pkey="layer_id",
-                                                   joinby="layer_id",
-                                                   key="config_id",
-                                                   actuate="hide",
-                                                   autocomplete="name",
-                                                   autodelete=False))
+        add_components(tablename,
+                       # Configs
+                       gis_config = {"link": "gis_layer_config",
+                                     "pkey": "layer_id",
+                                     "joinby": "layer_id",
+                                     "key": "config_id",
+                                     "actuate": "hide",
+                                     "autocomplete": "name",
+                                     "autodelete": False,
+                                     },
+                       )
 
         # ---------------------------------------------------------------------
         # OpenWeatherMap
@@ -3370,32 +3521,36 @@ class S3MapModel(S3Model):
         openweathermap_layer_types = ["station", "city"]
 
         tablename = "gis_layer_openweathermap"
-        table = define_table(tablename,
-                             layer_id,
-                             name_field()(),
-                             desc_field()(),
-                             Field("type", length=16,
-                                   label=TYPE,
-                                   requires=IS_IN_SET(openweathermap_layer_types)),
-                             gis_layer_folder()(),
-                             s3_role_required(),       # Single Role
-                             #s3_roles_permitted(),    # Multiple Roles (needs implementing in modules/s3gis.py)
-                             *s3_meta_fields())
+        define_table(tablename,
+                     layer_id,
+                     name_field()(),
+                     desc_field()(),
+                     Field("type", length=16,
+                           label = TYPE,
+                           requires = IS_IN_SET(openweathermap_layer_types),
+                           ),
+                     gis_layer_folder()(),
+                     s3_role_required(),       # Single Role
+                     #s3_roles_permitted(),    # Multiple Roles (needs implementing in modules/s3gis.py)
+                     *s3_meta_fields())
 
         configure(tablename,
-                  onaccept=gis_layer_onaccept,
-                  super_entity="gis_layer_entity")
+                  onaccept = gis_layer_onaccept,
+                  super_entity = "gis_layer_entity",
+                  )
 
         # Components
-        # Configs
-        add_component("gis_config",
-                      gis_layer_openweathermap=dict(link="gis_layer_config",
-                                                    pkey="layer_id",
-                                                    joinby="layer_id",
-                                                    key="config_id",
-                                                    actuate="hide",
-                                                    autocomplete="name",
-                                                    autodelete=False))
+        add_components(tablename,
+                       # Configs
+                       gis_config = {"link": "gis_layer_config",
+                                     "pkey": "layer_id",
+                                     "joinby": "layer_id",
+                                     "key": "config_id",
+                                     "actuate": "hide",
+                                     "autocomplete": "name",
+                                     "autodelete": False,
+                                     },
+                       )
 
         # ---------------------------------------------------------------------
         # Shapefiles
@@ -3419,22 +3574,23 @@ class S3MapModel(S3Model):
                                    comment = DIV(_class="tooltip",
                                                  _title="%s|%s" % (T("ESRI Shape File"),
                                                                    T("An ESRI Shapefile (zipped)"),
-                                                                   ))),
+                                                                   )),
+                                   ),
                              Field("gis_feature_type", "integer",
-                                   # Auto-populated by reading Shapefile
-                                   writable=False,
-                                   requires = IS_NULL_OR(
-                                                IS_IN_SET(gis_feature_type_opts,
-                                                          zero=None)),
+                                   label = T("Feature Type"),
                                    represent = lambda opt: \
                                     gis_feature_type_opts.get(opt,
                                                               messages.UNKNOWN_OPT),
-                                   label = T("Feature Type"),
+                                   requires = IS_EMPTY_OR(
+                                                IS_IN_SET(gis_feature_type_opts,
+                                                          zero=None)),
+                                   # Auto-populated by reading Shapefile
+                                   writable = False,
                                    ),
                              # @ToDo: Can we auto-populate this from the layer?
                              projection_id(# Nice if we could get this set to epsg field without having to do a DB lookup
-                                           #default=4326,
-                                           empty=False,
+                                           #default = 4326,
+                                           empty = False,
                                            ),
                              Field("filter",
                                    label = T("REST Filter"),
@@ -3443,12 +3599,14 @@ class S3MapModel(S3Model):
                                                                    "%s: <a href='http://eden.sahanafoundation.org/wiki/S3XRC/RESTfulAPI/URLFormat#BasicQueryFormat' target='_blank'>Trac</a>" % \
                                                                      T("Uses the REST Query Format defined in"))),
                                    ),
+                             # @ToDo: Switch type to "json" & Test
                              Field("data", "text",
-                                   # Auto-populated by reading Shapefile
-                                   writable=False,
-                                   readable=False,
+                                   label = T("Attributes"),
                                    represent = lambda v: v or NONE,
-                                   label=T("Attributes")),
+                                   # Auto-populated by reading Shapefile
+                                   readable = False,
+                                   writable = False,
+                                   ),
                              gis_layer_folder()(),
                              gis_opacity()(),
                              # @ToDo
@@ -3458,183 +3616,207 @@ class S3MapModel(S3Model):
                              cluster_threshold()(),
                              s3_role_required(), # Single Role
                              *s3_meta_fields())  
+
         configure(tablename,
-                  super_entity="gis_layer_entity",
-                  create_onaccept=self.gis_layer_shapefile_onaccept,
-                  #update_onaccept=self.gis_layer_shapefile_onaccept_update,
+                  create_onaccept = self.gis_layer_shapefile_onaccept,
                   deduplicate = self.gis_layer_shapefile_deduplicate,
+                  #update_onaccept = self.gis_layer_shapefile_onaccept_update,
+                  super_entity = "gis_layer_entity",
                   )
 
         # Components
-        # Configs
-        add_component("gis_config",
-                      gis_layer_shapefile=dict(link="gis_layer_config",
-                                               pkey="layer_id",
-                                               joinby="layer_id",
-                                               key="config_id",
-                                               actuate="hide",
-                                               autocomplete="name",
-                                               autodelete=False))
-
-        # Symbologies
-        add_component("gis_symbology",
-                      gis_layer_shapefile=dict(link="gis_layer_symbology",
-                                               pkey="layer_id",
-                                               joinby="layer_id",
-                                               key="symbology_id",
-                                               actuate="hide",
-                                               autocomplete="name",
-                                               autodelete=False))
+        add_components(tablename,
+                       # Configs
+                       gis_config = {"link": "gis_layer_config",
+                                     "pkey": "layer_id",
+                                     "joinby": "layer_id",
+                                     "key": "config_id",
+                                     "actuate": "hide",
+                                     "autocomplete": "name",
+                                     "autodelete": False,
+                                     },
+                       # Symbologies
+                       gis_symbology = {"link": "gis_layer_symbology",
+                                        "pkey": "layer_id",
+                                        "joinby": "layer_id",
+                                        "key": "symbology_id",
+                                        "actuate": "hide",
+                                        "autocomplete": "name",
+                                        "autodelete": False,
+                                        },
+                       )
 
         # ---------------------------------------------------------------------
         # TMS
         #
         tablename = "gis_layer_tms"
-        table = define_table(tablename,
-                             layer_id,
-                             name_field()(),
-                             desc_field()(),
-                             Field("url",
-                                   label=LOCATION,
-                                   requires=IS_NOT_EMPTY(),
-                                   comment=DIV(_class="tooltip",
-                                               _title="%s|%s" % (LOCATION,
-                                                                 T("The URL to access the service.")))),
-                             Field("url2",
-                                   label=T("Secondary Server (Optional)")),
-                             Field("url3",
-                                   label=T("Tertiary Server (Optional)")),
-                             Field("layername",
-                                   label=T("Layer Name"),
-                                   requires=IS_NOT_EMPTY()),
-                             Field("img_format",
-                                   label=FORMAT),
-                             Field("attribution",
-                                   label=T("Attribution")),
-                             Field("zoom_levels", "integer",
-                                   requires = IS_INT_IN_RANGE(1, 30),
-                                   label=T("Zoom Levels"),
-                                   default=19),
-                             gis_layer_folder()(),
-                             s3_role_required(),       # Single Role
-                             #s3_roles_permitted(),    # Multiple Roles (needs implementing in modules/s3gis.py)
-                             *s3_meta_fields())
+        define_table(tablename,
+                     layer_id,
+                     name_field()(),
+                     desc_field()(),
+                     Field("url",
+                           label = LOCATION,
+                           requires = IS_NOT_EMPTY(),
+                           comment = DIV(_class="tooltip",
+                                         _title="%s|%s" % (LOCATION,
+                                                           T("The URL to access the service."))),
+                           ),
+                     Field("url2",
+                           label = T("Secondary Server (Optional)"),
+                           ),
+                     Field("url3",
+                           label = T("Tertiary Server (Optional)"),
+                           ),
+                     Field("layername",
+                           label = T("Layer Name"),
+                           requires = IS_NOT_EMPTY(),
+                           ),
+                     Field("img_format",
+                           label = FORMAT,
+                           ),
+                     Field("attribution",
+                           label = T("Attribution"),
+                           ),
+                     Field("zoom_levels", "integer",
+                           default = 19,
+                           label = T("Zoom Levels"),
+                           requires = IS_INT_IN_RANGE(1, 30),
+                           ),
+                     gis_layer_folder()(),
+                     s3_role_required(),       # Single Role
+                     #s3_roles_permitted(),    # Multiple Roles (needs implementing in modules/s3gis.py)
+                     *s3_meta_fields())
 
         configure(tablename,
-                  onaccept=gis_layer_onaccept,
-                  super_entity="gis_layer_entity")
+                  onaccept = gis_layer_onaccept,
+                  super_entity = "gis_layer_entity",
+                  )
 
         # Components
-        # Configs
-        add_component("gis_config",
-                      gis_layer_tms=dict(link="gis_layer_config",
-                                         pkey="layer_id",
-                                         joinby="layer_id",
-                                         key="config_id",
-                                         actuate="hide",
-                                         autocomplete="name",
-                                         autodelete=False))
+        add_components(tablename,
+                       # Configs
+                       gis_config = {"link": "gis_layer_config",
+                                     "pkey": "layer_id",
+                                     "joinby": "layer_id",
+                                     "key": "config_id",
+                                     "actuate": "hide",
+                                     "autocomplete": "name",
+                                     "autodelete": False,
+                                     },
+                       )
 
         # ---------------------------------------------------------------------
         # WFS
         #
         tablename = "gis_layer_wfs"
-        table = define_table(tablename,
-                             layer_id,
-                             name_field()(),
-                             desc_field()(),
-                             source_name_field()(),
-                             source_url_field()(),
-                             Field("url",
-                                   label=LOCATION,
-                                   requires = IS_NOT_EMPTY(),
-                                   comment=DIV(_class="tooltip",
-                                               _title="%s|%s" % (LOCATION,
-                                                                 T("Mandatory. The base URL to access the service. e.g. http://host.domain/geoserver/wfs?")))),
-                             Field("featureType",
-                                   label=T("Feature Type"),
-                                   requires = IS_NOT_EMPTY(),
-                                   comment=DIV(_class="tooltip",
-                                               _title="%s|%s" % (T("Feature Type"),
-                                                                  T("Mandatory. In GeoServer, this is the Layer Name. Within the WFS getCapabilities, this is the FeatureType Name part after the colon(:).")))),
-                             Field("featureNS", label=T("Feature Namespace"),
-                                   requires=IS_NULL_OR(IS_URL()),
-                                   comment=DIV(_class="tooltip",
-                                               _title="%s|%s" % (T("Feature Namespace"),
-                                                                 T("Optional. In GeoServer, this is the Workspace Namespace URI (not the name!). Within the WFS getCapabilities, the workspace is the FeatureType Name part before the colon(:).")))),
-                             Field("title",
-                                   label=T("Title"),
-                                   default="name",
-                                   comment=DIV(_class="tooltip",
-                                               _title="%s|%s" % (T("Title"),
-                                                                 T("The attribute which is used for the title of popups.")))),
-                             Field("username",
-                                   label=T("Username"),
-                                   comment=DIV(_class="tooltip",
-                                               _title="%s|%s" % (T("Username"),
-                                                                 T("Optional username for HTTP Basic Authentication.")))),
-                             Field("password",
-                                   label=T("Password"),
-                                   comment=DIV(_class="tooltip",
-                                               _title="%s|%s" % (T("Password"),
-                                                                 T("Optional password for HTTP Basic Authentication.")))),
-                             Field("geometryName",
-                                   label=T("Geometry Name"),
-                                   default="the_geom",
-                                   comment=DIV(_class="tooltip",
-                                               _title="%s|%s" % (T("Geometry Name"),
-                                                                 T("Optional. The name of the geometry column. In PostGIS this defaults to 'the_geom'.")))),
-                             Field("wfs_schema",
-                                   label=T("Schema"),
-                                   requires=IS_NULL_OR(IS_URL()),
-                                   comment=DIV(_class="tooltip",
-                                               _title="%s|%s" % (T("Schema"),
-                                                                 T("Optional. The name of the schema. In Geoserver this has the form http://host_name/geoserver/wfs/DescribeFeatureType?version=1.1.0&;typename=workspace_name:layer_name.")))),
-                             projection_id(# Nice if we could get this set to epsg field
-                                           #default=4326,
-                                           empty=False,
-                                           ),
-                             Field("version",
-                                   label=T("Version"),
-                                   default="1.1.0",
-                                   requires=IS_IN_SET(["1.0.0", "1.1.0", "2.0.0"],
-                                                      zero=None)),
-                             gis_layer_folder()(),
-                             gis_refresh()(default=0), # Default to Off as 'External Source' which is uneditable
-                             gis_opacity()(),
-                             cluster_attribute()(),
-                             cluster_distance()(),
-                             cluster_threshold()(),
-                             #Field("editable", "boolean", default=False, label=T("Editable?")),
-                             s3_role_required(),       # Single Role
-                             #s3_roles_permitted(),    # Multiple Roles (needs implementing in modules/s3gis.py)
-                             *s3_meta_fields())
+        define_table(tablename,
+                     layer_id,
+                     name_field()(),
+                     desc_field()(),
+                     source_name_field()(),
+                     source_url_field()(),
+                     Field("url",
+                           label = LOCATION,
+                           requires = IS_NOT_EMPTY(),
+                           comment = DIV(_class="tooltip",
+                                         _title="%s|%s" % (LOCATION,
+                                                           T("Mandatory. The base URL to access the service. e.g. http://host.domain/geoserver/wfs?"))),
+                           ),
+                     Field("featureType",
+                           label = T("Feature Type"),
+                           requires = IS_NOT_EMPTY(),
+                           comment = DIV(_class="tooltip",
+                                         _title="%s|%s" % (T("Feature Type"),
+                                                           T("Mandatory. In GeoServer, this is the Layer Name. Within the WFS getCapabilities, this is the FeatureType Name part after the colon(:)."))),
+                           ),
+                     Field("featureNS",
+                           label = T("Feature Namespace"),
+                           requires = IS_EMPTY_OR(IS_URL()),
+                           comment = DIV(_class="tooltip",
+                                         _title="%s|%s" % (T("Feature Namespace"),
+                                                           T("Optional. In GeoServer, this is the Workspace Namespace URI (not the name!). Within the WFS getCapabilities, the workspace is the FeatureType Name part before the colon(:)."))),
+                           ),
+                     Field("title",
+                           default = "name",
+                           label = T("Title"),
+                           comment = DIV(_class="tooltip",
+                                         _title="%s|%s" % (T("Title"),
+                                                           T("The attribute which is used for the title of popups."))),
+                           ),
+                     Field("username",
+                           label = T("Username"),
+                           comment = DIV(_class="tooltip",
+                                         _title="%s|%s" % (T("Username"),
+                                                           T("Optional username for HTTP Basic Authentication."))),
+                           ),
+                     Field("password",
+                           label = T("Password"),
+                           comment = DIV(_class="tooltip",
+                                         _title="%s|%s" % (T("Password"),
+                                                           T("Optional password for HTTP Basic Authentication."))),
+                           ),
+                     Field("geometryName",
+                           default = "the_geom",
+                           label = T("Geometry Name"),
+                           comment = DIV(_class="tooltip",
+                                         _title="%s|%s" % (T("Geometry Name"),
+                                                           T("Optional. The name of the geometry column. In PostGIS this defaults to 'the_geom'."))),
+                           ),
+                     Field("wfs_schema",
+                           label = T("Schema"),
+                           requires = IS_EMPTY_OR(IS_URL()),
+                           comment = DIV(_class="tooltip",
+                                         _title="%s|%s" % (T("Schema"),
+                                                           T("Optional. The name of the schema. In Geoserver this has the form http://host_name/geoserver/wfs/DescribeFeatureType?version=1.1.0&;typename=workspace_name:layer_name."))),
+                           ),
+                     projection_id(# Nice if we could get this set to epsg field
+                                   #default = 4326,
+                                   empty = False,
+                                   ),
+                     Field("version",
+                           default = "1.1.0",
+                           label = T("Version"),
+                           requires = IS_IN_SET(["1.0.0", "1.1.0", "2.0.0"],
+                                                zero=None),
+                           ),
+                     gis_layer_folder()(),
+                     gis_refresh()(default=0), # Default to Off as 'External Source' which is uneditable
+                     gis_opacity()(),
+                     cluster_attribute()(),
+                     cluster_distance()(),
+                     cluster_threshold()(),
+                     #Field("editable", "boolean", default=False, label=T("Editable?")),
+                     s3_role_required(),       # Single Role
+                     #s3_roles_permitted(),    # Multiple Roles (needs implementing in modules/s3gis.py)
+                     *s3_meta_fields())
 
         configure(tablename,
-                  onaccept=gis_layer_onaccept,
                   deduplicate = self.gis_layer_wfs_deduplicate,
-                  super_entity="gis_layer_entity")
+                  onaccept = gis_layer_onaccept,
+                  super_entity = "gis_layer_entity",
+                  )
 
         # Components
-        # Configs
-        add_component("gis_config",
-                      gis_layer_wfs=dict(link="gis_layer_config",
-                                         pkey="layer_id",
-                                         joinby="layer_id",
-                                         key="config_id",
-                                         actuate="hide",
-                                         autocomplete="name",
-                                         autodelete=False))
-
-        # Symbologies
-        add_component("gis_symbology",
-                      gis_layer_wfs=dict(link="gis_layer_symbology",
-                                         pkey="layer_id",
-                                         joinby="layer_id",
-                                         key="symbology_id",
-                                         actuate="hide",
-                                         autocomplete="name",
-                                         autodelete=False))
+        add_components(tablename,
+                       # Configs
+                       gis_config = {"link": "gis_layer_config",
+                                     "pkey": "layer_id",
+                                     "joinby": "layer_id",
+                                     "key": "config_id",
+                                     "actuate": "hide",
+                                     "autocomplete": "name",
+                                     "autodelete": False,
+                                     },
+                       # Symbologies
+                       gis_symbology = {"link": "gis_layer_symbology",
+                                        "pkey": "layer_id",
+                                        "joinby": "layer_id",
+                                        "key": "symbology_id",
+                                        "actuate": "hide",
+                                        "autocomplete": "name",
+                                        "autodelete": False,
+                                        },
+                       )
 
         # ---------------------------------------------------------------------
         # WMS
@@ -3644,110 +3826,132 @@ class S3MapModel(S3Model):
                            "image/svg+xml"]
 
         tablename = "gis_layer_wms"
-        table = define_table(tablename,
-                             layer_id,
-                             name_field()(),
-                             desc_field()(),
-                             source_name_field()(),
-                             source_url_field()(),
-                             Field("url",
-                                   label=LOCATION,
-                                   requires = IS_NOT_EMPTY(),
-                                   comment=DIV(_class="tooltip",
-                                               _title="%s|%s" % (LOCATION,
-                                                                 T("Mandatory. The base URL to access the service. e.g. http://host.domain/geoserver/wms?")))),
-                             Field("version", length=32,
-                                   label=T("Version"),
-                                   default="1.1.1",
-                                   requires=IS_IN_SET(["1.1.1", "1.3.0"], zero=None)),
-                             Field("base", "boolean",
-                                   represent = s3_yes_no_represent,
-                                   default=False,
-                                   label=BASE_LAYER),
-                             Field("transparent", "boolean", default=True,
-                                   represent = s3_yes_no_represent,
-                                   label=TRANSPARENT),
-                             gis_layer_folder()(),
-                             gis_opacity()(),
-                             Field("map", length=32,
-                                   label=T("Map"),
-                                   comment=DIV(_class="tooltip",
-                                               _title="%s|%s" % (T("Map"),
-                                                                 T("Optional selection of a MapServer map.")))),
-                             Field("layers",
-                                   label=T("Layers"),
-                                   requires=IS_NOT_EMPTY()),
-                             Field("username",
-                                   label=T("Username"),
-                                   comment=DIV(_class="tooltip",
-                                               _title="%s|%s" % (T("Username"),
-                                                                 T("Optional username for HTTP Basic Authentication.")))),
-                             Field("password",
-                                   label=T("Password"),
-                                   comment=DIV(_class="tooltip",
-                                               _title="%s|%s" % (T("Password"),
-                                                                 T("Optional password for HTTP Basic Authentication.")))),
-                             Field("img_format", length=32,
-                                   label=FORMAT,
-                                   requires=IS_NULL_OR(IS_IN_SET(wms_img_formats)),
-                                   default="image/png"),
-                             # NB This is a WMS-server-side style NOT an internal JSON style
-                             Field("style", length=32,
-                                   label=T("Style"),
-                                   comment=DIV(_class="tooltip",
-                                               _title="%s|%s" % (T("Style"),
-                                                                 T("Optional selection of an alternate style.")))),
-                             Field("bgcolor", length=32,
-                                   label=T("Background Color"),
-                                   requires=IS_NULL_OR(IS_HTML_COLOUR()),
-                                   widget=S3ColorPickerWidget(),
-                                   comment=DIV(_class="tooltip",
-                                               _title="%s|%s" % (T("Background Color"),
-                                                                 T("Optional selection of a background color.")))),
-                             Field("tiled", "boolean",
-                                   represent = s3_yes_no_represent,
-                                   label=T("Tiled"),
-                                   default=False,
-                                   comment=DIV(_class="tooltip",
-                                               _title="%s|%s|%s" % (T("Tiled"),
-                                                                     T("Tells GeoServer to do MetaTiling which reduces the number of duplicate labels."),
-                                                                   T("Note that when using geowebcache, this can be set in the GWC config.")))),
-                             Field("buffer", "integer",
-                                   label=T("Buffer"),
-                                   default=0,
-                                   requires=IS_INT_IN_RANGE(0, 10),
-                                   comment=DIV(_class="tooltip",
-                                               _title="%s|%s" % (T("Buffer"),
-                                                                 T("The number of tiles around the visible map to download. Zero means that the 1st page loads faster, higher numbers mean subsequent panning is faster.")))),
-                             Field("queryable", "boolean",
-                                   represent = s3_yes_no_represent,
-                                   default=True,
-                                   label=T("Queryable?")),
-                             Field("legend_url",
-                                   label=T("Legend URL"),
-                                   represent = lambda v: v or NONE,
-                                   comment=DIV(_class="tooltip",
-                                               _title="%s|%s" % (T("Legend URL"),
-                                                                 T("Address of an image to use for this Layer in the Legend. This allows use of a controlled static image rather than querying the server automatically for what it provides (which won't work through GeoWebCache anyway).")))),
-                             #Field("legend_format", label=T("Legend Format"), requires = IS_NULL_OR(IS_IN_SET(gis_layer_wms_img_formats))),
-                             s3_role_required(),       # Single Role
-                             #s3_roles_permitted(),    # Multiple Roles (needs implementing in modules/s3gis.py)
-                             *s3_meta_fields())
+        define_table(tablename,
+                     layer_id,
+                     name_field()(),
+                     desc_field()(),
+                     source_name_field()(),
+                     source_url_field()(),
+                     Field("url",
+                           label = LOCATION,
+                           requires = IS_NOT_EMPTY(),
+                           comment = DIV(_class="tooltip",
+                                         _title="%s|%s" % (LOCATION,
+                                                           T("Mandatory. The base URL to access the service. e.g. http://host.domain/geoserver/wms?"))),
+                           ),
+                     Field("version", length=32,
+                           default = "1.1.1",
+                           label = T("Version"),
+                           requires = IS_IN_SET(["1.1.1", "1.3.0"], zero=None),
+                           ),
+                     Field("base", "boolean",
+                           default = False,
+                           label = BASE_LAYER,
+                           represent = s3_yes_no_represent,
+                           ),
+                     Field("transparent", "boolean",
+                           default = True,
+                           label = TRANSPARENT,
+                           represent = s3_yes_no_represent,
+                           ),
+                     gis_layer_folder()(),
+                     gis_opacity()(),
+                     Field("map", length=32,
+                           label = T("Map"),
+                           comment = DIV(_class="tooltip",
+                                         _title="%s|%s" % (T("Map"),
+                                                           T("Optional selection of a MapServer map."))),
+                           ),
+                     Field("layers",
+                           label = T("Layers"),
+                           requires = IS_NOT_EMPTY(),
+                           ),
+                     Field("username",
+                           label = T("Username"),
+                           comment = DIV(_class="tooltip",
+                                         _title="%s|%s" % (T("Username"),
+                                                           T("Optional username for HTTP Basic Authentication."))),
+                           ),
+                     Field("password",
+                           label = T("Password"),
+                           comment = DIV(_class="tooltip",
+                                         _title="%s|%s" % (T("Password"),
+                                                           T("Optional password for HTTP Basic Authentication."))),
+                           ),
+                     Field("img_format", length=32,
+                           default = "image/png",
+                           label = FORMAT,
+                           requires = IS_EMPTY_OR(IS_IN_SET(wms_img_formats)),
+                           ),
+                     # NB This is a WMS-server-side style NOT an internal JSON style
+                     Field("style", length=32,
+                           label = T("Style"),
+                           comment = DIV(_class="tooltip",
+                                         _title="%s|%s" % (T("Style"),
+                                                           T("Optional selection of an alternate style."))),
+                           ),
+                     Field("bgcolor", length=32,
+                           label = T("Background Color"),
+                           requires = IS_EMPTY_OR(IS_HTML_COLOUR()),
+                           widget = S3ColorPickerWidget(),
+                           comment = DIV(_class="tooltip",
+                                         _title="%s|%s" % (T("Background Color"),
+                                                           T("Optional selection of a background color."))),
+                           ),
+                     Field("tiled", "boolean",
+                           default = False,
+                           label = T("Tiled"),
+                           represent = s3_yes_no_represent,
+                           comment = DIV(_class="tooltip",
+                                         _title="%s|%s|%s" % (T("Tiled"),
+                                                              T("Tells GeoServer to do MetaTiling which reduces the number of duplicate labels."),
+                                                              T("Note that when using geowebcache, this can be set in the GWC config."))),
+                           ),
+                     Field("buffer", "integer",
+                           default = 0,
+                           label = T("Buffer"),
+                           requires = IS_INT_IN_RANGE(0, 10),
+                           comment = DIV(_class="tooltip",
+                                         _title="%s|%s" % (T("Buffer"),
+                                                           T("The number of tiles around the visible map to download. Zero means that the 1st page loads faster, higher numbers mean subsequent panning is faster."))),
+                           ),
+                     Field("queryable", "boolean",
+                           default = True,
+                           label = T("Queryable?"),
+                           represent = s3_yes_no_represent,
+                           ),
+                     Field("legend_url",
+                           label = T("Legend URL"),
+                           represent = lambda v: v or NONE,
+                           comment = DIV(_class="tooltip",
+                                         _title="%s|%s" % (T("Legend URL"),
+                                                           T("Address of an image to use for this Layer in the Legend. This allows use of a controlled static image rather than querying the server automatically for what it provides (which won't work through GeoWebCache anyway)."))),
+                           ),
+                     #Field("legend_format",
+                     #      label = T("Legend Format"),
+                     #      requires = IS_EMPTY_OR(IS_IN_SET(gis_layer_wms_img_formats)),
+                     #      ),
+                     s3_role_required(),       # Single Role
+                     #s3_roles_permitted(),    # Multiple Roles (needs implementing in modules/s3gis.py)
+                     *s3_meta_fields())
 
         configure(tablename,
-                  onaccept=gis_layer_onaccept,
-                  super_entity="gis_layer_entity")
+                  onaccept = gis_layer_onaccept,
+                  super_entity = "gis_layer_entity",
+                  )
 
         # Components
-        # Configs
-        add_component("gis_config",
-                      gis_layer_wms=dict(link="gis_layer_config",
-                                         pkey="layer_id",
-                                         joinby="layer_id",
-                                         key="config_id",
-                                         actuate="hide",
-                                         autocomplete="name",
-                                         autodelete=False))
+        add_components(tablename,
+                       # Configs
+                       gis_config = {"link": "gis_layer_config",
+                                     "pkey": "layer_id",
+                                     "joinby": "layer_id",
+                                     "key": "config_id",
+                                     "actuate": "hide",
+                                     "autocomplete": "name",
+                                     "autodelete": False,
+                                     },
+                       )
 
         # ---------------------------------------------------------------------
         # XYZ
@@ -3756,47 +3960,56 @@ class S3MapModel(S3Model):
         # @ToDo: Support Overlays with Opacity
         #
         tablename = "gis_layer_xyz"
-        table = define_table(tablename,
-                             layer_id,
-                             name_field()(),
-                             desc_field()(),
-                             Field("url",
-                                   label=LOCATION,
-                                   requires=IS_NOT_EMPTY(),
-                                   comment=DIV(_class="tooltip",
-                                               _title="%s|%s" % (LOCATION,
-                                                                 T("The URL to access the service.")))),
-                             Field("url2",
-                                   label=T("Secondary Server (Optional)")),
-                             Field("url3",
-                                   label=T("Tertiary Server (Optional)")),
-                             Field("img_format",
-                                   label=FORMAT),
-                             Field("attribution",
-                                   label=T("Attribution")),
-                             Field("zoom_levels", "integer",
-                                   requires = IS_INT_IN_RANGE(1, 30),
-                                    label=T("Zoom Levels"),
-                                   default=19),
-                             gis_layer_folder()(),
-                             s3_role_required(),       # Single Role
-                             #s3_roles_permitted(),    # Multiple Roles (needs implementing in modules/s3gis.py)
-                             *s3_meta_fields())
+        define_table(tablename,
+                     layer_id,
+                     name_field()(),
+                     desc_field()(),
+                     Field("url",
+                           label = LOCATION,
+                           requires = IS_NOT_EMPTY(),
+                           comment = DIV(_class="tooltip",
+                                         _title="%s|%s" % (LOCATION,
+                                                           T("The URL to access the service."))),
+                           ),
+                     Field("url2",
+                           label = T("Secondary Server (Optional)"),
+                           ),
+                     Field("url3",
+                           label = T("Tertiary Server (Optional)"),
+                           ),
+                     Field("img_format",
+                           label = FORMAT,
+                           ),
+                     Field("attribution",
+                           label = T("Attribution"),
+                           ),
+                     Field("zoom_levels", "integer",
+                           default = 19,
+                           label = T("Zoom Levels"),
+                           requires = IS_INT_IN_RANGE(1, 30),
+                           ),
+                     gis_layer_folder()(),
+                     s3_role_required(),       # Single Role
+                     #s3_roles_permitted(),    # Multiple Roles (needs implementing in modules/s3gis.py)
+                     *s3_meta_fields())
 
         configure(tablename,
-                  onaccept=gis_layer_onaccept,
-                  super_entity="gis_layer_entity")
+                  onaccept = gis_layer_onaccept,
+                  super_entity = "gis_layer_entity",
+                  )
 
         # Components
-        # Configs
-        add_component("gis_config",
-                      gis_layer_xyz=dict(link="gis_layer_config",
-                                         pkey="layer_id",
-                                         joinby="layer_id",
-                                         key="config_id",
-                                         actuate="hide",
-                                         autocomplete="name",
-                                         autodelete=False))
+        add_components(tablename,
+                       # Configs
+                       gis_config = {"link": "gis_layer_config",
+                                     "pkey": "layer_id",
+                                     "joinby": "layer_id",
+                                     "key": "config_id",
+                                     "actuate": "hide",
+                                     "autocomplete": "name",
+                                     "autodelete": False,
+                                     },
+                       )
 
         # ---------------------------------------------------------------------
         # GIS Cache
@@ -3805,32 +4018,34 @@ class S3MapModel(S3Model):
         # - to allow refresh timer, BBOX queries, unified approach to Markers & Popups
         #
         tablename = "gis_cache"
-        table = define_table(tablename,
-                             Field("title"),
-                             Field("description"),
-                             Field("link"),      # Used by GeoRSS
-                             Field("data"),
-                             Field("image"),
-                             Field("lat", "double"),
-                             Field("lon", "double"),
-                             Field("marker"),    # Used by KML
-                             Field("source",
-                                   requires=IS_NULL_OR(IS_URL())),
-                             *s3_meta_fields())
+        define_table(tablename,
+                     Field("title"),
+                     Field("description"),
+                     Field("link"),      # Used by GeoRSS
+                     Field("data"),
+                     Field("image"),
+                     Field("lat", "double"),
+                     Field("lon", "double"),
+                     Field("marker"),    # Used by KML
+                     Field("source",
+                           requires = IS_EMPTY_OR(IS_URL()),
+                           ),
+                     *s3_meta_fields())
 
         # Store downloaded KML feeds on the filesystem
         # @ToDo: Migrate to DB instead (using above gis_cache)
         #
         tablename = "gis_cache2"
-        table = define_table(tablename,
-                             Field("name", length=128, notnull=True, unique=True),
-                             Field("file", "upload", autodelete = True,
-                                   custom_retrieve = self.gis_cache2_retrieve,
-                                   # upload folder needs to be visible to the download() function as well as the upload
-                                   uploadfolder = os.path.join(request.folder,
-                                                               "uploads",
-                                                               "gis_cache")),
-                             *s3_meta_fields())
+        define_table(tablename,
+                     Field("name", length=128, notnull=True, unique=True),
+                     Field("file", "upload", autodelete = True,
+                           custom_retrieve = self.gis_cache2_retrieve,
+                           # upload folder needs to be visible to the download() function as well as the upload
+                           uploadfolder = os.path.join(request.folder,
+                                                       "uploads",
+                                                       "gis_cache"),
+                           ),
+                     *s3_meta_fields())
 
         # ---------------------------------------------------------------------
         # Below tables are not yet implemented
@@ -3845,11 +4060,11 @@ class S3MapModel(S3Model):
         # Can we convert between JSON <> XML as-appropriate? (without losing details)
 
         #tablename = "gis_style"
-        #table = define_table(tablename,
-        #                     Field("name", notnull=True, unique=True),
-        #                     Field("json", "text"),
-        #                     Field("xml", "text"),
-        #                     *s3_meta_fields())
+        #define_table(tablename,
+        #             Field("name", notnull=True, unique=True),
+        #             Field("json", "text"),
+        #             Field("xml", "text"),
+        #            *s3_meta_fields())
 
         # Pass names back to global scope (s3.*)
         return dict()
@@ -3893,7 +4108,6 @@ class S3MapModel(S3Model):
             if duplicate:
                 item.id = duplicate.id
                 item.method = item.METHOD.UPDATE
-        return
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -3919,7 +4133,6 @@ class S3MapModel(S3Model):
             if duplicate:
                 item.id = duplicate.id
                 item.method = item.METHOD.UPDATE
-        return
         
     # -------------------------------------------------------------------------
     @staticmethod
@@ -3947,7 +4160,6 @@ class S3MapModel(S3Model):
             if duplicate:
                 item.id = duplicate.id
                 item.method = item.METHOD.UPDATE
-        return
         
     # -------------------------------------------------------------------------
     @staticmethod
@@ -3973,7 +4185,6 @@ class S3MapModel(S3Model):
             if duplicate:
                 item.id = duplicate.id
                 item.method = item.METHOD.UPDATE
-        return
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -4005,7 +4216,7 @@ class S3MapModel(S3Model):
             try:
                 shapefile = table.shape.retrieve(row.gis_layer_shapefile.shape)
             except:
-                s3_debug("No Shapefile found in layer %s!" % id)
+                current.log.error("No Shapefile found in layer %s!" % id)
                 return
             (fileName, fp) = shapefile
             layerName = fileName.rsplit(".", 1)[0] # strip the .zip extension
@@ -4022,7 +4233,7 @@ class S3MapModel(S3Model):
                 try:
                     os.mkdir(tempPath)
                 except OSError:
-                    s3_debug("Unable to create temp folder %s!" % tempPath)
+                    current.log.error("Unable to create temp folder %s!" % tempPath)
                     return
             # Set the current working directory
             os.chdir(tempPath)
@@ -4035,7 +4246,7 @@ class S3MapModel(S3Model):
                 try:
                     file = myfile.read(fileName)
                 except KeyError:
-                    s3_debug("%s.zip doesn't contain a file %s" % (layerName, fileName))
+                    current.log.error("%s.zip doesn't contain a file %s" % (layerName, fileName))
                 else:
                     f = open(fileName, "wb")
                     f.write(file)
@@ -4067,7 +4278,7 @@ class S3MapModel(S3Model):
             shapefile = "%s.shp" % layerName
             ds = ogr.Open(shapefile)
             if ds is None:
-                current.response.error = current.T("Couldn't open %s!" % shapefile)
+                current.response.error = current.T("Couldn't open %s!") % shapefile
                 # Revert back to the working directory as before.
                 os.chdir(cwd)
                 return
@@ -4184,10 +4395,11 @@ class S3MapModel(S3Model):
                 # Add a spatial field
                 append(Field("the_geom", "geometry()"))
             db._migrate_enabled = True
-            dtable = db.define_table(tablename, *Fields)
+            db.define_table(tablename, *Fields)
+            dbtable = db[tablename]
             db._migrate_enabled = False
             # Clear old data if-any
-            dtable.truncate()
+            dbtable.truncate()
             # Populate table with data
             for feature in features:
                 dtable.insert(**feature)
@@ -4222,7 +4434,7 @@ class S3GISThemeModel(S3Model):
         db = current.db
 
         # Shortcuts
-        add_component = self.add_component
+        add_components = self.add_components
         configure = self.configure
         define_table = self.define_table
         layer_id = self.super_link("layer_id", "gis_layer_entity")
@@ -4232,54 +4444,56 @@ class S3GISThemeModel(S3Model):
         #
 
         tablename = "gis_layer_theme"
-        table = define_table(tablename,
-                             layer_id,
-                             name_field()(unique = True),
-                             desc_field()(),
-                             # @ToDo:
-                             #self.stats_parameter_id(),
-                             Field("date", "datetime",
-                                   label = T("Date")),
-                             gis_layer_folder()(),
-                             gis_opacity()(),
-                             # Avoid clustering
-                             cluster_distance()(default = 1),
-                             cluster_threshold()(),
-                             s3_role_required(),       # Single Role
-                             #s3_roles_permitted(),    # Multiple Roles (needs implementing in modules/s3gis.py)
-                             *s3_meta_fields())
+        define_table(tablename,
+                     layer_id,
+                     name_field()(unique=True),
+                     desc_field()(),
+                     # @ToDo:
+                     #self.stats_parameter_id(),
+                     Field("date", "datetime",
+                           label = T("Date"),
+                           ),
+                     gis_layer_folder()(),
+                     gis_opacity()(),
+                     # Avoid clustering
+                     cluster_distance()(default = 1),
+                     cluster_threshold()(),
+                     s3_role_required(),       # Single Role
+                     #s3_roles_permitted(),    # Multiple Roles (needs implementing in modules/s3gis.py)
+                     *s3_meta_fields())
 
         configure(tablename,
                   super_entity="gis_layer_entity")
 
         # Components
-        # Configs
-        add_component("gis_config",
-                      gis_layer_theme=dict(link="gis_layer_config",
-                                           pkey="layer_id",
-                                           joinby="layer_id",
-                                           key="config_id",
-                                           actuate="hide",
-                                           autocomplete="name",
-                                           autodelete=False))
-
-        # Theme Data
-        add_component("gis_theme_data", gis_layer_theme="layer_theme_id")
+        add_components(tablename,
+                       # Configs
+                       gis_config = {"link": "gis_layer_config",
+                                     "pkey": "layer_id",
+                                     "joinby": "layer_id",
+                                     "key": "config_id",
+                                     "actuate": "hide",
+                                     "autocomplete": "name",
+                                     "autodelete": False,
+                                     },
+                       gis_theme_data = "layer_theme_id",
+                       )
 
         represent = S3Represent(lookup=tablename)
-        layer_theme_id = S3ReusableField("layer_theme_id", table,
+        layer_theme_id = S3ReusableField("layer_theme_id", "reference %s" % tablename,
                                          label = "Theme Layer",
+                                         ondelete = "CASCADE",
+                                         represent = represent,
                                          requires = IS_ONE_OF(db,
                                                               "gis_layer_theme.id",
                                                               represent
                                                               ),
-                                         represent = represent,
-                                         ondelete = "CASCADE")
+                                         )
 
         # Custom Method to generate a style
         self.set_method("gis", "layer_theme",
-                        method="style",
-                        action=self.gis_theme_style)
+                        method = "style",
+                        action = self.gis_theme_style)
 
         # =====================================================================
         # GIS Theme Data
@@ -4289,27 +4503,24 @@ class S3GISThemeModel(S3Model):
         #
 
         tablename = "gis_theme_data"
-        table = define_table(tablename,
-                             layer_theme_id(),
-                             self.gis_location_id(
-                                widget=S3LocationAutocompleteWidget(),
-                                requires = IS_LOCATION(level=["L1", "L2", "L3", "L4"]),
-                                ),
-                             Field("value",
-                                   label = T("Value")),
-                             *s3_meta_fields())
+        define_table(tablename,
+                     layer_theme_id(),
+                     self.gis_location_id(
+                         requires = IS_LOCATION(level=["L1", "L2", "L3", "L4"]),
+                         widget = S3LocationAutocompleteWidget(),
+                     ),
+                     Field("value",
+                           label = T("Value"),
+                           ),
+                     *s3_meta_fields())
 
-        ADD_THEME = T("Add Data to Theme Layer")
         current.response.s3.crud_strings[tablename] = Storage(
-            title_create = ADD_THEME,
+            label_create = T("Add Data to Theme Layer"),
             title_display = T("Theme Data"),
             title_list = T("Theme Data"),
             title_update = T("Edit Theme Data"),
-            title_search = T("Search Theme Data"),
             title_upload = T("Import Data for Theme Layer"),
-            subtitle_create = T("Add New Data to Theme Layer"),
             label_list_button = T("List Data in Theme Layer"),
-            label_create_button = ADD_THEME,
             label_delete_button = T("Delete Data from Theme layer"),
             msg_record_created = T("Data added to Theme Layer"),
             msg_record_modified = T("Theme Data updated"),
@@ -4345,7 +4556,7 @@ class S3GISThemeModel(S3Model):
         q = []
         qappend = q.append
         for i in range(classes - 1):
-            qappend(1 / classes * (i + 1))
+            qappend(1.0 / classes * (i + 1))
         breaks = current.s3db.stats_quantile(values, q)
         # Make mutable
         breaks = list(breaks)
@@ -4364,11 +4575,10 @@ class S3GISThemeModel(S3Model):
         style = []
         sappend = style.append
         for i in range(classes):
-            element = {"low": breaks[i],
-                       "high": breaks[i + 1],
-                       "fill": colours[i]
-                       }
-            sappend(element)
+            sappend({"low": breaks[i],
+                     "high": breaks[i + 1],
+                     "fill": colours[i]
+                     })
 
         current.response.headers["Content-Type"] = "application/json"
         return json.dumps(style)
@@ -4394,40 +4604,37 @@ class S3POIModel(S3Model):
         # PoI Category
         #
         tablename = "gis_poi_type"
-        table = define_table(tablename,
-                             Field("name",
-                                   label = T("Name"),
-                                   requires = IS_NOT_EMPTY(),
-                                   ),
-                             s3_comments(),
-                             *s3_meta_fields())
+        define_table(tablename,
+                     Field("name",
+                           label = T("Name"),
+                           requires = IS_NOT_EMPTY(),
+                           ),
+                     s3_comments(),
+                     *s3_meta_fields())
 
         represent = S3Represent(lookup=tablename, translate=True)
-        poi_type_id = S3ReusableField("poi_type_id", table,
-                                      sortby="name",
-                                      requires = IS_NULL_OR(
-                                        IS_ONE_OF(current.db, "gis_poi_type.id",
-                                                  represent)),
-                                      represent = represent,
+        poi_type_id = S3ReusableField("poi_type_id", "reference %s" % tablename,
                                       label = T("Type"),
                                       ondelete = "SET NULL",
+                                      represent = represent,
+                                      requires = IS_EMPTY_OR(
+                                        IS_ONE_OF(current.db, "gis_poi_type.id",
+                                                  represent)),
+                                      sortby = "name",
                                       )
 
         #self.configure(tablename,
         #               onaccept = self.gis_poi_type_onaccept,
         #               )
 
-        ADD_POI_TYPE = T("Add PoI Type")
+        ADD_POI_TYPE = T("Create PoI Type")
         crud_strings[tablename] = Storage(
-            title_create = ADD_POI_TYPE,
+            label_create = ADD_POI_TYPE,
             title_display = T("PoI Type Details"),
             title_list = T("PoI Types"),
             title_update = T("Edit PoI Type"),
-            title_search = T("Search PoI Types"),
             title_upload = T("Import PoI Types"),
-            subtitle_create = T("Add New PoI Type"),
             label_list_button = T("List PoI Types"),
-            label_create_button = ADD_POI_TYPE,
             label_delete_button = T("Delete PoI Type"),
             msg_record_created = T("PoI Type added"),
             msg_record_modified = T("PoI Type updated"),
@@ -4438,33 +4645,30 @@ class S3POIModel(S3Model):
         # PoI
         #
         tablename = "gis_poi"
-        table = define_table(tablename,
-                             poi_type_id(),
-                             Field("name",
-                                   label = T("Title"),
-                                   requires = IS_NOT_EMPTY(),
-                                   ),
-                             s3_comments(comment = None,
-                                         label = T("Description"),
-                                         ),
-                             self.gis_location_id(
-                                ondelete = "CASCADE",
-                                requires = IS_LAT_LON("gis_poi_location_id"),
-                                widget = S3LocationLatLonWidget(),
-                                ),
-                             *s3_meta_fields())
+        define_table(tablename,
+                     poi_type_id(),
+                     Field("name",
+                           label = T("Title"),
+                           requires = IS_NOT_EMPTY(),
+                           ),
+                     s3_comments(comment = None,
+                                 label = T("Description"),
+                                 ),
+                     self.gis_location_id(
+                         ondelete = "CASCADE",
+                         requires = IS_LAT_LON("gis_poi_location_id"),
+                         widget = S3LocationLatLonWidget(),
+                     ),
+                     *s3_meta_fields())
 
-        ADD_POI = T("Add Point of Interest")
+        ADD_POI = T("Create Point of Interest")
         crud_strings[tablename] = Storage(
-            title_create = ADD_POI,
+            label_create = ADD_POI,
             title_display = T("Point of Interest Details"),
             title_list = T("Points of Interest"),
             title_update = T("Edit Point of Interest"),
-            title_search = T("Search Points of Interest"),
             title_upload = T("Import Points of Interest"),
-            subtitle_create = T("Add New Point of Interest"),
             label_list_button = T("List Points of Interest"),
-            label_create_button = ADD_POI,
             label_delete_button = T("Delete Point of Interest"),
             msg_record_created = T("Point of Interest added"),
             msg_record_modified = T("Point of Interest updated"),
@@ -4495,11 +4699,11 @@ class S3POIFeedModel(S3Model):
         # Store last update time for a PoI feed
         #
         tablename = "gis_poi_feed"
-        table = self.define_table(tablename,
-                                  self.gis_location_id(),
-                                  Field("tablename"),
-                                  Field("last_update", "datetime"),
-                                  *s3_meta_fields())
+        self.define_table(tablename,
+                          self.gis_location_id(),
+                          Field("tablename"),
+                          Field("last_update", "datetime"),
+                          *s3_meta_fields())
 
         # Pass names back to global scope (s3.*)
         return dict()
@@ -4508,12 +4712,13 @@ class S3POIFeedModel(S3Model):
 def name_field():
     return S3ReusableField("name", length=64, notnull=True,
                            #unique=True,
-                           label=current.T("Name"))
+                           label = current.T("Name"),
+                           )
 
 # =============================================================================
 def desc_field():
     return S3ReusableField("description", "text",
-                           label=current.T("Description"),
+                           label = current.T("Description"),
                            represent = lambda v: v or current.messages["NONE"],
                            widget = s3_comments_widget,
                            )
@@ -4521,16 +4726,16 @@ def desc_field():
 # =============================================================================
 def source_name_field():
     return S3ReusableField("source_name",
-                           label=current.T("Source Name"),
+                           label = current.T("Source Name"),
                            represent = lambda v: v or current.messages["NONE"],
                            )
 
 # =============================================================================
 def source_url_field():
     return S3ReusableField("source_url",
-                           label=current.T("Source URL"),
-                           requires = IS_NULL_OR(IS_URL(mode="generic")),
+                           label = current.T("Source URL"),
                            represent = lambda v: v or current.messages["NONE"],
+                           requires = IS_EMPTY_OR(IS_URL(mode="generic")),
                            )
 
 # =============================================================================
@@ -4541,25 +4746,30 @@ def gis_layer_folder():
                            comment = DIV(_class="tooltip",
                                          _title="%s|%s" % (FOLDER,
                                                            T("If you enter a foldername then the layer will appear in this folder in the Map's layer switcher. A sub-folder can be created by separating names with a '/'"))),
-                           label = FOLDER)
+                           label = FOLDER,
+                           )
 
 # =============================================================================
 def gis_opacity():
     T = current.T
     OPACITY = T("Opacity")
-    return S3ReusableField("opacity", "double", default=1.0,
+    return S3ReusableField("opacity", "double",
+                           default = 1.0,
+                           label = OPACITY,
                            requires = IS_FLOAT_IN_RANGE(0, 1),
                            widget = S3SliderWidget(0, 1, 0.01, "float"),
                            comment = DIV(_class="tooltip",
                                          _title="%s|%s" % (OPACITY,
                                                            T("Left-side is fully transparent (0), right-side is opaque (1.0)."))),
-                           label = OPACITY)
+                           )
 
 # =============================================================================
 def gis_refresh():
-    return S3ReusableField("refresh", "integer", default=900,       # 15 minutes
+    return S3ReusableField("refresh", "integer",
+                           default = 900,       # 15 minutes
+                           label = current.T("Refresh Rate (seconds)"),
                            requires = IS_INT_IN_RANGE(0, 86400),    # 0 seconds - 24 hours
-                           label = current.T("Refresh Rate (seconds)"))
+                           )
 
 # =============================================================================
 def cluster_attribute():
@@ -4577,24 +4787,26 @@ def cluster_distance():
     T = current.T
     CLUSTER_DISTANCE = T("Cluster Distance")
     return S3ReusableField("cluster_distance", "integer", notnull=True,
+                           default = 20,
                            label = CLUSTER_DISTANCE,
                            comment = DIV(_class="tooltip",
                                          _title="%s|%s" % (CLUSTER_DISTANCE,
                                                            T("The number of pixels apart that features need to be before they are clustered."))),
                            requires = IS_INT_IN_RANGE(1, 51),
-                           default = 20)
+                           )
 
 # =============================================================================
 def cluster_threshold():
     T = current.T
     CLUSTER_THRESHOLD = T("Cluster Threshold")
     return S3ReusableField("cluster_threshold", "integer", notnull=True,
+                           default = 2,
                            label = CLUSTER_THRESHOLD,
                            comment = DIV(_class="tooltip",
                                          _title="%s|%s" % (CLUSTER_THRESHOLD,
                                                            T("The minimum number of features to form a cluster. 0 to disable."))),
                            requires = IS_INT_IN_RANGE(0, 10),
-                           default = 2)
+                           )
 
 # =============================================================================
 def gis_layer_onaccept(form):
@@ -4628,7 +4840,6 @@ def gis_layer_onaccept(form):
             ltable.insert(config_id = config_id,
                           layer_id = layer_id,
                           enabled = True)
-    return
 
 # =============================================================================
 def gis_hierarchy_editable(level, id):
@@ -4701,15 +4912,15 @@ def gis_location_filter(r):
                 tag = db(query).select(ttable.value,
                                        limitby=(0, 1)).first()
                 code = tag.value
-            filter = (S3FieldSelector(selector) == code)
+            filter = (FS(selector) == code)
         elif resource.name == "project":
             # Go via project_location link table
             selector = "location.location_id$%s" % row.level
-            filter = (S3FieldSelector(selector) == row.name)
+            filter = (FS(selector) == row.name)
         else:
             # Normal case: resource with location_id
             selector = "%s.location_id$%s" % (resource.name, row.level)
-            filter = (S3FieldSelector(selector) == row.name)
+            filter = (FS(selector) == row.name)
         resource.add_filter(filter)
 
 # =============================================================================
@@ -4787,12 +4998,13 @@ class gis_LocationRepresent(S3Represent):
 
     # -------------------------------------------------------------------------
     @staticmethod
-    def link(k, v):
+    def link(k, v, row=None):
         """
             Represent a (key, value) as hypertext link.
 
             @param k: the key
             @param v: the representation of the key
+            @param row: the row with this key (unused here)
         """
 
         return A(v,
@@ -5038,8 +5250,12 @@ def gis_layer_represent(id, row=None, show_link=True):
     if show_link:
         table = s3db[instance_type]
         query = (table.layer_id == row.layer_id)
-        id = db(query).select(table.id,
-                              limitby=(0, 1)).first().id
+        try:
+            id = db(query).select(table.id,
+                                  limitby=(0, 1)).first().id
+        except:
+            # Not found?
+            return represent
         c, f = instance_type.split("_", 1)
         represent = A(represent,
                       _href=URL(c=c, f=f,

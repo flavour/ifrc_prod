@@ -79,7 +79,9 @@ S3.Utf8 = {
 S3.addTooltips = function() {
     // Popovers (Bootstrap themes only)
     if (typeof($.fn.popover) != 'undefined') {
-        $('.s3-popover').popover({
+        // Applies to elements created after $(document).ready
+        $('body').popover({
+            selector: '.s3-popover',
             trigger: 'hover',
             placement: 'left'
         });
@@ -122,6 +124,9 @@ S3.addModals = function() {
         if (!caller) {
             // DIV-based formstyle
             caller = $(this).parent().parent().attr('id');
+        }
+        if (!caller) {
+            caller = $(this).parents('.form-row').attr('id');
         }
         if (!caller) {
             // Bootstrap formstyle
@@ -473,9 +478,27 @@ S3.showAlert = function(message, type) {
     });
 };
 
-S3.hideAlerts = function() {
-    $('#alert-space').empty();
+S3.hideAlerts = function(type) {
+    if (type) {
+        $('.alert-' + type).remove();
+    } else {
+        $('#alert-space').empty();
+    }
 };
+
+/**
+ * Display an Error next to a Field
+ *
+ *  To display an alert:
+ *  S3.fieldError(selector, error)
+ *    selector - string - selector for the field to display the error against
+ *    error - string - message to display
+ */
+S3.fieldError = function(selector, error) {
+    // @ToDo: Are we using a Bootstrap or normal Theme?
+    // Display the Error
+    $(selector).after('<div class="error" style="display: block;">' + error + '</div>');
+}
 
 // ============================================================================
 var s3_viewMap = function(feature_id) {
@@ -715,9 +738,28 @@ var S3OptionsFilter = function(settings) {
         var targetWidget = settings.targetWidget || targetSelector;
         var widget = $('[name = "' + targetWidget + '"]');
         widget.hide();
+
+        // Do we have a groupedopts or multiselect widget?
+        var is_groupedopts = false,
+            is_multiselect = false;
+        if (widget.hasClass('groupedopts-widget')) {
+            is_groupedopts = true;
+            widget.groupedopts('hide');
+        } else if (widget.hasClass('multiselect-widget')) {
+            is_multiselect = true;
+        }
+
+        // Store selected values before Ajax-refresh
+        var widget_value = null;
+        if (widget.prop('tagName').toLowerCase() == 'select') {
+            widget_value = widget.val();
+        }
+
+        // Show throbber while loading
         if ($('#' + lookupResource + '_throbber').length === 0 ) {
             widget.after('<div id="' + lookupResource + '_throbber" class="throbber"/>');
         }
+
 
         if (!settings.getWidgetHTML) {
             // URL returns the widget options as JSON
@@ -834,8 +876,30 @@ var S3OptionsFilter = function(settings) {
                         // Replace the target field with the HTML returned
                         widget.html(data)
                               .change()
-                              .prop('disabled', false)
-                              .show();
+                              .prop('disabled', false);
+
+                        if (is_groupedopts || is_multiselect) {
+                            // groupedopts or multiselect => refresh widget
+                            if (widget_value) {
+                                // Restore selected values if the options are still
+                                // available
+                                var new_value = [];
+                                for (var i=0, len=widget_value.length, val; i<len; i++) {
+                                    val = widget_value[i];
+                                    if (widget.find('option[value=' + val + ']').length) {
+                                        new_value.push(val);
+                                    }
+                                }
+                                widget.val(new_value).change();
+                            }
+                            if (is_groupedopts) {
+                                widget.groupedopts('refresh');
+                            } else {
+                                widget.multiselect('refresh');
+                            }
+                        } else {
+                            widget.show();
+                        }
                     } else {
                         // Disable the target field
                         widget.prop('disabled', true);
@@ -846,6 +910,10 @@ var S3OptionsFilter = function(settings) {
                         // Don't include this change in the deliberate changes
                         S3ClearNavigateAwayConfirm();
                         first = false;
+                    }
+                    // Restore event handlers (@todo: deprecate)
+                    if (S3.inline_checkbox_events) {
+                        S3.inline_checkbox_events();
                     }
                 }
             });
@@ -908,7 +976,7 @@ S3.slider = function(fieldname, min, max, step, value) {
                   .after('<p>' + i18n.slider_help + '</p>');
     }
     // Enable the field before form is submitted
-    $('form').submit(function() {
+    real_input.closest('form').submit(function() {
         real_input.prop('disabled', false);
         // Normal Submit
         return true;
@@ -1106,7 +1174,9 @@ S3.reloadWithQueryStringVars = function(queryStringVars) {
             inputName = inputErrorId.replace('__error', '');
             inputId = $('[name=' + inputName + ']').attr('id');
             inputLabel = $('[for=' + inputId + ']');
-            window.scrollTo(0, inputLabel.offset().top);
+            try {
+                window.scrollTo(0, inputLabel.offset().top);
+            } catch(e) {}
         }
 
         // T2 Layer

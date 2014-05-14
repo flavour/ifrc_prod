@@ -408,10 +408,14 @@ $(function() {
                     input.prop('checked', value);
                 } else {
                     input.val(value);
-                    // Populate text in autocompletes
-                    element = '#dummy_sub_' + formname + '_' + formname + '_i_' + fieldname + '_edit_0';
-                    text = row[fieldname]['text'];
-                    $(element).val(text);
+                    if (input.hasClass('multiselect-widget')) {
+                        input.multiselect('refresh');
+                    } else {
+                        // Populate text in autocompletes
+                        element = '#dummy_sub_' + formname + '_' + formname + '_i_' + fieldname + '_edit_0';
+                        text = row[fieldname]['text'];
+                        $(element).val(text);
+                    }
                 }
             }
         }
@@ -790,12 +794,24 @@ $(function() {
                 inline_catch_submit(this);
             });
         });
+        $('.edit-row select.multiselect-widget').bind('multiselectopen', function() {
+            $('.edit-row select.multiselect-widget').one('change', function() {
+                inline_mark_changed(this);
+                inline_catch_submit(this);
+            });
+        });
         $('.add-row input[type="text"], .add-row textarea').bind('input', function() {
             inline_mark_changed(this);
             inline_catch_submit(this);
         });
         $('.add-row input[type!="text"], .add-row select').bind('focusin', function() {
             $('.add-row input[type!="text"], .add-row select').one('change', function() {
+                inline_mark_changed(this);
+                inline_catch_submit(this);
+            });
+        });
+        $('.add-row select.multiselect-widget').bind('multiselectopen', function() {
+            $('.add-row select.multiselect-widget').one('change', function() {
                 inline_mark_changed(this);
                 inline_catch_submit(this);
             });
@@ -918,6 +934,9 @@ $(function() {
         });
     };
 
+    // Make global for OptionsFilter script
+    S3.inline_checkbox_events = inline_checkbox_events;
+
     // Used by S3SQLInlineComponentMultiSelectWidget
     var inline_multiselect_events = function() {
         // Listen for changes on all Inline MultiSelect Widgets
@@ -1016,10 +1035,24 @@ $(function() {
             var formname = names.pop();
             inline_edit(formname, rowindex);
         });
+        $('.inline-form.add-row.single').each(function() {
+            var defaults = false;
+            $(this).find('input, select').each(function() {
+                if ($(this).val()) {
+                    defaults = true;
+                }
+            });
+            if (defaults) {
+                // Ensure these get validated whether or not they are changed
+                inline_mark_changed(this);
+                inline_catch_submit(this);
+            }
+        });
 
         // Check for required subforms
-        $('.add-row.inline-form.required').each(function() {
+        $('.inline-form.add-row.required').each(function() {
             // Ensure these get validated whether or not they are changed
+            inline_mark_changed(this);
             inline_catch_submit(this);
         });
 

@@ -52,10 +52,8 @@ class S3Summary(S3Method):
         if "w" in r.get_vars:
             # Ajax-request for a specific widget
             return self.ajax(r, **attr)
-
         else:
             # Full page request
-            # @todo: check for proper format + method
             return self.summary(r, **attr)
 
     # -------------------------------------------------------------------------
@@ -93,6 +91,13 @@ class S3Summary(S3Method):
             active_tab = 0
         active_map = None
 
+        show_filter_form = False
+        filter_widgets = get_config("filter_widgets")
+        if filter_widgets and not self.hide_filter:
+            # Apply filter defaults (before rendering the data!)
+            show_filter_form = True
+            S3FilterForm.apply_filter_defaults(r, resource)
+
         # Render sections
         tab_idx = 0
         widget_idx = 0
@@ -115,9 +120,7 @@ class S3Summary(S3Method):
                 label = section["label"]
                 translate = section.get("translate", True)
                 if isinstance(label, basestring) and translate:
-                    self.label = current.T(label)
-                else:
-                    self.label = label
+                    label = current.T(label)
 
                 # Add tab
                 tablist.append(LI(A(label, _href="#%s" % section_id)))
@@ -154,6 +157,9 @@ class S3Summary(S3Method):
                                      **attr)
                 else:
                     handler = r.get_widget_handler(method)
+                    if handler is None:
+                        # Fall back to CRUD
+                        handler = resource.crud
                     if handler is not None:
                         if method == "datatable":
                             # Assume that we have a FilterForm, so disable Quick Search
@@ -166,10 +172,17 @@ class S3Summary(S3Method):
                                           visible=visible,
                                           **attr)
                     else:
-                        r.error(405, r.ERROR.BAD_METHOD)
+                        r.error(405, current.ERROR.BAD_METHOD)
 
                 # Add content to section
                 if isinstance(content, dict):
+                    if r.http == "POST" and content.get("success"):
+                        # Form successfully processed: behave like the
+                        # primary method handler and redirect to next
+                        next_url = content.get("next")
+                        if next_url:
+                            self.next = next_url
+                            return content
                     for k, v in content.items():
                         if k not in ("tabs", "sections", "widget"):
                             output[k] = v
@@ -211,8 +224,7 @@ class S3Summary(S3Method):
 
         # Filter form
         filter_ajax = True
-        filter_widgets = get_config("filter_widgets")
-        if filter_widgets and not self.hide_filter:
+        if show_filter_form:
 
             # Where to retrieve filtered data from:
             if active_tab != 0:
@@ -303,7 +315,7 @@ class S3Summary(S3Method):
                                              widget_id=widget_id,
                                              **attr)
                         else:
-                            r.error(405, r.ERROR.BAD_METHOD)
+                            r.error(405, current.ERROR.BAD_METHOD)
                     return output
                 i += 1
 

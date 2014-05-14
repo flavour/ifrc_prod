@@ -71,7 +71,7 @@ from gluon.html import *
 from s3codec import S3Codec
 from s3crud import S3CRUD
 from s3forms import S3SQLDefaultForm
-from s3utils import s3_debug, s3_unicode
+from s3utils import s3_unicode
 from s3validators import IS_IN_SET, IS_ONE_OF, IS_ONE_OF_EMPTY
 from s3widgets import S3PentityAutocompleteWidget
 
@@ -396,12 +396,13 @@ class S3Msg(object):
         if isinstance(pe_id, list):
             # Add an entry per recipient
             listindex = 0
+            insert = table.insert
             for id in pe_id:
                 try:
-                    table.insert(message_id = message_id,
-                                 pe_id = id,
-                                 contact_method = contact_method,
-                                 system_generated = system_generated)
+                    insert(message_id = message_id,
+                           pe_id = id,
+                           contact_method = contact_method,
+                           system_generated = system_generated)
                     listindex = listindex + 1
                 except:
                     return listindex
@@ -443,6 +444,12 @@ class S3Msg(object):
                 # Raise exception here to make the scheduler
                 # task fail permanently
                 raise ValueError("No SMS handler defined!")
+        elif contact_method == "TWITTER":
+            twitter_settings = self.get_twitter_api()
+            if not twitter_settings:
+                # Raise exception here to make the scheduler
+                # task fail permanently
+                raise ValueError("No Twitter API available!")
 
         def dispatch_to_pe_id(pe_id,
                               subject,
@@ -589,7 +596,7 @@ class S3Msg(object):
 
             entity_type = row["pr_pentity"].instance_type
             if not entity_type:
-                s3_debug("s3msg", "Entity type unknown")
+                current.log.warning("s3msg", "Entity type unknown")
                 continue
 
             row = row["msg_outbox"]
@@ -696,7 +703,7 @@ class S3Msg(object):
         settings = current.deployment_settings
         default_sender = settings.get_mail_sender()
         if not default_sender:
-            s3_debug("Email sending disabled until the Sender address has been set in models/000_config.py")
+            current.log.warning("Email sending disabled until the Sender address has been set in models/000_config.py")
             return False
 
         limit = settings.get_mail_limit()
@@ -878,7 +885,7 @@ class S3Msg(object):
         if clickatell:
             text_len = len(text)
             if text_len > 480:
-                s3_debug("Clickatell messages cannot exceed 480 chars")
+                current.log.error("Clickatell messages cannot exceed 480 chars")
                 return False
             elif text_len > 320:
                 post_data["concat"] = 3
@@ -894,14 +901,14 @@ class S3Msg(object):
         try:
             result = urllib2.urlopen(request, query)
         except urllib2.HTTPError, e:
-            s3_debug("SMS message send failed: %s" % e)
+            current.log.error("SMS message send failed: %s" % e)
             return False
         else:
             # Parse result
             output = result.read()
             if clickatell:
                 if output.startswith("ERR"):
-                    s3_debug("Clickatell message send failed: %s" % output)
+                    current.log.error("Clickatell message send failed: %s" % output)
                     return False
                 elif message_id and output.startswith("ID"):
                     # Store ID from Clickatell to be able to followup
@@ -912,7 +919,7 @@ class S3Msg(object):
                 # Good = <response success="true"></response>
                 # Bad = <response success="false"><errror id="id" message="message"></response>
                 if "error" in output:
-                    s3_debug("Mobile Commons message send failed: %s" % output)
+                    current.log.error("Mobile Commons message send failed: %s" % output)
                     return False
 
             return True
@@ -933,7 +940,7 @@ class S3Msg(object):
             self.modem.send_sms(mobile, text)
             return True
         except KeyError:
-            s3_debug("s3msg", "Modem not available: need to have the cron/sms_handler_modem.py script running")
+            current.log.error("s3msg", "Modem not available: need to have the cron/sms_handler_modem.py script running")
             return False
 
     # -------------------------------------------------------------------------
@@ -1089,7 +1096,7 @@ class S3Msg(object):
         try:
             import tweepy
         except ImportError:
-            s3_debug("s3msg", "Tweepy not available, so non-Tropo Twitter support disabled")
+            current.log.error("s3msg", "Tweepy not available, so non-Tropo Twitter support disabled")
             return None
 
         table = current.s3db.msg_twitter_channel
@@ -1125,7 +1132,6 @@ class S3Msg(object):
             Breaks long text to chunks if needed.
 
             @ToDo: Option to Send via Tropo
-            @ToDo: Store outgoing tweets in db.msg_twitter
         """
 
         # Initialize Twitter API
@@ -1139,63 +1145,71 @@ class S3Msg(object):
         twitter_api = twitter_settings[0]
         twitter_account = twitter_settings[1]
 
+        from_address = twitter_api.me().screen_name
+
+        db = current.db
+        s3db = current.s3db
+        table = s3db.msg_twitter
+        otable = s3db.msg_outbox
+
+        def log_tweet(tweet, recipient, from_address):
+            # Log in msg_twitter
+            id = table.insert(body=tweet,
+                              from_address=from_address,
+                              )
+            record = db(table.id == id).select(table.id,
+                                               limitby=(0, 1)
+                                               ).first()
+            s3db.update_super(table, record)
+            message_id = record.message_id
+
+            # Log in msg_outbox
+            otable.insert(message_id = message_id,
+                          address = recipient,
+                          status = 2,
+                          contact_method = "TWITTER",
+                          )
+
         if recipient:
             recipient = self._sanitise_twitter_account(recipient)
             try:
-                can_dm = recipient == twitter_account or\
+                can_dm = recipient == twitter_account or \
                          twitter_api.get_user(recipient).id in twitter_api.followers_ids(twitter_account)
-            except tweepy.TweepError: # recipient not found
+            except tweepy.TweepError:
+                # recipient not found
                 return False
             if can_dm:
-                chunks = self._break_to_chunks(text, TWITTER_MAX_CHARS)
+                chunks = self._break_to_chunks(text)
                 for c in chunks:
                     try:
                         # Note: send_direct_message() requires explicit kwargs (at least in tweepy 1.5)
                         # See http://groups.google.com/group/tweepy/msg/790fcab8bc6affb5
-                        rec = recipient
-                        if twitter_api.send_direct_message(screen_name=rec,
+                        if twitter_api.send_direct_message(screen_name=recipient,
                                                            text=c):
-                            s3db = current.s3db
-                            db = current.db
-
-                            table = s3db.msg_twitter
-                            myname = twitter_api.me().screen_name
-                            id = table.insert(body=c,
-                                              from_address=myname,
-                                              )
-                            query = (table.id == id)
-                            record = db(query).select(table.id,
-                                                      table.message_id,
-                                                      limitby=(0, 1)).first()
-                            s3db.update_super(table, record)
-                            message_id = record.message_id
-
-                            otable = s3db.msg_outbox
-
-                            otable.insert(message_id = message_id,
-                                          address = rec,
-                                          status = 2,
-                                          contact_method = "TWITTER",
-                                         )
+                            log_tweet(tweet, recipient, from_address)
 
                     except tweepy.TweepError:
-                        s3_debug("Unable to Tweet DM")
+                        current.log.error("Unable to Tweet DM")
             else:
                 prefix = "@%s " % recipient
                 chunks = self._break_to_chunks(text,
                                                TWITTER_MAX_CHARS - len(prefix))
                 for c in chunks:
                     try:
-                        twitter_api.update_status(prefix + c)
+                        twitter_api.update_status("%s %s" % prefix, c)
                     except tweepy.TweepError:
-                        s3_debug("Unable to Tweet @mention")
+                        current.log.error("Unable to Tweet @mention")
+                    else:
+                        log_tweet(tweet, recipient, from_address)
         else:
-            chunks = self._break_to_chunks(text, TWITTER_MAX_CHARS)
+            chunks = self._break_to_chunks(text)
             for c in chunks:
                 try:
                     twitter_api.update_status(c)
                 except tweepy.TweepError:
-                    s3_debug("Unable to Tweet")
+                    current.log.error("Unable to Tweet")
+                else:
+                    log_tweet(tweet, recipient, from_address)
 
         return True
 
@@ -1212,7 +1226,7 @@ class S3Msg(object):
             fn = getattr(S3Msg, function_name)
         except:
             error = "Unsupported Channel: %s" % channel_type
-            s3_debug(error)
+            current.log.error(error)
             return error
 
         result = fn(channel_id)
@@ -1261,6 +1275,9 @@ class S3Msg(object):
         import mimetypes
         import socket
 
+        from dateutil import parser
+        date_parse = parser.parse
+
         username = channel.username
         password = channel.password
         host = channel.server
@@ -1296,6 +1313,7 @@ class S3Msg(object):
             # Parse the Headers
             sender = msg["from"]
             subject = msg.get("subject", "")
+            date_sent = msg.get("date", None)
             # Store the whole raw message
             raw = msg.as_string()
             # Parse out the 'Body'
@@ -1317,12 +1335,16 @@ class S3Msg(object):
                 attachments.append((filename, part.get_payload(decode=True)))
 
             # Store in DB
-            id = minsert(channel_id=channel_id,
-                         from_address=sender,
-                         subject=subject[:78],
-                         body=body,
-                         raw=raw,
-                         inbound=True)
+            data = dict(channel_id=channel_id,
+                        from_address=sender,
+                        subject=subject[:78],
+                        body=body,
+                        raw=raw,
+                        inbound=True,
+                        )
+            if date_sent:
+                data["date"] = date_parse(date_sent)
+            id = minsert(**data)
             record = dict(id=id)
             update_super(mtable, record)
             message_id = record["message_id"]
@@ -1356,7 +1378,7 @@ class S3Msg(object):
                     p = poplib.POP3(host, port)
             except socket.error, e:
                 error = "Cannot connect: %s" % e
-                s3_debug(error)
+                current.log.error(error)
                 # Store status in the DB
                 sinsert(channel_id=channel_id,
                         status=error)
@@ -1372,7 +1394,7 @@ class S3Msg(object):
                     p.pass_(password)
                 except poplib.error_proto, e:
                     error = "Login failed: %s" % e
-                    s3_debug(error)
+                    current.log.error(error)
                     # Store status in the DB
                     sinsert(channel_id=channel_id,
                             status=error)
@@ -1402,7 +1424,7 @@ class S3Msg(object):
                     M = imaplib.IMAP4(host, port)
             except socket.error, e:
                 error = "Cannot connect: %s" % e
-                s3_debug(error)
+                current.log.error(error)
                 # Store status in the DB
                 sinsert(channel_id=channel_id,
                         status=error)
@@ -1412,7 +1434,7 @@ class S3Msg(object):
                 M.login(username, password)
             except M.error, e:
                 error = "Login failed: %s" % e
-                s3_debug(error)
+                current.log.error(error)
                 # Store status in the DB
                 sinsert(channel_id=channel_id,
                         status=error)
@@ -1559,7 +1581,7 @@ class S3Msg(object):
             smspage = urllib2.urlopen(url)
         except urllib2.HTTPError, e:
             error = "Error: %s" % e.code
-            s3_debug(error)
+            current.log.error(error)
             # Store status in the DB
             db(table.channel_id == channel_id).update(status=error)
             return error
@@ -1620,6 +1642,38 @@ class S3Msg(object):
         if not channel:
             return "No Such RSS Channel: %s" % channel_id
 
+        # http://pythonhosted.org/feedparser
+        import feedparser
+        if channel.etag:
+            # http://pythonhosted.org/feedparser/http-etag.html
+            # NB This won't help for a server like Drupal 7 set to not allow caching & hence generating a new ETag/Last Modified each request!
+            d = feedparser.parse(channel.url, etag=channel.etag)
+        elif channel.date:
+            d = feedparser.parse(channel.url, modified=channel.date.utctimetuple())
+        else:
+            # We've not polled this feed before
+            d = feedparser.parse(channel.url)
+
+        if d.bozo:
+            # Something doesn't seem right
+            S3Msg.update_channel_status(channel_id,
+                                        status=d.bozo_exception.message,
+                                        period=(300, 3600))
+            return
+
+        # Update ETag/Last-polled
+        now = current.request.utcnow
+        data = dict(date=now)
+        etag = d.get("etag", None)
+        if etag:
+            data["etag"] = etag
+        db(query).update(**data)
+        
+        from time import mktime, struct_time
+        gis = current.gis
+        geocode_r = gis.geocode_r
+        hierarchy_level_keys = gis.hierarchy_level_keys
+        utcfromtimestamp = datetime.datetime.utcfromtimestamp
         gtable = db.gis_location
         ginsert = gtable.insert
         mtable = db.msg_rss
@@ -1632,25 +1686,27 @@ class S3Msg(object):
             ptable = db.msg_parsing_status
             pinsert = ptable.insert
 
-        # http://pythonhosted.org/feedparser
-        import feedparser
-        if channel.etag:
-            # http://pythonhosted.org/feedparser/http-etag.html
-            d = feedparser.parse(channel.url, etag=channel.etag)
-        elif channel.date:
-            d = feedparser.parse(channel.url, modified=channel.date.utctimetuple())
-        else:
-            # We've not polled this feed before
-            d = feedparser.parse(channel.url)
-        now = current.request.utcnow
-        data = dict(date=now)
-        etag = d.get("etag", None)
-        if etag:
-            data["etag"] = etag
-        db(query).update(**data)
-        utcfromtimestamp = datetime.datetime.utcfromtimestamp
-        from time import mktime, struct_time
-        for entry in d.entries:
+        entries = d.entries
+        if entries:
+            # Check how many we have already to see if any are new
+            count_old = db(mtable.id > 0).count()
+        for entry in entries:
+            link = entry.get("link", None)
+
+            # Check for duplicates
+            # (ETag just saves bandwidth, doesn't filter the contents of the feed)
+            exists = db(mtable.from_address == link).select(mtable.id,
+                                                            mtable.location_id,
+                                                            mtable.message_id,
+                                                            limitby=(0, 1)
+                                                            ).first()
+            if exists:
+                location_id = exists.location_id
+            else:
+                location_id = None
+
+            title = entry.title
+
             content = entry.get("content", None)
             if content:
                 content = content[0].value
@@ -1667,44 +1723,90 @@ class S3Msg(object):
 
             tags = entry.get("tags", None)
             if tags:
-                tags = [t.term for t in tags]
+                tags = [t.term.encode("utf-8") for t in tags]
 
-            location_id = None
+            location = False
             lat = entry.get("geo_lat", None)
-            if lat is not None:
-                lon = entry.get("geo_long", None)
-                if lon is not None:
-                    try:
-                        location_id = ginsert(lat=lat, lon=lon)
-                    except:
-                        # Don't die on badly-formed GeoRSS
-                        pass
-            else:
+            lon = entry.get("geo_long", None)
+            if lat is None or lon is None:
                 # Try GeoRSS
                 georss = entry.get("georss_point", None)
                 if georss:
-                    try:
-                        lat, lon = georss.split(" ")
-                        location_id = ginsert(lat=lat, lon=lon)
-                    except:
-                        # Don't die on badly-formed GeoRSS
-                        pass
+                    location = True
+                    lat, lon = georss.split(" ")
+            else:
+                location = True
+            if location:
+                try:
+                    query = (gtable.lat == lat) &\
+                            (gtable.lon == lon)
+                    exists = db(query).select(gtable.id,
+                                              limitby=(0, 1),
+                                              orderby=gtable.level,
+                                              ).first()
+                    if exists:
+                        location_id = exists.id
+                    else:
+                        data = dict(lat=lat,
+                                    lon=lon,
+                                    )
+                        results = geocode_r(lat, lon)
+                        if isinstance(results, dict):
+                            for key in hierarchy_level_keys:
+                                v = results.get(key, None)
+                                if v:
+                                    data[key] = v
+                        #if location_id:
+                        # Location has been changed
+                        #db(gtable.id == location_id).update(**data)
+                        location_id = ginsert(**data)
+                        data["id"] = location_id
+                        gis.update_location_tree(data)
+                except:
+                    # Don't die on badly-formed Geo
+                    pass
 
-            id = minsert(channel_id = channel_id,
-                         title = entry.title,
-                         from_address = entry.get("link", None),
-                         body = content,
-                         author = entry.get("author", None),
-                         created_on = date_published,
-                         location_id = location_id,
-                         tags = tags,
-                         # @ToDo: Enclosures
-                         )
-            record = dict(id=id)
-            update_super(mtable, record)
-            if parser:
-                pinsert(message_id = record["message_id"],
-                        channel_id = channel_id)
+            if exists:
+                db(mtable.id == exists.id).update(channel_id = channel_id,
+                                                  title = title,
+                                                  from_address = link,
+                                                  body = content,
+                                                  author = entry.get("author", None),
+                                                  date = date_published,
+                                                  location_id = location_id,
+                                                  tags = tags,
+                                                  # @ToDo: Enclosures
+                                                  )
+                if parser:
+                    pinsert(message_id = exists.message_id,
+                            channel_id = channel_id)
+                
+            else:
+                id = minsert(channel_id = channel_id,
+                             title = entry.title,
+                             from_address = link,
+                             body = content,
+                             author = entry.get("author", None),
+                             date = date_published,
+                             location_id = location_id,
+                             tags = tags,
+                             # @ToDo: Enclosures
+                             )
+                record = dict(id=id)
+                update_super(mtable, record)
+                if parser:
+                    pinsert(message_id = record["message_id"],
+                            channel_id = channel_id)
+
+        if entries:
+            # Check again to see if there were any new ones
+            count_new = db(mtable.id > 0).count()
+            if count_new == count_old:
+                # No new posts?
+                # Back-off in-case the site isn't respecting ETags/Last-Modified
+                S3Msg.update_channel_status(channel_id,
+                                            status="+1",
+                                            period=(300, 3600))
 
         return "OK"
 
@@ -1734,7 +1836,7 @@ class S3Msg(object):
         query = (table.channel_id == channel_id) & \
                 (table.inbound == True)
         latest = db(query).select(table.msg_id,
-                                  orderby=~table.created_on,
+                                  orderby=~table.date,
                                   limitby=(0, 1)
                                   ).first()
 
@@ -1745,7 +1847,7 @@ class S3Msg(object):
                 messages = twitter_api.direct_messages()
         except tweepy.TweepError as e:
             error = e.message[0]["message"]
-            s3_debug("Unable to get the Tweets for the user: %s" % error)
+            current.log.error("Unable to get the Tweets for the user: %s" % error)
             return False
 
         messages.reverse()
@@ -1757,13 +1859,65 @@ class S3Msg(object):
                          body = message.text,
                          from_address = message.sender_screen_name,
                          to_address = message.recipient_screen_name,
-                         created_on = message.created_at,
+                         date = message.created_at,
                          inbound = True,
                          msg_id = message.id,
                          )
             update_super(table, dict(id=id))
 
         return True
+
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def update_channel_status(channel_id, status, period=None):
+        """
+            Update the Status for a Channel
+        """
+
+        db = current.db
+
+        # Read current status
+        stable = current.s3db.msg_channel_status
+        query = (stable.channel_id == channel_id)
+        old_status = db(query).select(stable.status,
+                                      limitby=(0, 1)
+                                      ).first()
+        if old_status:
+            # Update
+            if status[0] == "+":
+                # Increment status if-numeric
+                old_status = old_status.status
+                try:
+                    old_status = int(old_status)
+                except:
+                    new_status = status
+                else:
+                    new_status = old_status + int(status[1:])
+            else:
+                new_status = status
+            db(query).update(status = new_status)
+        else:
+            # Initialise
+            stable.insert(channel_id = channel_id,
+                          status = status)
+        if period:
+            # Amend the frequency of the scheduled task
+            ttable = db.scheduler_task
+            args = '["msg_rss_channel", %s]' % channel_id
+            query = ((ttable.function_name == "msg_poll") & \
+                     (ttable.args == args) & \
+                     (ttable.status.belongs(["RUNNING", "QUEUED", "ALLOCATED"])))
+            exists = db(query).select(ttable.id,
+                                      ttable.period,
+                                      limitby=(0, 1)).first()
+            if not exists:
+                return
+            old_period = exists.period
+            max_period = period[1]
+            if old_period < max_period:
+                new_period = old_period + period[0]
+                new_period = min(new_period, max_period)
+                db(ttable.id == exists.id).update(period=new_period)
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -1776,7 +1930,7 @@ class S3Msg(object):
             import TwitterSearch
         except ImportError:
             error = "Unresolved dependency: TwitterSearch required for fetching results from twitter keyword queries"
-            s3_debug("s3msg", error)
+            current.log.error("s3msg", error)
             current.session.error = error
             redirect(URL(f="index"))
 
@@ -1794,7 +1948,7 @@ class S3Msg(object):
 
         if not settings:
             error = "Twitter Search requires an account configuring"
-            s3_debug("s3msg", error)
+            current.log.error("s3msg", error)
             current.session.error = error
             redirect(URL(f="twitter_channel"))
 
@@ -1839,7 +1993,7 @@ class S3Msg(object):
             body = tweet["text"]
             tweet_id = tweet["id_str"]
             lang = tweet["lang"]
-            created_on = date_parse(tweet["created_at"])
+            created_at = date_parse(tweet["created_at"])
             lat = None
             lon = None
             if tweet["coordinates"]:
@@ -1853,7 +2007,7 @@ class S3Msg(object):
                                body = body,
                                tweet_id = tweet_id,
                                lang = lang,
-                               created_on = created_on,
+                               date = created_at,
                                inbound = True,
                                location_id = location_id,
                                )
@@ -1954,7 +2108,7 @@ class S3Compose(S3CRUD):
         if r.http in ("GET", "POST"):
             output = self.compose(r, **attr)
         else:
-            r.error(405, current.manager.ERROR.BAD_METHOD)
+            r.error(405, current.ERROR.BAD_METHOD)
         return output
 
     # -------------------------------------------------------------------------
@@ -2010,7 +2164,7 @@ class S3Compose(S3CRUD):
         if self.method == "compose":
             output = dict(form=form)
         else:
-            r.error(501, current.manager.ERROR.BAD_METHOD)
+            r.error(501, current.ERROR.BAD_METHOD)
 
         # Complete the page
         if r.representation == "html":
@@ -2031,7 +2185,7 @@ class S3Compose(S3CRUD):
             output["title"] = title
             #output["subtitle"] = subtitle
             #output["form"] = form
-            #current.response.view = self._view(r, "list_create.html")
+            #current.response.view = self._view(r, "list_filter.html")
             current.response.view = self._view(r, "create.html")
 
         return output
@@ -2043,20 +2197,29 @@ class S3Compose(S3CRUD):
             Route the message
         """
 
-        vars = current.request.post_vars
+        post_vars = current.request.post_vars
+        contact_method = post_vars.contact_method
 
         recipients = self.recipients
         if not recipients:
-            if not vars.pe_id:
-                current.session.error = current.T("Please enter the recipient(s)")
-                redirect(self.url)
+            if not post_vars.pe_id:
+                if contact_method != "TWITTER": 
+                    current.session.error = current.T("Please enter the recipient(s)")
+                    redirect(self.url)
+                else:
+                    # This must be a Status Update
+                    if current.msg.send_tweet(post_vars.body):
+                        current.session.confirmation = current.T("Check outbox for the message status")
+                    else:
+                        current.session.error = current.T("Error sending message!")
+                    redirect(self.url)
             else:
-                recipients = vars.pe_id
+                recipients = post_vars.pe_id
 
         if current.msg.send_by_pe_id(recipients,
-                                     vars.subject,
-                                     vars.body,
-                                     vars.contact_method):
+                                     post_vars.subject,
+                                     post_vars.body,
+                                     contact_method):
             current.session.confirmation = current.T("Check outbox for the message status")
             redirect(self.url)
         else:
@@ -2076,7 +2239,7 @@ class S3Compose(S3CRUD):
         db = current.db
         s3db = current.s3db
         request = current.request
-        vars = request.get_vars
+        get_vars = request.get_vars
 
         mtable = s3db.msg_message
         otable = s3db.msg_outbox
@@ -2103,15 +2266,15 @@ class S3Compose(S3CRUD):
 
         recipient = self.recipient # from msg.compose()
         if not recipient:
-            if "pe_id" in vars:
-                recipient = vars.pe_id
-            elif "person_id" in vars:
+            if "pe_id" in get_vars:
+                recipient = get_vars.pe_id
+            elif "person_id" in get_vars:
                 # @ToDo
                 pass
-            elif "group_id" in vars:
+            elif "group_id" in get_vars:
                 # @ToDo
                 pass
-            elif "human_resource.id" in vars:
+            elif "human_resource.id" in get_vars:
                 # @ToDo
                 pass
 
@@ -2171,14 +2334,14 @@ class S3Compose(S3CRUD):
                         if controller == "hrm":
                             url = URL(c="hrm", f="person", args="contacts",
                                       vars={"group": "staff",
-                                            "human_resource.id": vars.get("human_resource.id")})
+                                            "human_resource.id": get_vars.get("human_resource.id")})
                         elif controller == "vol":
                             url = URL(c="vol", f="person", args="contacts",
                                       vars={"group": "volunteer",
-                                            "human_resource.id": vars.get("human_resource.id")})
+                                            "human_resource.id": get_vars.get("human_resource.id")})
                         elif controller == "member":
                             url = URL(c="member", f="person", args="contacts",
-                                      vars={"membership.id": vars.get("membership.id")})
+                                      vars={"membership.id": get_vars.get("membership.id")})
                         else:
                             # @ToDo: Lookup the type
                             url = URL(f="index")

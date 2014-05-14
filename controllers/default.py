@@ -34,20 +34,30 @@ def download():
 def register_validation(form):
     """ Validate the fields in registration form """
 
-    vars = form.vars
+    form_vars = form.vars
+
     # Mobile Phone
-    if "mobile" in vars and vars.mobile:
+    mobile = form_vars.get("mobile")
+    if mobile:
         import re
         regex = re.compile(single_phone_number_pattern)
-        if not regex.match(vars.mobile):
+        if not regex.match(mobile):
             form.errors.mobile = T("Invalid phone number")
     elif settings.get_auth_registration_mobile_phone_mandatory():
         form.errors.mobile = T("Phone number is required")
 
+    # Home Phone
+    home = form_vars.get("home")
+    if home:
+        import re
+        regex = re.compile(single_phone_number_pattern)
+        if not regex.match(home):
+            form.errors.home = T("Invalid phone number")
+
     org = settings.get_auth_registration_organisation_id_default()
     if org:
         # Add to default organisation
-        vars.organisation_id = org
+        form_vars.organisation_id = org
 
     return
 
@@ -67,11 +77,12 @@ def index():
                             (appname, settings.get_template())
         try:
             exec("import %s as custom" % controller)
-        except ImportError, e:
+        except ImportError:
             # No Custom Page available, continue with the default
             page = "private/templates/%s/controllers.py" % \
                         settings.get_template()
-            s3base.s3_debug("File not loadable: %s, %s" % (page, e.message))
+            current.log.warning("File not loadable",
+                                "%s, %s" % (page, sys.exc_info()[1]))
         else:
             if "." in page:
                 # Remove extension
@@ -90,10 +101,11 @@ def index():
                             (appname, settings.get_template())
         try:
             exec("import %s as custom" % controller)
-        except ImportError, e:
+        except ImportError:
             # No Custom Page available, continue with the default
             # @ToDo: cache this result in session
-            s3base.s3_debug("Custom homepage cannot be loaded: %s" % e.message)
+            current.log.warning("Custom homepage cannot be loaded",
+                                sys.exc_info()[1])
         else:
             if "index" in custom.__dict__:
                 output = custom.index()()
@@ -243,7 +255,7 @@ return false}})''' % (T("Please Select a Facility")))
             manage_facility_box = ""
 
         if has_permission("create", table):
-            create = A(T("Add Organization"),
+            create = A(T("Create Organization"),
                        _href = URL(c="org", f="organisation",
                                    args=["create"]),
                        _id = "add-btn",
@@ -422,7 +434,7 @@ def organisation():
                         echo)
     else:
         from gluon.http import HTTP
-        raise HTTP(501, resource.ERROR.BAD_FORMAT)
+        raise HTTP(501, current.ERROR.BAD_FORMAT)
     return items
 
 # -----------------------------------------------------------------------------
@@ -483,31 +495,34 @@ def rapid():
 def user():
     """ Auth functions based on arg. See gluon/tools.py """
 
+    auth_settings = auth.settings
+    utable = auth_settings.table_user
+
     arg = request.args(0)
-    auth.settings.on_failed_authorization = URL(f="error")
+    if arg == "verify_email":
+        # Ensure we use the user's language
+        key = request.args[-1]
+        query = (utable.registration_key == key)
+        user = db(query).select(utable.language,
+                                limitby=(0, 1)).first()
+        if not user:
+            redirect(auth_settings.verify_email_next)
+        session.s3.language = user.language
+
+    auth_settings.on_failed_authorization = URL(f="error")
 
     auth.configure_user_fields()
-    auth.settings.register_onvalidation = register_validation
-
-    _table_user = auth.settings.table_user
-
-    auth.settings.profile_onaccept = auth.s3_user_profile_onaccept
+    auth_settings.profile_onaccept = auth.s3_user_profile_onaccept
+    auth_settings.register_onvalidation = register_validation
 
     self_registration = settings.get_security_self_registration()
     login_form = register_form = None
 
-    if request.args:
-        arg = request.args(0)
-    else:
-        arg = None
-
     # Check for template-specific customisations
-    customize = settings.ui.get("customize_auth_user", None)
-    if customize:
-        customize(arg=arg)
+    customise = settings.customise_auth_user_controller
+    if customise:
+        customise(arg=arg)
 
-    # Needs more work to integrate our form extensions
-    #auth.settings.formstyle = s3_formstyle
     if arg == "login":
         title = response.title = T("Login")
         # @ToDo: move this code to /modules/s3/s3aaa.py:def login()?
@@ -515,14 +530,15 @@ def user():
         form = auth()
         #form = auth.login()
         login_form = form
+
     elif arg == "register":
         title = response.title = T("Register")
         # @ToDo: move this code to /modules/s3/s3aaa.py:def register()?
         if not self_registration:
             session.error = T("Registration not permitted")
             redirect(URL(f="index"))
-
         form = register_form = auth.s3_registration_form()
+
     elif arg == "change_password":
         title = response.title = T("Change Password")
         form = auth()
@@ -532,24 +548,28 @@ def user():
         else:
             s3.scripts.append("/%s/static/scripts/jquery.pstrength.2.1.0.min.js" % appname)
         s3.jquery_ready.append("$('.password:eq(1)').pstrength()")
+
     elif arg == "retrieve_password":
         title = response.title = T("Retrieve Password")
         form = auth()
+
     elif arg == "profile":
         title = response.title = T("User Profile")
         form = auth.profile()
+
     elif arg == "options.s3json":
         # Used when adding organisations from registration form
         return s3_rest_controller(prefix="auth", resourcename="user")
+
     else:
-        # logout
+        # logout or verify_email
         title = ""
         form = auth()
 
     if form:
         if s3.crud.submit_style:
             form[0][-1][1][0]["_class"] = s3.crud.submit_style
-        elif s3_formstyle == "bootstrap":
+        elif settings.ui.formstyle == "bootstrap":
             form[0][-1][1][0]["_class"] = "btn btn-primary"
 
     # Use Custom Ext views
@@ -637,8 +657,7 @@ def person():
 
     #if settings.has_module("asset"):
     #    # Assets as component of people
-    #    s3db.add_component("asset_asset",
-    #                       pr_person="assigned_to_id")
+    #    s3db.add_components("pr_person", asset_asset="assigned_to_id")
 
     # CRUD pre-process
     def prep(r):
@@ -715,10 +734,11 @@ def person():
                                                                           limitby=(0, 1))
                     if openstreetmap:
                         # OpenStreetMap config
-                        s3db.add_component("auth_user_options",
-                                           gis_config=dict(joinby="pe_id",
-                                                           pkey="pe_id",
-                                                           multiple=False)
+                        s3db.add_components("gis_config",
+                                            auth_user_options={"joinby": "pe_id",
+                                                               "pkey": "pe_id",
+                                                               "multiple": False,
+                                                              },
                                            )
                         fields += ["user_options.osm_oauth_consumer_key",
                                    "user_options.osm_oauth_consumer_secret",
@@ -835,11 +855,6 @@ def person():
     else:
         trainings_tab = None
 
-    if settings.get_search_save_widget():
-        searches_tab = (T("Saved Searches"), "saved_search")
-    else:
-        searches_tab = None
-
     tabs = [(T("Person Details"), None),
             (T("User Account"), "user"),
             (T("Staff/Volunteer Record"), "human_resource"),
@@ -855,8 +870,8 @@ def person():
             experience_tab,
             teams_tab,
             #(T("Assets"), "asset"),
+            #(T("My Subscriptions"), "subscription"),
             (T("My Maps"), "config"),
-            searches_tab,
             ]
     
     output = s3_rest_controller("pr", "person",

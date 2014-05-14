@@ -37,10 +37,10 @@ from gluon import *
 from gluon.html import BUTTON
 from gluon.storage import Storage
 from s3rest import S3Method
-from s3resource import S3FieldSelector
+from s3query import FS
 from s3widgets import *
 from s3validators import *
-from s3utils import s3_unicode
+from s3utils import s3_unicode, s3_represent_value
 from s3data import S3DataTable
 
 # =============================================================================
@@ -95,9 +95,9 @@ class S3Merge(S3Method):
             elif r.http == "DELETE":
                 output = self.unmark(r, **attr)
             else:
-                r.error(405, r.ERROR.BAD_METHOD)
+                r.error(405, current.ERROR.BAD_METHOD)
         else:
-            r.error(405, r.ERROR.BAD_METHOD)
+            r.error(405, current.ERROR.BAD_METHOD)
 
         return output
 
@@ -233,7 +233,8 @@ class S3Merge(S3Method):
             @param attr: the controller attributes for the request
         """
 
-        s3 = current.session.s3
+        s3 = current.response.s3
+        session_s3 = current.session.s3
 
         resource = self.resource
         tablename = self.tablename
@@ -244,11 +245,11 @@ class S3Merge(S3Method):
         # Bookmarks
         record_ids = []
         DEDUPLICATE = self.DEDUPLICATE
-        if DEDUPLICATE in s3:
-            bookmarks = s3[DEDUPLICATE]
+        if DEDUPLICATE in session_s3:
+            bookmarks = session_s3[DEDUPLICATE]
             if tablename in bookmarks:
                 record_ids = bookmarks[tablename]
-        query = S3FieldSelector(resource._id.name).belongs(record_ids)
+        query = FS(resource._id.name).belongs(record_ids)
         resource.add_filter(query)
 
         # Representation
@@ -265,7 +266,7 @@ class S3Merge(S3Method):
             sEcho = int(vars.sEcho or 0)
         else: # catch all
             start = 0
-            limit = current.manager.ROWSPERPAGE
+            limit = s3.ROWSPERPAGE
         if limit is not None:
             try:
                 start = int(start)
@@ -275,8 +276,8 @@ class S3Merge(S3Method):
                 limit = None # use default
         else:
             start = None # use default
-        if current.response.s3.dataTable_iDisplayLength:
-            display_length = current.response.s3.dataTable_iDisplayLength
+        if s3.dataTable_iDisplayLength:
+            display_length = s3.dataTable_iDisplayLength
         else:
             display_length = 25
         if limit is None:
@@ -340,27 +341,30 @@ class S3Merge(S3Method):
                                                  "merge", "pair-action")])
 
             output["items"] = items
-            response.s3.actions = [{"label": str(T("View")),
-                                    "url": r.url(target="[id]", method="read"),
-                                    "_class": "action-btn"}]
+            s3.actions = [{"label": str(T("View")),
+                           "url": r.url(target="[id]", method="read"),
+                           "_class": "action-btn",
+                           },
+                          ]
 
             if len(record_ids) < 2:
                 output["add_btn"] = DIV(
                     SPAN(T("You need to have at least 2 records in this list in order to merge them."),
-                      _style="float:left; padding-right:10px;"),
+                         # @ToDo: Move to CSS
+                         _style="float:left;padding-right:10px;"),
                     A(T("Find more"),
-                      _href=r.url(method="search", id=0, component_id=0, vars={}))
+                      _href=r.url(method="", id=0, component_id=0, vars={}))
                 )
             else:
                 output["add_btn"] = DIV(
                     SPAN(T("Select 2 records from this list, then click 'Merge'.")),
                 )
 
-            response.s3.dataTableID = [datatable_id]
+            s3.dataTableID = [datatable_id]
             response.view = self._view(r, "list.html")
 
         else:
-            r.error(501, r.ERROR.BAD_FORMAT)
+            r.error(501, current.ERROR.BAD_FORMAT)
 
         return output
 
@@ -416,7 +420,7 @@ class S3Merge(S3Method):
         rows = current.db(query).select(orderby=orderby,
                                         limitby=(0, 2))
         if len(rows) != 2:
-            r.error(404, r.ERROR.BAD_RECORD, next = r.url(id=0, vars={}))
+            r.error(404, current.ERROR.BAD_RECORD, next = r.url(id=0, vars={}))
         original = rows[0]
         duplicate = rows[1]
 
@@ -428,7 +432,6 @@ class S3Merge(S3Method):
         keep_d = KEEP.d in post_vars and post_vars[KEEP.d]
 
         trs = []
-        represent = current.manager.represent
         init_requires = self.init_requires
         for f in formfields:
 
@@ -441,14 +444,14 @@ class S3Merge(S3Method):
                 owidget = self.widget(f, original[f], _name=oid, _id=oid)
             else:
                 try:
-                    owidget = represent(f, value=original[f])
+                    owidget = s3_represent_value(f, value=original[f])
                 except:
                     owidget = s3_unicode(original[f])
             if keep_d or not any((keep_o, keep_d)):
                 dwidget = self.widget(f, duplicate[f], _name=did, _id=did)
             else:
                 try:
-                    dwidget = represent(f, value=duplicate[f])
+                    dwidget = s3_represent_value(f, value=duplicate[f])
                 except:
                     dwidget = s3_unicode(duplicate[f])
 
@@ -582,7 +585,7 @@ class S3Merge(S3Method):
             except current.auth.permission.error:
                 r.unauthorized()
             except KeyError:
-                r.error(404, r.ERROR.BAD_RECORD)
+                r.error(404, current.ERROR.BAD_RECORD)
             except:
                 r.error(424,
                         T("Could not merge records. (Internal Error: %s)") %
@@ -610,7 +613,7 @@ class S3Merge(S3Method):
 
             # Go back to bookmark list
             if search:
-                self.next = r.url(method="search", id=0, vars={})
+                self.next = r.url(method="", id=0, vars={})
             else:
                 self.next = r.url(id=0, vars={})
 
@@ -643,8 +646,7 @@ class S3Merge(S3Method):
                 fname = key.split("_", 1)[1]
                 data[fname] = form.vars[key]
 
-        errors = current.manager.onvalidation(tablename, data,
-                                              method="update")
+        errors = current.s3db.onvalidation(tablename, data, method="update")
         if errors:
             for fname in errors:
                 form.errors["%s%s" % (prefix, fname)] = errors[fname]

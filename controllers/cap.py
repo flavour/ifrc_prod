@@ -25,7 +25,10 @@ def info_prep(r):
         - whether accessed via /eden/info or /eden/alert/x/info
     """
 
-    s3.scripts.append("/%s/static/scripts/S3/s3.cap.js" % appname)
+    if s3.debug:
+        s3.scripts.append("/%s/static/scripts/S3/s3.cap.js" % appname)
+    else:
+        s3.scripts.append("/%s/static/scripts/S3/s3.cap.min.js" % appname)
     s3.stylesheets.append("S3/cap.css")
 
     table = db.cap_info
@@ -116,22 +119,18 @@ def alert():
         """
             REST post-processor:
              - check to see if "Save and add information" was pressed
-        """
-
+        """ 
+        
         lastid = r.resource.lastid
         if lastid and request.post_vars.get("edit_info", False):
             table = db.cap_alert
             alert = db(table.id == lastid).select(table.template_id,
-                                                  limitby=(0, 1)
-                                                  ).first()
+                                                  limitby=(0, 1)).first()
 
             if alert:
-                # @ToDo: replace this with a retrieve of just the wanted fields
-                # - faster & safer
-                rows = db(db.cap_info.alert_id == alert.template_id).select()
-                for row in rows:
-                    row_clone = row.as_dict()
-                    unwanted_fields = ["deleted_rb",
+                # Clone all cap_info entries from the alert template
+                itable = s3db.cap_info
+                unwanted_fields = set(("deleted_rb",
                                        "owned_by_user",
                                        "approved_by",
                                        "mci",
@@ -144,24 +143,22 @@ def alert():
                                        # Don't copy this: make an
                                        # Ajax call instead
                                        "template_settings",
-                                       "id"
-                                      ]
-                    for key in unwanted_fields:
-                        try:
-                            row_clone.pop(key)
-                        except KeyError:
-                            pass
-
+                                      ))
+                fields = [itable[f] for f in itable.fields
+                                    if f not in unwanted_fields]
+                rows = db(itable.alert_id == alert.template_id).select(*fields)
+                for row in rows:
+                    row_clone = row.as_dict()
+                    del row_clone["id"]
                     row_clone["alert_id"] = lastid
                     row_clone["template_info_id"] = row.id
                     row_clone["is_template"] = False
+                    itable.insert(**row_clone)
 
-                    db.cap_info.insert(**row_clone)
+            r.next = URL(c="cap", f="alert", args=[lastid, "info"])
 
-            r.next = URL(c="cap", f="alert",
-                         args=[lastid, "info"])
-
-        if r.method != "search" and "form" in output:
+        if r.interactive and \
+           isinstance(output, dict) and "form" in output:
             if not r.component:
                 fields = s3db.cap_info_labels()
                 jsobj = []
@@ -177,7 +174,7 @@ def alert():
         return output
     s3.postp = postp
 
-    output = s3_rest_controller(rheader=s3db.cap_alert_rheader)
+    output = s3_rest_controller(rheader = s3db.cap_alert_rheader)
     return output
 
 # -----------------------------------------------------------------------------
@@ -218,7 +215,7 @@ def template():
         for f in ["status", "scope"]:
             atable[f].requires = None
         atable.template_title.required = True
-
+        atable.status.readable = atable.status.writable = False
         itable = db.cap_info
         for f in ["urgency", "certainty",
                   "priority", "severity",
@@ -233,15 +230,12 @@ def template():
 
         ADD_ALERT_TPL = T("Create Template")
         s3.crud_strings["cap_template"] = Storage(
-            title_create = ADD_ALERT_TPL,
+            label_create = ADD_ALERT_TPL,
             title_display = T("Template"),
             title_list = T("Templates"),
             title_update = T("Edit Template"), # If already-published, this should create a new "Update" alert instead of modifying the original
             title_upload = T("Import Templates"),
-            title_search = T("Search Templates"),
-            subtitle_create = T("Create new Template"),
             label_list_button = T("List Templates"),
-            label_create_button = ADD_ALERT_TPL,
             label_delete_button = T("Delete Template"),
             msg_record_created = T("Template created"),
             msg_record_modified = T("Template modified"),
@@ -251,7 +245,10 @@ def template():
         if r.representation == "html":
             alert_fields_comments()
             s3.scripts.append("/%s/static/scripts/json2.min.js" % appname)
-            s3.scripts.append("/%s/static/scripts/S3/s3.cap.js" % appname)
+            if s3.debug:
+                s3.scripts.append("/%s/static/scripts/S3/s3.cap.js" % appname)
+            else:
+                s3.scripts.append("/%s/static/scripts/S3/s3.cap.min.js" % appname)
             s3.stylesheets.append("S3/cap.css")
 
         return True

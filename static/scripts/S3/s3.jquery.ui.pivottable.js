@@ -1,5 +1,5 @@
 /**
- * jQuery UI pivottable Widget for S3Report2
+ * jQuery UI pivottable Widget for S3Report
  * 
  * @copyright: 2013 (c) Sahana Software Foundation
  * @license: MIT
@@ -39,7 +39,9 @@
             filterTab: null,            // ID of the summary tab to activate upon
                                         // plot-click (default: first tab)
 
-            autoSubmit: 1000
+            autoSubmit: 1000,
+            thousandSeparator: ' ',
+            thousandGrouping: '3'
         },
 
         _create: function() {
@@ -109,6 +111,13 @@
                 $el.find('.pt-show-table').show();
                 $el.find('.pt-hide-table').hide();
             }
+
+            // Define thousandFormatter function
+            var re = new RegExp('\\B(?=(\\d{' + this.options.thousandGrouping + '})+(?!\\d))','g');
+            var thousandSeparator = this.options.thousandSeparator;
+            this.options.thousandFormatter = function(number) {
+                return number.toString().replace(re, thousandSeparator);
+            };
 
             // Render all initial contents
             this.refresh();
@@ -392,7 +401,7 @@
 
             if (layer_label) {
                 $(chart_opts).append($(
-                    '<span class="pt-chart-label">' + layer_label + '</span>'
+                    '<span class="pt-chart-label">' + layer_label + ': </span>'
                 ));
             }
             if (rows_label) {
@@ -413,7 +422,7 @@
 
             if (rows_label && cols_label) {
                 $(chart_opts).append($(
-                    '<span class="pt-chart-label">| ' + labels.breakdown + '</span>' +
+                    '<span class="pt-chart-label">| ' + labels.breakdown + ': </span>' +
                     '<div id="' + hchart_rows + '" class="pt-chart-icon pt-hchart"/>' +
                     '<span class="pt-chart-label">' +
                         [per, rows_label, '&amp;', cols_label].join(' ') +
@@ -659,7 +668,8 @@
                         tickLength: 0
                         // Rotate labels with jquery.flot.tickrotor.js:
                         // rotateTicks: 135
-                    }
+                    },
+                   yaxis: { tickFormatter: this.options.thousandFormatter }
                 }
             );
             // jquery.flot.tickrotor.js doesn't hide the original labels:
@@ -804,7 +814,8 @@
                         max: (rows.length) * (cols.length + 1) + 1
                     },
                     xaxis: {
-                        max: xmax * 1.1
+                        max: xmax * 1.1,
+                        tickFormatter: this.options.thousandFormatter
                     },
                     grid: {
                         hoverable: true,
@@ -813,7 +824,7 @@
                 }
             );
             $('.flot-y-axis .tickLabel').css({
-                'padding-top': '20px',
+                'padding-top': '25px',
                 'left': '0px', // prevent left-overflow
                 'width': '120px'
             });
@@ -1151,12 +1162,12 @@
             if (!pivotdata.length) {
                 return;
             }
+            $el.find('.pt-throbber').show();
             if (options || filters) {
                 needs_reload = this._updateAjaxURL(options, filters);
             }
             if (needs_reload || force) {
                 var ajaxURL = this.options.ajaxURL;
-                $el.find('.pt-throbber').show();
                 $el.find('.pt-empty').hide();
                 $.ajax({
                     'url': ajaxURL,
@@ -1173,7 +1184,6 @@
                     console.log(msg);
                 });
             } else {
-                $el.find('.pt-throbber').show();
                 pt.refresh();
             }
         },

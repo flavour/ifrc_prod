@@ -89,8 +89,7 @@ def building():
         return True
     s3.prep = prep
 
-    output = s3_rest_controller(rheader=s3db.assess_building_rheader)
-    return output
+    return s3_rest_controller(rheader = s3db.assess_building_rheader)
 
 # -----------------------------------------------------------------------------
 def canvass():

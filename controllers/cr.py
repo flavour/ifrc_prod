@@ -57,8 +57,7 @@ def shelter():
     table = s3db.cr_shelter
 
     # Access Presence from Shelters for Check-In/Check-Out
-    s3db.add_component("pr_presence",
-                       cr_shelter="shelter_id")
+    s3db.add_components("cr_shelter", pr_presence="shelter_id")
 
     s3db.configure("cr_shelter",
                    # Go to People check-in for this shelter after creation
@@ -69,12 +68,41 @@ def shelter():
     def prep(r):
         # Location Filter
         s3db.gis_location_filter(r)
-
+        
         if r.method == "import":
             table.organisation_id.default = None
 
         if r.component and r.component.name == "presence":
-            prtable = db.pr_presence
+            prtable = s3db.pr_presence
+            pe_id = prtable.pe_id
+            pe_represent = s3db.pr_PersonEntityRepresent(show_label=True)
+            pe_id.represent = pe_represent
+            pe_id.requires = IS_ONE_OF(db, "pr_pentity.pe_id",
+                                       pe_represent,
+                                       filterby="instance_type",
+                                       orderby="instance_type",
+                                       filter_opts=("pr_person",
+                                                    "pr_group"))
+            if r.interactive:
+                gtable = s3db.pr_group
+                add_group_label = s3base.S3CRUD.crud_string("pr_group", "label_create")
+                if settings.get_ui_label_camp():
+                    REGISTER_LABEL = T("Register Person into this Camp")
+                    EMPTY_LIST = T("No People currently registered in this camp")
+                else:
+                    REGISTER_LABEL = T("Register Person into this Shelter")
+                    EMPTY_LIST = T("No People currently registered in this shelter")
+                pe_id.label = T("Person/Group")
+                pe_id.widget = S3PentityAutocompleteWidget("pr", "pentity")
+                pe_id.comment = \
+                    DIV(s3db.pr_person_comment(T("Add Person"), REGISTER_LABEL, child="pe_id"),
+                        S3AddResourceLink(c="pr",
+                                          f="group",
+                                          vars = {"child": "pe_id"},
+                                          title=add_group_label,
+                                          tooltip=T("Create a group entry in the registry."))
+                       )
+                pe_id.readable = pe_id.writable = True
             r.resource.add_filter(prtable.closed == False)
 
         if r.interactive:
@@ -88,14 +116,7 @@ def shelter():
                     s3db.inv_prep(r)
 
                 elif r.component.name == "human_resource":
-                    # Filter out people which are already staff for this warehouse
-                    s3base.s3_filter_staff(r)
-                    # Make it clear that this is for adding new staff, not assigning existing
-                    s3.crud_strings.hrm_human_resource.label_create_button = T("Add New Staff Member")
-                    # Cascade the organisation_id from the hospital to the staff
-                    field = s3db.hrm_human_resource.organisation_id
-                    field.default = r.record.organisation_id
-                    field.writable = False
+                    s3db.org_site_staff_config(r)
 
                 elif r.component.name == "rat":
                     # Hide the Implied fields
@@ -110,9 +131,9 @@ def shelter():
                 elif r.component.name == "presence":
                     field = prtable.shelter_id
                     represent = s3base.S3Represent(lookup="cr_shelter")
-                    field.requires = IS_NULL_OR(IS_ONE_OF(db, "cr_shelter.id",
-                                                          represent,
-                                                          sort=True))
+                    field.requires = IS_EMPTY_OR(IS_ONE_OF(db, "cr_shelter.id",
+                                                           represent,
+                                                           sort=True))
                     field.represent = represent
                     field.ondelete = "RESTRICT"
                     if settings.get_ui_label_camp():
@@ -129,42 +150,12 @@ def shelter():
                     field.readable = True
                     field.writable = True
 
-                    if settings.get_ui_label_camp():
-                        REGISTER_LABEL = T("Register Person into this Camp")
-                        EMPTY_LIST = T("No People currently registered in this camp")
-                    else:
-                        REGISTER_LABEL = T("Register Person into this Shelter")
-                        EMPTY_LIST = T("No People currently registered in this shelter")
-
-                    # Make pr_presence.pe_id visible:
-                    pe_id = prtable.pe_id
-                    pe_id.readable = pe_id.writable = True
-
-                    # Usually, the pe_id field is an invisible foreign key, therefore it
-                    # has no default representation/requirements => need to add this here:
-                    pe_id.label = T("Person/Group")
-                    pe_represent = s3db.pr_PersonEntityRepresent(show_label=True)
-                    pe_id.represent = pe_represent
-                    pe_id.requires = IS_ONE_OF(db, "pr_pentity.pe_id",
-                                               pe_represent,
-                                               filterby="instance_type",
-                                               orderby="instance_type",
-                                               filter_opts=("pr_person",
-                                                            "pr_group"))
-                    pe_id.widget = S3AutocompleteWidget("pr", "pentity")
-                    gtable = s3db.pr_group
-                    add_group_label = s3base.S3CRUD.crud_string("pr_group", "label_create_button")
-                    pe_id.comment = \
-                        DIV(s3db.pr_person_comment(T("Add Person"), REGISTER_LABEL, child="pe_id"),
-                            S3AddResourceLink(c="pr",
-                                              f="group",
-                                              title=add_group_label,
-                                              tooltip=T("Create a group entry in the registry."))
-                        )
-
                     # Make Persons a component of Presence to add to list_fields
-                    s3db.add_component("pr_person",
-                                       pr_presence=Storage(joinby="pe_id", pkey="pe_id"))
+                    s3db.add_components("pr_presence",
+                                        pr_person={"joinby": "pe_id",
+                                                   "pkey": "pe_id",
+                                                  },
+                                        )
 
                     s3db.configure("pr_presence",
                                    # presence not deletable in this view! (need to register a check-out
@@ -198,14 +189,11 @@ def shelter():
                     prtable.presence_condition.default = popts.CHECK_IN
                     # Change the Labels
                     s3.crud_strings.pr_presence = Storage(
-                        title_create = T("Register Person"),
+                        label_create = T("Register Person"),
                         title_display = T("Registration Details"),
                         title_list = T("Registered People"),
                         title_update = T("Edit Registration"),
-                        title_search = T("Search Registations"),
-                        subtitle_create = REGISTER_LABEL,
                         label_list_button = T("List Registrations"),
-                        label_create_button = T("Register Person"),
                         msg_record_created = T("Registration added"),
                         msg_record_modified = T("Registration updated"),
                         msg_record_deleted = T("Registration entry deleted"),
@@ -221,11 +209,7 @@ def shelter():
         return True
     s3.prep = prep
 
-    output = s3_rest_controller(rheader = s3db.cr_shelter_rheader,
-                                hide_filter = False,
-                                )
-
-    return output
+    return s3_rest_controller(rheader = s3db.cr_shelter_rheader)
 
 # =============================================================================
 def incoming():

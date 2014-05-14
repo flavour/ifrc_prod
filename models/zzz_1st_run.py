@@ -105,30 +105,12 @@ if len(pop_list) > 0:
                              timeout=300, # seconds
                              repeats=0    # unlimited
                              )
-        # Old saved search notifications
-        #s3task.schedule_task("msg_search_subscription_notifications",
-        #                     vars={"frequency":"hourly"},
-        #                     period=3600,
-        #                     timeout=300,
-        #                     repeats=0
-        #                     )
-        #s3task.schedule_task("msg_search_subscription_notifications",
-        #                     vars={"frequency":"daily"},
-        #                     period=86400,
-        #                     timeout=300,
-        #                     repeats=0
-        #                     )
-        #s3task.schedule_task("msg_search_subscription_notifications",
-        #                     vars={"frequency":"weekly"},
-        #                     period=604800,
-        #                     timeout=300,
-        #                     repeats=0
-        #                     )
-        #s3task.schedule_task("msg_search_subscription_notifications",
-        #                     vars={"frequency":"monthly"},
-        #                     period=2419200,
-        #                     timeout=300,
-        #                     repeats=0
+        # Tweets every minute
+        #s3task.schedule_task("msg_process_outbox",
+        #                     vars={"contact_method":"TWITTER"},
+        #                     period=120,  # seconds
+        #                     timeout=120, # seconds
+        #                     repeats=0    # unlimited
         #                     )
 
         # Subscription notifications
@@ -179,14 +161,6 @@ if len(pop_list) > 0:
     db.executesql("CREATE INDEX %s__idx on %s(%s);" % (field, tablename, field))
 
     # GIS
-    # L0 Countries
-    resource = s3db.resource("gis_location")
-    stylesheet = path_join(request_folder, "static", "formats", "s3csv", "gis", "location.xsl")
-    import_file = path_join(request_folder, "private", "templates", "locations", "countries.csv")
-    File = open(import_file, "r")
-    resource.import_xml(File, format="csv", stylesheet=stylesheet)
-    db(db.gis_location.level == "L0").update(owned_by_group=map_admin)
-    db.commit()
     # Add extra index on search field
     # Should work for our 3 supported databases: sqlite, MySQL & PostgreSQL
     tablename = "gis_location"
@@ -271,10 +245,6 @@ if len(pop_list) > 0:
     s3.import_image = bi.import_image
     s3.import_remote_csv = bi.import_remote_csv
 
-    # Disable table protection
-    protected = s3mgr.PROTECTED
-    s3mgr.PROTECTED = []
-
     # Relax strict email-matching rule for import updates of person records
     email_required = settings.get_pr_import_update_requires_email()
     settings.pr.import_update_requires_email = False
@@ -282,7 +252,10 @@ if len(pop_list) > 0:
     # Additional settings for user table imports:
     s3db.configure("auth_user",
                    onaccept = lambda form: auth.s3_approve_user(form.vars))
-    s3db.add_component("auth_membership", auth_user="user_id")
+    s3db.add_components("auth_user", auth_membership="user_id")
+
+    # Flag that Assets are being imported, not synced
+    s3.asset_import = True
 
     # Allow population via shell scripts
     if not request.env.request_method:
@@ -334,9 +307,6 @@ if len(pop_list) > 0:
                     pass
             print >> sys.stderr, _errorLine
 
-    # Restore table protection
-    s3mgr.PROTECTED = protected
-
     # Restore setting for strict email-matching
     settings.pr.import_update_requires_email = email_required
 
@@ -348,6 +318,9 @@ if len(pop_list) > 0:
     gis.update_location_tree()
     end = datetime.datetime.now()
     print >> sys.stdout, "Location Tree update completed in %s" % (end - start)
+
+    # Countries are only editable by MapAdmin
+    db(db.gis_location.level == "L0").update(owned_by_group=map_admin)
 
     if has_module("stats"):
         # Populate stats_demographic_aggregate (disabled during prepop)

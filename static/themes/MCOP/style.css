@@ -1,0 +1,278 @@
+.navbar-inner {
+    background: #37518b;
+    border: none;
+}
+.navbar .nav > li > a {
+    border-left: 1px solid #8797B9;
+}
+
+.navbar .nav > li:last-child {
+    border-right: 1px solid #8797B9;
+}
+
+.navbar .nav > li > a:hover {
+    background: #5F74A2;
+    box-shadow: none;
+}
+
+/* Homepage -  Could this be made generic?*/
+.title {
+    /* margin: 25px 0 0 50px; */
+    float: left
+}
+
+#register-btn {
+    margin-left: 15px !important;
+}
+
+/*
+.btn-login, .btn-register {
+    float: right;
+    margin-top: 10px !important;
+}
+
+.btn-register {
+    clear: right;
+}
+*/
+.homepage.row {
+    clear: both;
+}
+
+ h1, h2 {
+    font-family: NeoSans;
+    font-weight: normal;
+    color: #444444;
+    /*text-shadow: 2px 2px 1px black;*/
+}
+
+
+
+.sahana_logo {
+    float: left;
+    height: 100px;
+}
+
+.title h1 {
+    float: left;
+    font-size: 80px;
+    line-height: 80px;
+    margin: 0;
+    padding: 20px 0 0;
+}
+
+.mcop_logo {
+    float: left;
+    clear: left;
+    width: 150px;
+    margin: 0 5px 10px 15px;
+}
+
+.header h2 {
+    float: left;
+    font-size: 20px;
+    line-height: 25px;
+    padding: 0;
+    margin: 0 0 0 10px;
+}
+
+h1, h2, h3 {
+    text-shadow: none
+}
+a {
+    color: #444444;
+}
+
+h3 {
+    margin: 0;
+    padding:0;
+    font-family: NeoSans;
+    font-weight: normal;
+    color: #444444;
+    font-size: 25px;
+    line-height: 35px;
+}
+.title {
+    padding-top: 30px;
+}
+
+.header {
+    background: url('../../img/semi_white_75.png');
+}
+
+.header .intro {
+    padding: 10px 15px;
+}
+
+.intro p,
+.intro ul {
+    clear: both;
+    margin-bottom: 5px;
+}
+
+.header {
+    margin-bottom: 20px;
+}
+
+ol, ul {
+    list-style: disc;
+}
+
+div.link {
+    float: left;
+}
+
+.homepage .icon-plus-sign.small-add {
+    top: 7px;
+}
+
+.homepage .map {
+    margin-bottom: 15px;
+}
+
+div.link:hover h3,
+div.link:hover a {
+    color: #182640;
+    text-decoration:none;
+}
+
+.homepage .dl {
+    padding: 5px 2px;
+}
+
+.thumbnail {
+    background: url('../../img/semi_white_75.png') !important;
+/*
+        border: none ;
+    border-radius: 0;
+    box-shadow: none;
+    */
+}
+
+.thumbnail:hover {
+    background-color: white !important;
+}
+
+.cms-edit {
+    display: none;
+}
+
+/* RSS Feed */
+#feed-control {
+    clear: both;
+}
+
+.gfg-title,
+.gfg-entry,
+.gfg-subtitle {
+    display: none;
+}
+
+
+.gfg-listentry {
+    background: url('../../img/semi_white_75.png');
+    margin-bottom: 5px;
+    padding: 3px;
+}
+
+/* Customise Datalist Cards */
+#cms_post_datalist .card-title,
+.card-header > .icon, 
+.homepage .card-header > .icon,
+#profile-list-project_project-3 .card-header > .icon,
+#profile-list-org_resource-2 img,
+#profile-list-project_project-3 img, 
+#profile-list-project_task-0 .task_project_title {
+    display: none;
+}
+
+/***********************************************/
+
+/* Needs fixing - test profile page
+h2, #list-btn-add {
+    float: left
+} */
+
+.summary-heading {
+    float: left;
+}
+
+.summary-create {
+    float: left;
+    margin: 12px 0 0 18px;
+}
+
+#list-btn-add {
+    margin: 15px 0 0 15px;
+}
+
+#list-add,
+#summary-common,
+#table-container,
+.form-container {
+    clear: both;
+}
+
+.card-header {
+    padding: 1px 3px;
+}
+
+.card-holder .location-title {
+    /* border-left: 1px solid rgba(0, 0, 0, 0.1);
+    margin-left: 10px; */
+    border-left: None;
+    margin-left: 0;
+    padding-bottom: 7px;
+    padding-left: 5px;
+    padding-top: 7px;
+    text-shadow: 0 1px 0 #FFFFFF;
+    width: 10px;
+}
+
+.card-header .location-title {
+    border-left: None;
+    margin-left: 0;
+    padding-left: 5px;
+}
+
+.date-title {
+    padding-bottom: 5px;
+    padding-top: 6px;
+}
+
+.media .card-title {
+    font-size: 18px;
+    letter-spacing: 0;
+    text-shadow: None;
+    margin-bottom: 5px;
+}
+
+/* @ToDo: Move to default/tasks.css ? */
+.task_priority,
+.task_name,
+.task_status {
+    float: left;
+    clear: right;
+}
+
+.task_priority {
+    margin-right: 3px;
+    margin-top: 3px;
+}
+
+.task_status {
+    float: right;
+    margin-left: 5px;
+    padding: 2px 3px;
+}
+
+.media-body {
+    clear: left;
+}
+
+.edit-bar {
+    position: static;
+}
+.dl-1-cols {
+    width: 96%;
+}

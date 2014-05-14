@@ -118,16 +118,16 @@ label.over {
 
 /* Styling for Inline Components */
 table.embeddedComponent {
-    border: 1px solid #B3B3B3;
+    border: 1px solid #b3b3b3;
 }
 form table.embeddedComponent td {
     padding: 0 5px;
-    border: solid #B3B3B3;
+    border: solid #b3b3b3;
     border-width: 0 0 1px 0;
     text-align: left;
 }
 table.embeddedComponent tr.label-row td {
-    color: #B3B3B3;
+    color: #b3b3b3;
 }
 .form-container form .embeddedComponent input.string,
 .form-container form .embeddedComponent  textarea  {
@@ -195,6 +195,10 @@ table.embeddedComponent tr.label-row td {
     padding: 0;
 }
 
+.ui-tabs .ui-tabs-panel {
+    padding: 2px 5px;
+}
+
 /* ========================================================================= */
 
 textarea.comments {
@@ -205,7 +209,8 @@ textarea.richtext {
 }
 
 /* Used to diplay the list-add with the list-add-btn */
-#list-btn-add {
+#list-btn-add,
+.list-btn-add {
     margin-bottom: 10px;
 /*     float: left; */
 }
@@ -226,6 +231,11 @@ textarea.richtext {
    margin-top: -1px;
    min-width: 640px;
 }
+
+#table-container .empty {
+    margin-left: 10px;
+}
+
 .dataTable thead th {
 /* datatables fixed headers must not be transparent, however those aren't used currently & this removes the Sorting Icons
     background: no-repeat scroll right center #F0F3F4;*/
@@ -251,10 +261,10 @@ textarea.richtext {
 }
 #table-container tr.odd td.rtotal,
 #table-container tr.even td.rtotal {
-    border-left: 2px solid #AAAAAA;
+    border-left: 2px solid #aaa;
 }
 #table-container tr.totals_row {
-    border-top: 2px solid #AAAAAA;
+    border-top: 2px solid #aaa;
 }
 #table-container td.totals_header {
     font-weight: bold;
@@ -316,13 +326,13 @@ div .dataTable_table {
 }
 .dataTable tr.level_1{
 	background-color: #999;
-    color: #DDEEFF;
+    color: #def;
 }
 .dataTable tr.level_1 a{
-    color: #DDEEFF;
+    color: #def;
 }
 .dataTable tr.activeRow.level_1 {
-	background-color: #1D70CF;
+	background-color: #1d70cf;
 }
 .dataTable tr.level_2{
 	background-color: #ddd;
@@ -332,7 +342,7 @@ div .dataTable_table {
     color: #248;
 }
 .dataTable tr.activeRow.level_2{
-	background-color: #528DD1;
+	background-color: #528dd1;
 }
 
 .dataTables_filter {
@@ -375,14 +385,14 @@ a.paginate_active {
 
 .dataTable tr.dtalert .action-btn,
 .dataTable tr.dtalert .delete-btn {
-	background-color: #D0D004;
+	background-color: #d0d004;
 	color: #444420;
 }
 .dataTable tr.dtalert .action-btn:hover,
 .dataTable tr.dtalert .delete-btn:hover {
     text-decoration: none;
     color: #222;
-    background-color: #EEED04;
+    background-color: #eeed04;
     border-right: 1px solid #4589ce;
     border-bottom: 1px solid #4589ce;
     border-left: 1px solid #000;
@@ -390,42 +400,42 @@ a.paginate_active {
     padding: 2px 4px 2px 4px;
 }
 .dataTable tr.dtdisable {
-    text-shadow: #CCC 1px 1px 1px;
+    text-shadow: #ccc 1px 1px 1px;
 	color: #888;
 }
-.dataTable tr.even.row_selected td { background-color: #60F6AD; }
-.dataTable tr.even.row_selected td.sorting_1 { background-color: #40FA8D; }
-table.display tr.odd.row_selected td { background-color: #40FA8D; }
-table.display tr.odd.row_selected td.sorting_1 { background-color: #20F0AD; }
+.dataTable tr.even.row_selected td { background-color: #60f6ad; }
+.dataTable tr.even.row_selected td.sorting_1 { background-color: #40fa8d; }
+table.display tr.odd.row_selected td { background-color: #40fa8d; }
+table.display tr.odd.row_selected td.sorting_1 { background-color: #20f0ad; }
 
-.dataTable tr.odd.dtalert { background-color: #FFFFC0; }
-.dataTable tr.odd.dtalert td.sorting_1 { background-color: #FFFFB0; }
-.dataTable tr.odd.dtalert td.sorting_2 { background-color: #FFFFA0; }
-.dataTable tr.odd.dtalert td.sorting_3 { background-color: #FFFF90; }
-.dataTable tr.even.dtalert { background-color: #FFFFA0; }
-.dataTable tr.even.dtalert td.sorting_1 { background-color: #FFFF90; }
-.dataTable tr.even.dtalert td.sorting_2 { background-color: #FFFF80; }
-.dataTable tr.even.dtalert td.sorting_3 { background-color: #FFFF70; }
+.dataTable tr.odd.dtalert { background-color: #ffffc0; }
+.dataTable tr.odd.dtalert td.sorting_1 { background-color: #ffffb0; }
+.dataTable tr.odd.dtalert td.sorting_2 { background-color: #ffffa0; }
+.dataTable tr.odd.dtalert td.sorting_3 { background-color: #ffff90; }
+.dataTable tr.even.dtalert { background-color: #ffffa0; }
+.dataTable tr.even.dtalert td.sorting_1 { background-color: #ffff0; }
+.dataTable tr.even.dtalert td.sorting_2 { background-color: #ffff80; }
+.dataTable tr.even.dtalert td.sorting_3 { background-color: #ffff70; }
 
-.dataTable tr.odd.dtwarning { background-color: #FFD9D9; }
-.dataTable tr.odd.dtwarning td.sorting_1 { background-color: #FFB6B6; }
-.dataTable tr.odd.dtwarning td.sorting_2 {	background-color: #FFA6A6; }
-.dataTable tr.odd.dtwarning td.sorting_3 { background-color: #FF9696; }
-.dataTable tr.even.dtwarning { background-color: #FFA6A6; }
-.dataTable tr.even.dtwarning td.sorting_1 { background-color: #FF8383; }
-.dataTable tr.even.dtwarning td.sorting_2 { background-color: #FF7373; }
-.dataTable tr.even.dtwarning td.sorting_3 { background-color: #FF6363; }
+.dataTable tr.odd.dtwarning { background-color: #ffd9d9; }
+.dataTable tr.odd.dtwarning td.sorting_1 { background-color: #ffb6b6; }
+.dataTable tr.odd.dtwarning td.sorting_2 {	background-color: #ffa6a6; }
+.dataTable tr.odd.dtwarning td.sorting_3 { background-color: #ff9696; }
+.dataTable tr.even.dtwarning { background-color: #ffa6a6; }
+.dataTable tr.even.dtwarning td.sorting_1 { background-color: #ff8383; }
+.dataTable tr.even.dtwarning td.sorting_2 { background-color: #ff7373; }
+.dataTable tr.even.dtwarning td.sorting_3 { background-color: #ff6363; }
 .dataTable tr.dtwarning .action-btn,
 .dataTable tr.dtwarning .delete-btn{
-	background-color: #D07060;
+	background-color: #d07060;
 	color: #431;
-    text-shadow: #FFF 0px 0px 0px;
+    text-shadow: #fff 0 0 0;
 }
 .dataTable tr.dtwarning .action-btn:hover,
 .dataTable tr.dtwarning .delete-btn:hover {
     text-decoration: none;
     color: #fff;
-    background-color: #bb3377;
+    background-color: #b37;
     border-right: 1px solid #4589ce;
     border-bottom: 1px solid #4589ce;
     border-left: 1px solid #000;
@@ -443,7 +453,7 @@ table.display tr.odd.row_selected td.sorting_1 { background-color: #20F0AD; }
 	*cursor: hand;
 }
 .dataTable-btn:hover {
-	background-color: #EFEFEF;
+	background-color: #efefef;
 }
 
 table.importItem {
@@ -481,7 +491,7 @@ div.dl {
 }
 .dl-row.odd,
 .dl-row.odd .dl-item {
-    background-color: #E2E4FF;
+    background-color: #e2e4ff;
 }
 .dl-1-cols {
     /* Wide as possible for display on small screens */
@@ -548,14 +558,10 @@ ul.ui-autocomplete {
 
 /* Required Field indicator */
 .error,
-.req {
+.req,
+.req_key {
     color: red;
     font-weight: bold;
-}
-
-/* For Key - ugly! */
-.red {
-    color: red;
 }
 
 /* Help Popup */
@@ -567,7 +573,8 @@ ul.ui-autocomplete {
     text-transform: uppercase;
     height: 20px;
     width: 50px;
-    background-image: url(../../img/help_off.gif);
+    background: none;
+    background: url(../../img/help_off.gif) no-repeat;
 }
 .tooltip span,
 .tooltipbody span,
@@ -582,7 +589,7 @@ ul.ui-autocomplete {
     background-color: transparent;
     height: 20px;
     width: 50px;
-    background-image: url(../../img/help_on.gif);
+    background: url(../../img/help_on.gif) no-repeat;
 }
 
 /* Form Popup */
@@ -592,7 +599,7 @@ body.popup {
 }
 #popup {
     background: #fff;
-    max-width: 725px;
+    max-width: 750px;
     width: 100%;
 }
 .loading {
@@ -748,7 +755,7 @@ span.tab_other {
     padding-right: 3px;
 }
 div.tabs span a {
-    color: #ffffff;
+    color: #fff;
     text-decoration: none;
 }
 /* To overlap component border */
@@ -759,21 +766,21 @@ div.tabs span.tab_here {
     background: #f0f3f4;
     border-width: 2px 2px 0 3px;
     border-style: solid;
-    border-color: #6699cc;
+    border-color: #69c;
     padding: 1px 6px 0 5px;
     margin-right: 5px;
     font-weight: bold;
 }
 form div.tabs span.tab_here {
-    background: #ffffff;
-    border-bottom: 2px solid #ffffff;
+    background: #fff;
+    border-bottom: 2px solid #fff;
 }
 div.tabs span.tab_here a {
-    color: #006699;
+    color: #069;
 }
 span.tab_last a:hover,
 span.tab_other a:hover {
-    color: #ffffff;
+    color: #fff;
     background: transparent;
 }
 span.tab_last:hover,
@@ -782,13 +789,13 @@ span.tab_other:hover {
     border-color: #164b8b;
 }
 span.tab_prev_active {
-    border: 1px solid #6699cc;
-    color: #006699;
+    border: 1px solid #69c;
+    color: #069;
     border-bottom: 0;
 }
 span.tab_next_active {
-    border: 1px solid #6699cc;
-    color: #006699;
+    border: 1px solid #69c;
+    color: #069;
     border-bottom: 0;
 }
 span.tab_prev_inactive {
@@ -803,7 +810,7 @@ span.tab_next_inactive {
 }
 span.tab_prev_active a,
 span.tab_next_active a {
-    color: #006699;
+    color: #069;
     text-decoration: None;
 }
 span.tab_prev_inactive a,
@@ -848,7 +855,7 @@ span.tab_next_inactive a {
     cursor: pointer;
     line-height: 1.5;
     text-decoration: none;
-    color: #ffffff;
+    color: #fff;
     background-color: #3286e2;
     border: 1px solid #4c95e6;
     border-bottom: 2px solid #164b8b;
@@ -925,20 +932,43 @@ span.tab_next_inactive a {
 #select_from_registry_row td {
    padding: 8px;
 }
+
+/* This should be in style.css where-required
 .box_top,
 .box_middle,
 .box_bottom {
    border-left: #bbb 1px solid;
    border-right: #bbb 1px solid;
    background: #F0F3F4;
-}
+}*/
 
-.box_top {
+.box_top,
+.box_top_inner {
    border-top: #bbb 1px solid;
+}
+.box_top {
    padding-top: 8px;
 }
+form table td.box_top_td {
+    padding-top: 8px;
+}
 
-.box_bottom {
+.box_top label,
+.box_top_inner label {
+    display: block;
+    background-color: #fbfbfb;
+    float: left;
+    margin-top: -6px;
+    margin-left: 50px;
+    padding: 0 10px;
+    width: auto;
+}
+
+.box_bottom { /* For Bootstrap */
+   border-bottom: #bbb 1px solid;
+   padding-bottom: 8px;
+}
+form table tr.box_bottom td { /* For regular themes */
    border-bottom: #bbb 1px solid;
    padding-bottom: 8px;
 }
@@ -1029,15 +1059,15 @@ li input + a {
 }
 #comment-form {
     width: 390px;
-    border: 1px #9C9C9C dashed;
+    border: 1px #9c9c9c dashed;
     padding: 5px;
     margin-top: 5px;
 }
 .avatar {
-    background: none repeat scroll 0 0 #FFFFFF;
-    border-bottom: 1px solid #D7D7D7;
-    border-left: 1px solid #F2F2F2;
-    border-right: 1px solid #F2F2F2;
+    background: none repeat scroll 0 0 #fff;
+    border-bottom: 1px solid #d7d7d7;
+    border-left: 1px solid #f2f2f2;
+    border-right: 1px solid #f2f2f2;
     float: left;
     height: 55px;
     padding: 4px;
@@ -1054,7 +1084,7 @@ li input + a {
 .comment-box {
     overflow: hidden;
     padding: 15px 0;
-    background: none repeat scroll 0 0 #FFFFFF;
+    background: none repeat scroll 0 0 #fff;
     display: block;
     overflow: hidden;
     padding: 10px;
@@ -1080,7 +1110,7 @@ li input + a {
     display: none;
     position: absolute;
     border-style: solid;
-    background-color: #ffffcc;
+    background-color: #ffc;
     padding: 5px;
     margin: 0 20px 0 -50px;
 }
@@ -1101,8 +1131,8 @@ li.ui-draggable-dragging {
     cursor: pointer;
     list-style: none;
     padding: 3px;
-    border: solid 1px #BBBBBB;
-    background: none repeat scroll 0 0 #CFDDE7;
+    border: solid 1px #bbb;
+    background: none repeat scroll 0 0 #cfdde7;
 }
 
 /* Ext button (e.g. on Bulk Upload form */
@@ -1160,7 +1190,6 @@ ul.x-tree-root-ct {
 }
 
 /* Search Form */
-.search_select_letter_label,
 .s3-grouped-checkboxes-widget-label,
 .s3-groupedopts-label {
     margin: 10px 0 0 7px;
@@ -1169,7 +1198,6 @@ ul.x-tree-root-ct {
     background: url(../../img/icon_blue_plus15px.png) no-repeat;
     cursor: pointer;
 }
-.search_select_letter_label.expanded,
 .s3-grouped-checkboxes-widget-label.expanded,
 .s3-groupedopts-label.expanded {
     height: 16px;
@@ -1177,13 +1205,11 @@ ul.x-tree-root-ct {
     background: url(../../img/icon_blue_minus15px.png) no-repeat;
 }
 
-.search_select_letter_widget,
 .s3-grouped-checkboxes-widget .s3-checkboxes-widget,
 .s3-groupedopts-widget table {
     margin-left: 2em;
 }
 
-.form-container form fieldset .search_select_letter_widget label,
 .form-container form fieldset  .s3-checkboxes-widget label,
 .form-container form fieldset  .s3-groupedopts-widget label {
     white-space: nowrap;
@@ -1231,36 +1257,69 @@ ul.x-tree-root-ct {
 }
 
 .filter-form td,
-.search_form td,
 #filter_options td {
-    border-top: 1px solid #D9D9D9;
+    border-top: 1px solid #d9d9d9;
 }
 .filter-form tr:first-child > td,
-.search_form tr:first-child > td,
 #filter_options tr:first-child > td {
     border-top: 0;
 }
 .filter-form table.s3-checkboxes-widget td,
 .filter-form table.s3-groupedopts-widget td,
-.search_form table.s3-checkboxes-widget td,
-.search_form table.s3searchminmaxwidget td,
 #filter_options table.s3-checkboxes-widget td,
 #filter_options table.s3searchminmaxwidget td {
     border-top: 0;
 }
 
+/* Vertical arrangement of multi-button multi-select filter widgets such as S3LocationFilter */
+.filter-form .ui-multiselect.ui-widget.ui-state-default.ui-corner-all,
+.form-container .ui-multiselect.ui-widget.ui-state-default.ui-corner-all {
+    clear: left;
+    float: left;
+    min-width: 220px;
+}
+
+.filter-form .ui-multiselect.ui-widget.ui-state-default.ui-corner-all:first-of-type,
+.form-container .ui-multiselect.ui-widget.ui-state-default.ui-corner-all:first-of-type {
+    clear: none;
+}
+
+.ui-multiselect-menu {
+    min-width: 220px;
+}
+
+/* Don't display the default widget, only the multiselect generated widget is displayed */
+select.multiselect-filter-widget {
+    display: none;
+}
+
+body.rtl .filter-form .ui-multiselect.ui-widget.ui-state-default.ui-corner-all {
+    clear: right;
+    float: right;
+}
+
+.filter-advanced {
+    text-decoration: none;
+    cursor: pointer;
+}
+.filter-advanced-label {
+    padding-right: 4px;
+}
+
+/* End */
+
 .widget-org-hierarchy-menu {
-    overflow:auto;
-    height:10em;
-    width:36em;
-    position:relative;
+    overflow: auto;
+    height: 10em;
+    width: 36em;
+    position: relative;
 }
 .widget-org-hierarchy-menu .ui-menu {
-    position:absolute;
-    top:0;
-    bottom:0;
-    overflow:auto;
-    width:32em;
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    overflow: auto;
+    width: 32em;
 }
 .widget-org-hierarchy-menu .ui-menu a {
     cursor: pointer;
@@ -1311,7 +1370,8 @@ table.report .pt-cell-zoom.opened {
     background-image: url(../../img/silk/magnifier_zoom_out.png);
 }
 
-.form-container form button.ui-datepicker-trigger {
+/* Short form for Modals */
+.ui-datepicker-trigger {
 	background-image: url(../../img/jquery-ui/calendar.gif);
     background-repeat: no-repeat;
     height: 15px;
@@ -1319,10 +1379,14 @@ table.report .pt-cell-zoom.opened {
     margin-left: 3px;
     /* Make it not like a button */
     border: 0;
-    padding: 0;
+    /*padding: 0;*/
     -moz-box-sizing: content-box;
     -webkit-box-sizing: content-box;
     box-sizing: content-box;
+}
+/* Long form to override normal button margin */
+.form-container form button.ui-datepicker-trigger {
+    margin-left: 3px;
 }
 
 td .icon {
@@ -1336,9 +1400,9 @@ td .icon {
     -moz-border-left-colors: none;
     -moz-border-right-colors: none;
     -moz-border-top-colors: none;*/
-    background: url(../../img/grippie.png) no-repeat scroll center 2px #EEEEEE;
-    border-color: #DDDDDD;
-    border-right: 1px solid #DDDDDD;
+    background: url(../../img/grippie.png) no-repeat scroll center 2px #eee;
+    border-color: #ddd;
+    border-right: 1px solid #ddd;
     border-style: solid;
     border-width: 0 1px 1px;
     cursor: s-resize;
@@ -1432,6 +1496,12 @@ body.rtl label.ui-corner-all span {
     right: 10px;
 }
 
+/* Hierarchy Widget */
+.s3-hierarchy-tree.jstree {
+    border: 1px solid #ccc;
+    padding: 2px 3px 4px 3px;
+}
+
 /* Saved Filters Page - Inline Editor for Filter Titles */
 form.jeditable-input input {
     max-width: 400px !important;
@@ -1464,8 +1534,16 @@ button.toggle-text {
 }
 
 .maxLength {
-    background-color: #FFCDCD;
-    border: 3px solid #D55B5B;
+    background-color: #ffcdcd;
+    border: 3px solid #d55b5b;
+}
+
+/* AddPersonWidget2 duplicate results */
+.card > .fleft {
+    margin-right: 10px;
+}
+.media-object {
+    display: block;
 }
 
 /* Req quantity */
@@ -1473,7 +1551,7 @@ button.toggle-text {
 	float: right;
 	width: 16px;
 	height: 16px;
-	margin: 0px 2px 2px 0px;
+	margin: 0 2px 2px 0;
 }
 .ajax_more.collapsed {
 	background: url(../../img/icon_blue_plus15px.png) no-repeat left top; 

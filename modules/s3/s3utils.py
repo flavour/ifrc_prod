@@ -68,7 +68,9 @@ else:
 
 URLSCHEMA = re.compile("((?:(())(www\.([^/?#\s]*))|((http(s)?|ftp):)"
                        "(//([^/?#\s]*)))([^?#\s]*)(\?([^#\s]*))?(#([^\s]*))?)")
-    
+
+RCVARS = "rcvars"
+                           
 # =============================================================================
 def s3_debug(message, value=None):
     """
@@ -90,6 +92,258 @@ def s3_debug(message, value=None):
         # Unicode string
         print >> sys.stderr, "Debug crashed"
 
+# =============================================================================
+def s3_get_last_record_id(tablename):
+    """
+        Reads the last record ID for a resource from a session
+
+        @param table: the the tablename
+    """
+
+    session = current.session
+
+    if RCVARS in session and tablename in session[RCVARS]:
+        return session[RCVARS][tablename]
+    else:
+        return None
+
+# =============================================================================
+def s3_store_last_record_id(tablename, record_id):
+    """
+        Stores a record ID for a resource in a session
+
+        @param tablename: the tablename
+        @param record_id: the record ID to store
+    """
+
+    session = current.session
+    
+    if RCVARS not in session:
+        session[RCVARS] = Storage({tablename: record_id})
+    else:
+        session[RCVARS][tablename] = record_id
+    return True
+
+# =============================================================================
+def s3_remove_last_record_id(tablename=None):
+    """
+        Clears one or all last record IDs stored in a session
+
+        @param tablename: the tablename, None to remove all last record IDs
+    """
+
+    session = current.session
+    
+    if tablename:
+        if RCVARS in session and tablename in session[RCVARS]:
+            del session[RCVARS][tablename]
+    else:
+        if RCVARS in session:
+            del session[RCVARS]
+    return True
+    
+# =============================================================================
+def s3_validate(table, field, value, record=None):
+    """
+        Validates a value for a field
+
+        @param table: Table
+        @param field: Field or name of the field
+        @param value: value to validate
+        @param record: the existing database record, if available
+
+        @return: tuple (value, error)
+    """
+
+    default = (value, None)
+
+    if isinstance(field, basestring):
+        fieldname = field
+        if fieldname in table.fields:
+            field = table[fieldname]
+        else:
+            return default
+    else:
+        fieldname = field.name
+
+    self_id = None
+
+    if record is not None:
+
+        try:
+            v = record[field]
+        except: # KeyError is now AttributeError
+            v = None
+        if v and v == value:
+            return default
+
+        try:
+            self_id = record[table._id]
+        except: # KeyError is now AttributeError
+            pass
+
+    requires = field.requires
+
+    if field.unique and not requires:
+        # Prevent unique-constraint violations
+        field.requires = IS_NOT_IN_DB(current.db, str(field))
+        if self_id:
+            field.requires.set_self_id(self_id)
+
+    elif self_id:
+
+        # Initialize all validators for self_id
+        if not isinstance(requires, (list, tuple)):
+            requires = [requires]
+        for r in requires:
+            if hasattr(r, "set_self_id"):
+                r.set_self_id(self_id)
+            if hasattr(r, "other") and \
+               hasattr(r.other, "set_self_id"):
+                r.other.set_self_id(self_id)
+
+    try:
+        value, error = field.validate(value)
+    except:
+        # Oops - something went wrong in the validator:
+        # write out a debug message, and continue anyway
+        current.log.error("Validate %s: %s (ignored)" %
+                          (field, sys.exc_info()[1]))
+        return (None, None)
+    else:
+        return (value, error)
+
+# =============================================================================
+def s3_represent_value(field,
+                       value=None,
+                       record=None,
+                       linkto=None,
+                       strip_markup=False,
+                       xml_escape=False,
+                       non_xml_output=False,
+                       extended_comments=False):
+    """
+        Represent a field value
+
+        @param field: the field (Field)
+        @param value: the value
+        @param record: record to retrieve the value from
+        @param linkto: function or format string to link an ID column
+        @param strip_markup: strip away markup from representation
+        @param xml_escape: XML-escape the output
+        @param non_xml_output: Needed for output such as pdf or xls
+        @param extended_comments: Typically the comments are abbreviated
+    """
+
+    xml_encode = current.xml.xml_encode
+
+    NONE = current.response.s3.crud_labels["NONE"]
+    cache = current.cache
+    fname = field.name
+
+    # Get the value
+    if record is not None:
+        tablename = str(field.table)
+        if tablename in record and isinstance(record[tablename], Row):
+            text = val = record[tablename][field.name]
+        else:
+            text = val = record[field.name]
+    else:
+        text = val = value
+        
+    ftype = str(field.type)
+    if ftype[:5] == "list:" and not isinstance(val, list):
+        # Default list representation can't handle single values
+        val = [val]
+
+    # Always XML-escape content markup if it is intended for xml output
+    # This code is needed (for example) for a data table that includes a link
+    # Such a table can be seen at inv/inv_item
+    # where the table displays a link to the warehouse
+    if not non_xml_output:
+        if not xml_escape and val is not None:
+            if ftype in ("string", "text"):
+                val = text = xml_encode(s3_unicode(val))
+            elif ftype == "list:string":
+                val = text = [xml_encode(s3_unicode(v)) for v in val]
+
+    # Get text representation
+    if field.represent:
+        try:
+            key = "%s_repr_%s" % (field, val)
+            unicode(key)
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            text = field.represent(val)
+        else:
+            text = cache.ram(key,
+                             lambda: field.represent(val),
+                             time_expire=60)
+            if isinstance(text, DIV):
+                text = str(text)
+            elif not isinstance(text, basestring):
+                text = s3_unicode(text)
+    else:
+        if val is None:
+            text = NONE
+        elif fname == "comments" and not extended_comments:
+            ur = s3_unicode(text)
+            if len(ur) > 48:
+                text = "%s..." % ur[:45].encode("utf8")
+        else:
+            text = s3_unicode(text)
+
+    # Strip away markup from text
+    if strip_markup and "<" in text:
+        try:
+            stripper = S3MarkupStripper()
+            stripper.feed(text)
+            text = stripper.stripped()
+        except:
+            pass
+
+    # Link ID field
+    if fname == "id" and linkto:
+        id = str(val)
+        try:
+            href = linkto(id)
+        except TypeError:
+            href = linkto % id
+        href = str(href).replace(".aadata", "")
+        return A(text, _href=href).xml()
+
+    # XML-escape text
+    elif xml_escape:
+        text = xml_encode(text)
+
+    try:
+        text = text.decode("utf-8")
+    except:
+        pass
+
+    return text
+
+# =============================================================================
+def s3_set_default_filter(selector, value, tablename=None):
+    """
+        Set a default filter for selector.
+
+        @param selector: the field selector
+        @param value: the value, can be a dict {operator: value},
+                      a list of values, or a single value, or a
+                      callable that returns any of these
+        @param tablename: the tablename
+    """
+
+    s3 = current.response.s3
+
+    filter_defaults = s3
+    for level in ("filter_defaults", tablename):
+        if level not in filter_defaults:
+            filter_defaults[level] = {}
+        filter_defaults = filter_defaults[level]
+    filter_defaults[selector] = value
+    return
+    
 # =============================================================================
 def s3_dev_toolbar():
     """
@@ -289,59 +543,6 @@ $(document).on('click','.s3-truncate-less',function(event){
     return
 
 # =============================================================================
-def s3_split_multi_value(value):
-    """
-        Converts a series of numbers delimited by |, or already in a
-        string into a list. If value = None, returns []
-
-        @todo: parameter description
-        @todo: is this still used?
-    """
-
-    if not value:
-        return []
-
-    elif isinstance(value, ( str ) ):
-        if "[" in value:
-            #Remove internal lists
-            value = value.replace("[", "")
-            value = value.replace("]", "")
-            value = value.replace("'", "")
-            value = value.replace('"', "")
-            return eval("[" + value + "]")
-        else:
-            return re.compile('[\w\-:]+').findall(str(value))
-    else:
-        return [str(value)]
-
-# =============================================================================
-def s3_filter_staff(r):
-    """
-        Filter out people which are already staff for this facility
-
-        @todo: make the Person-AC pick up the filter options from
-               the person_id field (currently not implemented)
-    """
-
-    db = current.db
-    try:
-        hrtable = db.hrm_human_resource
-        site_id = r.record.site_id
-        person_id_field = r.target()[2].person_id
-    except:
-        return
-    query = (hrtable.site_id == site_id) & \
-            (hrtable.deleted == False)
-
-    staff = db(query).select(hrtable.person_id)
-    person_ids = [row.person_id for row in staff]
-    try:
-        person_id_field.requires.set_filter(not_filterby = "id",
-                                            not_filter_opts = person_ids)
-    except:
-        pass
-
-# =============================================================================
 def s3_format_fullname(fname=None, mname=None, lname=None, truncate=True):
     """
         Formats the full name of a person
@@ -364,10 +565,12 @@ def s3_format_fullname(fname=None, mname=None, lname=None, truncate=True):
             fname = "%s" % s3_truncate(fname, 24)
             mname = "%s" % s3_truncate(mname, 24)
             lname = "%s" % s3_truncate(lname, 24, nice = False)
-        if not mname or mname.isspace():
-            name = ("%s %s" % (fname, lname)).rstrip()
-        else:
-            name = ("%s %s %s" % (fname, mname, lname)).rstrip()
+        name_format = current.deployment_settings.get_pr_name_format()
+        name = name_format % dict(first_name=fname,
+                                  middle_name=mname,
+                                  last_name=lname,
+                                  )
+        name = name.replace("  ", " ").rstrip()
         if truncate:
             name = s3_truncate(name, 24, nice = False)
     return name
@@ -418,7 +621,7 @@ def s3_fullname(person=None, pe_id=None, truncate=True):
 def s3_fullname_bulk(record_ids=[], truncate=True):
     """
         Returns the full name for a set of Persons
-        - used by GIS.get_representation()
+        - currently unused
 
         @param record_ids: a list of record_ids
         @param truncate: truncate the name to max 24 characters
@@ -459,15 +662,15 @@ def s3_comments_represent(text, show_link=True):
         import uuid
         unique =  uuid.uuid4()
         represent = DIV(
-                        DIV(text,
-                            _id=unique,
-                            _class="hide showall",
-                            _onmouseout="$('#%s').hide()" % unique
-                           ),
-                        A("%s..." % text[:76],
-                          _onmouseover="$('#%s').removeClass('hide').show()" % unique,
-                         ),
-                       )
+                DIV(text,
+                    _id=unique,
+                    _class="hide showall",
+                    _onmouseout="$('#%s').hide()" % unique
+                   ),
+                A("%s..." % text[:76],
+                  _onmouseover="$('#%s').removeClass('hide').show()" % unique,
+                 ),
+                )
         return represent
 
 # =============================================================================
@@ -694,7 +897,8 @@ def s3_include_ext():
     if s3.ext_included:
         # Ext already included
         return
-    appname = current.request.application
+    request = current.request
+    appname = request.application
 
     xtheme = current.deployment_settings.get_base_xtheme()
     if xtheme:
@@ -727,13 +931,16 @@ def s3_include_ext():
         else:
             main_css = \
     "<link href='/%s/static/scripts/ext/resources/css/ext-gray.min.css' rel='stylesheet' type='text/css' media='screen' charset='utf-8' />" % appname
-    locale = "%s/src/locale/ext-lang-%s.js" % (PATH, s3.language)
 
     scripts = s3.scripts
     scripts_append = scripts.append
     scripts_append(adapter)
     scripts_append(main_js)
-    scripts_append(locale)
+
+    langfile = "ext-lang-%s.js" % s3.language
+    if os.path.exists(os.path.join(request.folder, "static", "scripts", "ext", "src", "locale", langfile)):
+        locale = "%s/src/locale/%s" % (PATH, langfile)
+        scripts_append(locale)
 
     if xtheme:
         s3.jquery_ready.append('''$('link:first').after("%s").after("%s")''' % (xtheme, main_css))
@@ -825,7 +1032,7 @@ def s3_populate_browser_compatibility(request):
     try:
         from pywurfl.algorithms import TwoStepAnalysis
     except ImportError:
-        s3_debug("pywurfl python module has not been installed, browser compatibility listing will not be populated. Download pywurfl from http://pypi.python.org/pypi/pywurfl/")
+        current.log.warning("pywurfl python module has not been installed, browser compatibility listing will not be populated. Download pywurfl from http://pypi.python.org/pypi/pywurfl/")
         return False
     import wurfl
     device = wurfl.devices.select_ua(unicode(request.env.http_user_agent),
@@ -1452,7 +1659,7 @@ class S3DateTime(object):
             except:
                 # e.g. dates < 1900
                 date = date.isoformat()
-                s3_debug("Date cannot be formatted - using isoformat", date)
+                current.log.warning("Date cannot be formatted - using isoformat", date)
                 return date
         else:
             return current.messages["NONE"]

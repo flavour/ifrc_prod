@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-# -*- coding: utf-8 -*-
 
 """
     GIS Controllers
@@ -109,11 +108,7 @@ def define_map(height = None,
         config = gis.get_config()
 
     legend = settings.get_gis_legend()
-
-    # @ToDo: Make these configurable
-    search = True
-    #googleEarth = True
-    #googleStreetview = True
+    search = settings.get_gis_search_geonames()
 
     if config.wmsbrowser_url:
         wms_browser = {"name" : config.wmsbrowser_name,
@@ -184,14 +179,14 @@ def define_map(height = None,
                        lat = lat,
                        lon = lon,
                        add_feature = pois,
+                       catalogue_layers = True,
                        feature_resources = feature_resources,
-                       toolbar = toolbar,
-                       wms_browser = wms_browser,
                        legend = legend,
+                       print_tool = print_tool,
                        save = True,
                        search = search,
-                       catalogue_layers = True,
-                       print_tool = print_tool,
+                       toolbar = toolbar,
+                       wms_browser = wms_browser,
                        window = window,
                        closable = closable,
                        maximizable = maximizable,
@@ -211,18 +206,62 @@ def location():
     set_method = s3db.set_method
     from s3.s3gis import S3ExportPOI
     set_method("gis", "location",
-               method="export_poi",
-               action=S3ExportPOI())
+               method = "export_poi",
+               action = S3ExportPOI())
     from s3.s3gis import S3ImportPOI
     set_method("gis", "location",
-               method="import_poi",
-               action=S3ImportPOI())
+               method = "import_poi",
+               action = S3ImportPOI())
     set_method("gis", "location",
-               method="parents",
-               action=s3_gis_location_parents)
-    
+               method = "parents",
+               action = s3_gis_location_parents)
+
+    location_hierarchy = gis.get_location_hierarchy()
+    from s3.s3filter import S3TextFilter, S3OptionsFilter#, S3LocationFilter
+    search_fields = ["name",
+                     "comments",
+                     "tag.value",
+                     ]
+    if settings.get_L10n_translate_gis_location():
+        search_fields.append("name.name_l10n")
+
+    filter_level_widgets = []
+    for level, level_label in location_hierarchy.items():
+        search_fields.append(level)
+        filter_level_widgets.append(S3OptionsFilter(level,
+                                                    label = level_label,
+                                                    #cols = 5,
+                                                    hidden = True,
+                                                    ))
+
+    filter_widgets = [
+        S3TextFilter(search_fields,
+                     label = T("Search"),
+                     comment = T("To search for a location, enter the name. You may use % as wildcard. Press 'Search' without input to list all locations."),
+                     #_class = "filter-search",
+                     ),
+        S3OptionsFilter("level",
+                        label = T("Level"),
+                        options = location_hierarchy,
+                        #hidden = True,
+                        ),
+        # @ToDo: Hierarchical filter working on id
+        #S3LocationFilter("id",
+        #                label = T("Location"),
+        #                levels = ("L0", "L1", "L2", "L3",),
+        #                #hidden = True,
+        #                ),
+        ]
+    filter_widgets.extend(filter_level_widgets)
+
+    s3db.configure(tablename,
+                   filter_widgets = filter_widgets,
+                   # Don't include Bulky Location Selector in List Views
+                   listadd = False,
+                   )
+
     if "report" in request.args:
-        # @ToDo: Migrate to Field.Lazy
+        # @ToDo: Migrate to Field.Method
         class S3LocationVirtualFields:
             def population(self):
                 """
@@ -241,24 +280,17 @@ def location():
         table.virtualfields.append(S3LocationVirtualFields())
 
         s3db.configure(tablename,
-                       report_options=Storage(
-                                search=gis_location_adv_search,
-                                rows=["name"],
-                                cols=[],
-                                fact=[("population", "sum", T("Total Population"))],
-                                defaults=Storage(
-                                                rows="name",
-                                                cols=None,
-                                                fact="sum:population",
-                                                totals=True
-                                                )
+                       report_options = Storage(
+                                rows = ["name"],
+                                cols = [],
+                                fact = [("population", "sum", T("Total Population"))],
+                                defaults = Storage(rows="name",
+                                                   cols=None,
+                                                   fact="sum:population",
+                                                   totals=True
+                                                   )
                                 ),
                         )
-
-    s3db.configure(tablename,
-                   # Don't include Bulky Location Selector in List Views
-                   listadd = False,
-                   )
 
     # Pre-processor
     # Allow prep to pass vars back to the controller
@@ -266,74 +298,7 @@ def location():
     def prep(r, vars):
 
         if r.interactive and not r.component:
-            location_hierarchy = gis.get_location_hierarchy()
-            from s3.s3filter import S3TextFilter, S3OptionsFilter#, S3LocationFilter
-            search_fields = ["name",
-                             "comments",
-                             "L0",
-                             "L1",
-                             "L2",
-                             "L3",
-                             "L4",
-                             "L5",
-                             "tag.value",
-                             ]
-            if settings.get_L10n_translate_gis_location():
-                search_fields.append("name.name_l10n")
-            filter_widgets = [
-                S3TextFilter(search_fields,
-                             label = T("Search"),
-                             comment = T("To search for a location, enter the name. You may use % as wildcard. Press 'Search' without input to list all locations."),
-                             #_class = "filter-search",
-                             ),
-                S3OptionsFilter("level",
-                                label=T("Level"),
-                                options=location_hierarchy,
-                                widget="multiselect",
-                                #hidden=True,
-                                ),
-                # @ToDo: Hierarchical filter working on id
-                #S3LocationFilter("id",
-                #                label=T("Location"),
-                #                levels=["L0", "L1", "L2", "L3"],
-                #                widget="multiselect",
-                #                #hidden=True,
-                #                ),
-                S3OptionsFilter("L0",
-                                label=COUNTRY,
-                                #widget="multiselect",
-                                cols=5,
-                                hidden=True,
-                                ),
-                ]
-            L1 = location_hierarchy.get("L1", None)
-            if L1:
-                filter_widgets.append(S3OptionsFilter("L1",
-                                                      label=L1,
-                                                      #widget="multiselect",
-                                                      cols=5,
-                                                      hidden=True,
-                                                      ))
-            L2 = location_hierarchy.get("L2", None)
-            if L2:
-                filter_widgets.append(S3OptionsFilter("L2",
-                                                      label=L2,
-                                                      #widget="multiselect",
-                                                      cols=5,
-                                                      hidden=True,
-                                                      ))
-            L3 = location_hierarchy.get("L3", None)
-            if L3:
-                filter_widgets.append(S3OptionsFilter("L3",
-                                                      label=L3,
-                                                      #widget="multiselect",
-                                                      cols=5,
-                                                      hidden=True,
-                                                      ))
 
-            s3db.configure(tablename,
-                           filter_widgets=filter_widgets,
-                           )
 
             # Restrict access to Polygons to just MapAdmins
             if settings.get_security_map() and not s3_has_role(MAP_ADMIN):
@@ -356,7 +321,7 @@ def location():
             if r.representation == "popup":
                 table.parent.comment = parent_comment
             else:
-                # Include 'Add Location' button
+                # Include 'Create Location' button
                 table.parent.comment = DIV(S3AddResourceLink(c="gis",
                                                              f="location",
                                                              vars=dict(child="parent")),
@@ -477,14 +442,13 @@ def location():
 
     country = S3ReusableField("country", "string", length=2,
                               label = COUNTRY,
-                              requires = IS_NULL_OR(IS_IN_SET_LAZY(
+                              requires = IS_EMPTY_OR(IS_IN_SET_LAZY(
                                     lambda: gis.get_countries(key_type="code"),
                                     zero = SELECT_LOCATION)),
                               represent = lambda code: \
                                     gis.get_country(code, key_type="code") or UNKNOWN_OPT)
 
     output = s3_rest_controller(rheader=s3db.gis_rheader,
-                                hide_filter = False,
                                 # CSV column headers, so no T()
                                 csv_extra_fields = [
                                     dict(label="Country",
@@ -673,7 +637,7 @@ def s3_gis_location_parents(r, **attr):
         # @ToDo
         output = dict()
         #return output
-        raise HTTP(501, body=s3mgr.ERROR.BAD_FORMAT)
+        raise HTTP(501, body=current.ERROR.BAD_FORMAT)
 
     elif r.representation == "json":
 
@@ -687,12 +651,12 @@ def s3_gis_location_parents(r, **attr):
                 output = json.dumps(_parents)
                 return output
             else:
-                raise HTTP(404, body=s3mgr.ERROR.NO_MATCH)
+                raise HTTP(404, body=current.ERROR.NO_MATCH)
         else:
-            raise HTTP(404, body=s3mgr.ERROR.BAD_RECORD)
+            raise HTTP(404, body=current.ERROR.BAD_RECORD)
 
     else:
-        raise HTTP(501, body=s3mgr.ERROR.BAD_FORMAT)
+        raise HTTP(501, body=current.ERROR.BAD_FORMAT)
 
 # -----------------------------------------------------------------------------
 def l0():
@@ -754,12 +718,11 @@ def l0():
 
 # =============================================================================
 # Common CRUD strings for all layers
-ADD_LAYER = T("Add Layer")
+ADD_LAYER = T("Create Layer")
 LAYER_DETAILS = T("Layer Details")
 LAYERS = T("Layers")
 EDIT_LAYER = T("Edit Layer")
-SEARCH_LAYERS = T("Search Layers")
-ADD_NEW_LAYER = T("Add New Layer")
+ADD_NEW_LAYER = T("Create Layer")
 LIST_LAYERS = T("List Layers")
 DELETE_LAYER = T("Delete Layer")
 LAYER_ADDED = T("Layer added")
@@ -918,6 +881,7 @@ def config():
                                             options = {"*": T("All"),
                                                        auth.user.pe_id: T("My Maps"),
                                                        },
+                                            cols = 2,
                                             multiple = False,
                                             )
                             ]
@@ -944,10 +908,11 @@ def config():
                                                                               limitby=(0, 1))
                         if openstreetmap:
                             # OpenStreetMap config
-                            s3db.add_component("auth_user_options",
-                                               gis_config=dict(joinby="pe_id",
-                                                               pkey="pe_id",
-                                                               multiple=False)
+                            s3db.add_components("gis_config",
+                                                auth_user_options={"joinby": "pe_id",
+                                                                   "pkey": "pe_id",
+                                                                   "multiple": False,
+                                                                  },
                                                )
                             fields += ["user_options.osm_oauth_consumer_key",
                                        "user_options.osm_oauth_consumer_secret",
@@ -963,13 +928,11 @@ def config():
 
             elif r.component_name == "layer_entity":
                 s3.crud_strings["gis_layer_config"] = Storage(
-                    title_create = T("Add Layer to this Profile"),
+                    label_create = T("Add Layer to this Profile"),
                     title_display = LAYER_DETAILS,
                     title_list = LAYERS,
                     title_update = EDIT_LAYER,
-                    subtitle_create = T("Add Layer from Catalog"),
                     label_list_button = T("List Layers in Profile"),
-                    label_create_button = T("Add Layer from Catalog"),
                     label_delete_button = T("Remove Layer from Profile"),
                     msg_record_created = LAYER_ADDED,
                     msg_record_modified = LAYER_UPDATED,
@@ -1100,9 +1063,7 @@ def config():
         return output
     s3.postp = postp
 
-    output = s3_rest_controller(rheader=s3db.gis_rheader,
-                                hide_filter = False,
-                                )
+    output = s3_rest_controller(rheader=s3db.gis_rheader)
     return output
 
 # -----------------------------------------------------------------------------
@@ -1164,13 +1125,11 @@ def symbology():
         if r.interactive:
             if r.component_name == "layer_entity":
                 s3.crud_strings["gis_layer_entity"] = Storage(
-                    title_create=T("Configure Layer for this Symbology"),
+                    label_create=T("Configure Layer for this Symbology"),
                     title_display=LAYER_DETAILS,
                     title_list=LAYERS,
                     title_update=EDIT_LAYER,
-                    subtitle_create=T("Add New Layer to Symbology"),
                     label_list_button=T("List Layers in Symbology"),
-                    label_create_button=ADD_LAYER,
                     label_delete_button = T("Remove Layer from Symbology"),
                     msg_record_created=LAYER_ADDED,
                     msg_record_modified=LAYER_UPDATED,
@@ -1272,7 +1231,8 @@ def inject_enable(output):
                        _type="checkbox",
                        _value="on",
                        _id="layer_enable",
-                      _class="boolean")
+                      _class="boolean",
+                      )
         comment = ""
         if s3_formstyle == "bootstrap":
             _controls = DIV(widget, comment, _class="controls")
@@ -1282,10 +1242,7 @@ def inject_enable(output):
                       _id="%s__row" % id
                       )
         elif callable(s3_formstyle):
-            row = s3_formstyle(id=id,
-                               label=label,
-                               widget=widget,
-                               comment=comment)
+            row = s3_formstyle(id, label, widget, comment)
         else:
             # Unsupported
             raise
@@ -1462,14 +1419,11 @@ def layer_openstreetmap():
     EDIT_LAYER = T(EDIT_TYPE_LAYER_FMT % type)
     NO_LAYERS = T(NO_TYPE_LAYERS_FMT % type)
     s3.crud_strings[tablename] = Storage(
-        title_create=ADD_LAYER,
+        label_create=ADD_LAYER,
         title_display=LAYER_DETAILS,
         title_list=LAYERS,
         title_update=EDIT_LAYER,
-        title_search=SEARCH_LAYERS,
-        subtitle_create=ADD_NEW_LAYER,
         label_list_button=LIST_LAYERS,
-        label_create_button=ADD_LAYER,
         label_delete_button = DELETE_LAYER,
         msg_record_created=LAYER_ADDED,
         msg_record_modified=LAYER_UPDATED,
@@ -1522,7 +1476,7 @@ def layer_bing():
     type = "Bing"
     EDIT_LAYER = T(EDIT_TYPE_LAYER_FMT % type)
     s3.crud_strings[tablename] = Storage(
-        title_create=ADD_LAYER,
+        label_create=ADD_LAYER,
         title_update=EDIT_LAYER,
         msg_record_created=LAYER_ADDED,
         msg_record_modified=LAYER_UPDATED)
@@ -1578,7 +1532,7 @@ def layer_empty():
     type = "Empty"
     EDIT_LAYER = T(EDIT_TYPE_LAYER_FMT % type)
     s3.crud_strings[tablename] = Storage(
-        title_create=ADD_LAYER,
+        label_create=ADD_LAYER,
         title_update=EDIT_LAYER,
         msg_record_created=LAYER_ADDED,
         msg_record_modified=LAYER_UPDATED)
@@ -1625,7 +1579,7 @@ def layer_google():
     type = "Google"
     EDIT_LAYER = T(EDIT_TYPE_LAYER_FMT % type)
     s3.crud_strings[tablename] = Storage(
-        title_create=ADD_LAYER,
+        label_create=ADD_LAYER,
         title_update=EDIT_LAYER,
         msg_record_created=LAYER_ADDED,
         msg_record_modified=LAYER_UPDATED)
@@ -1682,14 +1636,11 @@ def layer_mgrs():
     EDIT_LAYER = T(EDIT_TYPE_LAYER_FMT % type)
     NO_LAYERS = T(NO_TYPE_LAYERS_FMT % type)
     s3.crud_strings[tablename] = Storage(
-        title_create=ADD_LAYER,
+        label_create=ADD_LAYER,
         title_display=LAYER_DETAILS,
         title_list=LAYERS,
         title_update=EDIT_LAYER,
-        title_search=SEARCH_LAYERS,
-        subtitle_create=ADD_NEW_LAYER,
         label_list_button=LIST_LAYERS,
-        label_create_button=ADD_LAYER,
         label_delete_button = DELETE_LAYER,
         msg_record_created=LAYER_ADDED,
         msg_record_modified=LAYER_UPDATED,
@@ -1739,14 +1690,11 @@ def layer_arcrest():
     LIST_LAYERS = T(LIST_TYPE_LAYERS_FMT % type)
     NO_LAYERS = T(NO_TYPE_LAYERS_FMT % type)
     s3.crud_strings[tablename] = Storage(
-        title_create=ADD_LAYER,
+        label_create=ADD_LAYER,
         title_display=LAYER_DETAILS,
         title_list=LAYERS,
         title_update=EDIT_LAYER,
-        title_search=SEARCH_LAYERS,
-        subtitle_create=ADD_NEW_LAYER,
         label_list_button=LIST_LAYERS,
-        label_create_button=ADD_LAYER,
         label_delete_button = DELETE_LAYER,
         msg_record_created=LAYER_ADDED,
         msg_record_modified=LAYER_UPDATED,
@@ -1809,14 +1757,11 @@ def layer_geojson():
     LIST_LAYERS = T(LIST_TYPE_LAYERS_FMT % type)
     NO_LAYERS = T(NO_TYPE_LAYERS_FMT % type)
     s3.crud_strings[tablename] = Storage(
-        title_create=ADD_LAYER,
+        label_create=ADD_LAYER,
         title_display=LAYER_DETAILS,
         title_list=LAYERS,
         title_update=EDIT_LAYER,
-        title_search=SEARCH_LAYERS,
-        subtitle_create=ADD_NEW_LAYER,
         label_list_button=LIST_LAYERS,
-        label_create_button=ADD_LAYER,
         label_delete_button = DELETE_LAYER,
         msg_record_created=LAYER_ADDED,
         msg_record_modified=LAYER_UPDATED,
@@ -1891,14 +1836,11 @@ def layer_georss():
     LIST_LAYERS = T(LIST_TYPE_LAYERS_FMT % type)
     NO_LAYERS = T(NO_TYPE_LAYERS_FMT % type)
     s3.crud_strings[tablename] = Storage(
-        title_create=ADD_LAYER,
+        label_create=ADD_LAYER,
         title_display=LAYER_DETAILS,
         title_list=LAYERS,
         title_update=EDIT_LAYER,
-        title_search=SEARCH_LAYERS,
-        subtitle_create=ADD_NEW_LAYER,
         label_list_button=LIST_LAYERS,
-        label_create_button=ADD_LAYER,
         label_delete_button = DELETE_LAYER,
         msg_record_created=LAYER_ADDED,
         msg_record_modified=LAYER_UPDATED,
@@ -1980,14 +1922,11 @@ def layer_gpx():
     LIST_LAYERS = T(LIST_TYPE_LAYERS_FMT % type)
     NO_LAYERS = T(NO_TYPE_LAYERS_FMT % type)
     s3.crud_strings[tablename] = Storage(
-        title_create=ADD_LAYER,
+        label_create=ADD_LAYER,
         title_display=LAYER_DETAILS,
         title_list=LAYERS,
         title_update=EDIT_LAYER,
-        title_search=SEARCH_LAYERS,
-        subtitle_create=ADD_NEW_LAYER,
         label_list_button=LIST_LAYERS,
-        label_create_button=ADD_LAYER,
         label_delete_button = DELETE_LAYER,
         msg_record_created=LAYER_ADDED,
         msg_record_modified=LAYER_UPDATED,
@@ -2044,14 +1983,11 @@ def layer_kml():
     LIST_LAYERS = T(LIST_TYPE_LAYERS_FMT % type)
     NO_LAYERS = T(NO_TYPE_LAYERS_FMT % type)
     s3.crud_strings[tablename] = Storage(
-        title_create=ADD_LAYER,
+        label_create=ADD_LAYER,
         title_display=LAYER_DETAILS,
         title_list=LAYERS,
         title_update=EDIT_LAYER,
-        title_search=SEARCH_LAYERS,
-        subtitle_create=ADD_NEW_LAYER,
         label_list_button=LIST_LAYERS,
-        label_create_button=ADD_LAYER,
         label_delete_button = DELETE_LAYER,
         msg_record_created=LAYER_ADDED,
         msg_record_modified=LAYER_UPDATED,
@@ -2131,14 +2067,11 @@ def layer_openweathermap():
     LIST_LAYERS = T(LIST_TYPE_LAYERS_FMT % type)
     NO_LAYERS = T(NO_TYPE_LAYERS_FMT % type)
     s3.crud_strings[tablename] = Storage(
-        title_create=ADD_LAYER,
+        label_create=ADD_LAYER,
         title_display=LAYER_DETAILS,
         title_list=LAYERS,
         title_update=EDIT_LAYER,
-        title_search=SEARCH_LAYERS,
-        subtitle_create=ADD_NEW_LAYER,
         label_list_button=LIST_LAYERS,
-        label_create_button=ADD_LAYER,
         label_delete_button = DELETE_LAYER,
         msg_record_created=LAYER_ADDED,
         msg_record_modified=LAYER_UPDATED,
@@ -2216,14 +2149,11 @@ def layer_shapefile():
     LIST_LAYERS = T(LIST_TYPE_LAYERS_FMT % type)
     NO_LAYERS = T(NO_TYPE_LAYERS_FMT % type)
     s3.crud_strings[tablename] = Storage(
-        title_create=ADD_LAYER,
+        label_create=ADD_LAYER,
         title_display=LAYER_DETAILS,
         title_list=LAYERS,
         title_update=EDIT_LAYER,
-        title_search=SEARCH_LAYERS,
-        subtitle_create=ADD_NEW_LAYER,
         label_list_button=LIST_LAYERS,
-        label_create_button=ADD_LAYER,
         label_delete_button = DELETE_LAYER,
         msg_record_created=LAYER_ADDED,
         msg_record_modified=LAYER_UPDATED,
@@ -2266,8 +2196,8 @@ def layer_shapefile():
                 if extension:
                     new_arg = "%s%s" % (new_arg, extension)
                 args[1] = new_arg
-                s3db.add_component(_tablename,
-                                   gis_layer_shapefile="layer_id")
+                s3db.add_components("gis_layer_shapefile",
+                                    **{_tablename: "layer_id"})
                 # @ToDo: onaccept to write any modified data back to the attached shapefile
                 # If we need to reproject, then we need to write a .prj file out:
                 #outSpatialRef.MorphToESRI()
@@ -2363,14 +2293,11 @@ def layer_theme():
                 LIST_LAYERS = T(LIST_TYPE_LAYERS_FMT % type)
                 NO_LAYERS = T(NO_TYPE_LAYERS_FMT % type)
                 s3.crud_strings["gis_layer_theme"] = Storage(
-                    title_create=ADD_LAYER,
+                    label_create=ADD_LAYER,
                     title_display=LAYER_DETAILS,
                     title_list=LAYERS,
                     title_update=EDIT_LAYER,
-                    title_search=SEARCH_LAYERS,
-                    subtitle_create=ADD_NEW_LAYER,
                     label_list_button=LIST_LAYERS,
-                    label_create_button=ADD_LAYER,
                     label_delete_button = DELETE_LAYER,
                     msg_record_created=LAYER_ADDED,
                     msg_record_modified=LAYER_UPDATED,
@@ -2413,7 +2340,7 @@ def theme_data():
     """ RESTful CRUD controller """
 
     field = s3db.gis_layer_theme_id()
-    field.requires = IS_NULL_OR(field.requires)
+    field.requires = IS_EMPTY_OR(field.requires)
     output = s3_rest_controller(csv_extra_fields = [
                                     # CSV column headers, so no T()
                                     dict(label="Layer",
@@ -2437,14 +2364,11 @@ def layer_tms():
     LIST_LAYERS = T(LIST_TYPE_LAYERS_FMT % type)
     NO_LAYERS = T(NO_TYPE_LAYERS_FMT % type)
     s3.crud_strings[tablename] = Storage(
-        title_create=ADD_LAYER,
+        label_create=ADD_LAYER,
         title_display=LAYER_DETAILS,
         title_list=LAYERS,
         title_update=EDIT_LAYER,
-        title_search=SEARCH_LAYERS,
-        subtitle_create=ADD_NEW_LAYER,
         label_list_button=LIST_LAYERS,
-        label_create_button=ADD_LAYER,
         label_delete_button = DELETE_LAYER,
         msg_record_created=LAYER_ADDED,
         msg_record_modified=LAYER_UPDATED,
@@ -2507,14 +2431,11 @@ def layer_wfs():
     LIST_LAYERS = T(LIST_TYPE_LAYERS_FMT % type)
     NO_LAYERS = T(NO_TYPE_LAYERS_FMT % type)
     s3.crud_strings[tablename] = Storage(
-        title_create=ADD_LAYER,
+        label_create=ADD_LAYER,
         title_display=LAYER_DETAILS,
         title_list=LAYERS,
         title_update=EDIT_LAYER,
-        title_search=SEARCH_LAYERS,
-        subtitle_create=ADD_NEW_LAYER,
         label_list_button=LIST_LAYERS,
-        label_create_button=ADD_LAYER,
         label_delete_button = DELETE_LAYER,
         msg_record_created=LAYER_ADDED,
         msg_record_modified=LAYER_UPDATED,
@@ -2590,14 +2511,11 @@ def layer_wms():
     LIST_LAYERS = T(LIST_TYPE_LAYERS_FMT % type)
     NO_LAYERS = T(NO_TYPE_LAYERS_FMT % type)
     s3.crud_strings[tablename] = Storage(
-        title_create=ADD_LAYER,
+        label_create=ADD_LAYER,
         title_display=LAYER_DETAILS,
         title_list=LAYERS,
         title_update=EDIT_LAYER,
-        title_search=SEARCH_LAYERS,
-        subtitle_create=ADD_NEW_LAYER,
         label_list_button=LIST_LAYERS,
-        label_create_button=ADD_LAYER,
         label_delete_button = DELETE_LAYER,
         msg_record_created=LAYER_ADDED,
         msg_record_modified=LAYER_UPDATED,
@@ -2659,14 +2577,11 @@ def layer_xyz():
     LIST_LAYERS = T(LIST_TYPE_LAYERS_FMT % type)
     NO_LAYERS = T(NO_TYPE_LAYERS_FMT % type)
     s3.crud_strings[tablename] = Storage(
-        title_create=ADD_LAYER,
+        label_create=ADD_LAYER,
         title_display=LAYER_DETAILS,
         title_list=LAYERS,
         title_update=EDIT_LAYER,
-        title_search=SEARCH_LAYERS,
-        subtitle_create=ADD_NEW_LAYER,
         label_list_button=LIST_LAYERS,
-        label_create_button=ADD_LAYER,
         label_delete_button = DELETE_LAYER,
         msg_record_created=LAYER_ADDED,
         msg_record_modified=LAYER_UPDATED,
@@ -2732,14 +2647,11 @@ def layer_js():
     LIST_LAYERS = T(LIST_TYPE_LAYERS_FMT % type)
     NO_LAYERS = T(NO_TYPE_LAYERS_FMT % type)
     s3.crud_strings[tablename] = Storage(
-        title_create=ADD_LAYER,
+        label_create=ADD_LAYER,
         title_display=LAYER_DETAILS,
         title_list=LAYERS,
         title_update=EDIT_LAYER,
-        title_search=SEARCH_LAYERS,
-        subtitle_create=ADD_NEW_LAYER,
         label_list_button=LIST_LAYERS,
-        label_create_button=ADD_LAYER,
         label_delete_button = DELETE_LAYER,
         msg_record_created=LAYER_ADDED,
         msg_record_modified=LAYER_UPDATED,
@@ -2862,7 +2774,7 @@ def feature_query():
     r = s3_request()
 
     if r.representation != "geojson":
-        session.error = BADFORMAT
+        session.error = ERROR.BAD_FORMAT
         redirect(URL(c="default", f="index", args=None, vars=None))
 
     # Execute the request
@@ -3164,57 +3076,11 @@ def geocode_r():
     vars = request.post_vars
     lat = vars.get("lat", None)
     lon = vars.get("lon", None)
-    if not lat or not lon:
-       results = "Need Lat & Lon"
-    else:
-        results = ""
-        # Check vaguely valid
-        try:
-            lat = float(lat)
-        except ValueError:
-            results += "Latitude is Invalid!"
-        try:
-            lon = float(lon)
-        except ValueError:
-            results += "Longitude is Invalid!"
-        if not results:
-            if lon > 180 or lon < -180:
-                results = "Longitude must be between -180 & 180!"
-            elif lat > 90 or lat < -90:
-                results = "Latitude must be between -90 & 90!"
-            else:
-                table = s3db.gis_location
-                query = (table.level != None) & \
-                        (table.deleted != True)
-                if settings.get_gis_spatialdb():
-                    point = "POINT(%s %s)" % (lon, lat)
-                    query &= (table.the_geom.st_intersects(point))
-                    rows = db(query).select(table.id,
-                                            table.level,
-                                            )
-                    results = {}
-                    for row in rows:
-                        results[row.level] = row.id
-                else:
-                    # Oh dear, this is going to be slow :/
-                    query &= (table.lat_min < lat) & \
-                             (table.lat_max > lat) & \
-                             (table.lon_min < lon) & \
-                             (table.lon_max > lon)
-                    rows = db(query).select(table.id,
-                                            table.level,
-                                            table.wkt,
-                                            )
-                    from shapely.geometry import point
-                    from shapely.wkt import loads as wkt_loads
-                    test = point.Point(lon, lat)
-                    results = {}
-                    for row in rows:
-                        shape = wkt_loads(row.wkt)
-                        ok = test.intersects(shape)
-                        if ok:
-                            results[row.level] = row.id
 
+    # Reverse Geocode
+    results = gis.geocode_r(lat, lon)
+
+    # Return the results
     results = json.dumps(results)
     response.headers["Content-Type"] = "application/json"
     return results

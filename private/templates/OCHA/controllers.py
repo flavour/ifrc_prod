@@ -27,7 +27,7 @@ class index():
                                 appname
         s3.actions = None
         project_box = DIV(H3(T("Projects")),
-                          A(T("Add Project"),
+                          A(T("Create Project"),
                             _href = URL(c="project", f="project",
                                         args=["create"]),
                             _id = "add-btn",
@@ -177,7 +177,7 @@ class project():
             current.response.headers["Content-Type"] = "application/json"
         else:
             from gluon.http import HTTP
-            raise HTTP(501, resource.ERROR.BAD_FORMAT)
+            raise HTTP(501, current.ERROR.BAD_FORMAT)
         return items
 
 # END =========================================================================

@@ -29,7 +29,7 @@
 
 __all__ = ["S3DocumentLibrary",
            "doc_image_represent",
-           "doc_render_document",
+           "doc_document_list_layout",
           ]
 
 import os
@@ -64,7 +64,7 @@ class S3DocumentLibrary(S3Model):
         UNKNOWN_OPT = messages.UNKNOWN_OPT
 
         # Shortcuts
-        add_component = self.add_component
+        add_components = self.add_components
         configure = self.configure
         crud_strings = s3.crud_strings
         define_table = self.define_table
@@ -104,88 +104,86 @@ class S3DocumentLibrary(S3Model):
                                )
 
         tablename = "doc_entity"
-        doc_entity = self.super_entity(tablename, "doc_id", entity_types)
+        self.super_entity(tablename, "doc_id", entity_types)
 
         # Components
-        add_component("doc_document", doc_entity=super_key(doc_entity))
-        add_component("doc_image", doc_entity=super_key(doc_entity))
+        doc_id = "doc_id"
+        add_components(tablename,
+                       doc_document=doc_id,
+                       doc_image=doc_id,
+                      )
 
         # ---------------------------------------------------------------------
         # Documents
         #
         tablename = "doc_document"
-        table = define_table(tablename,
-                             # Instance
-                             self.stats_source_superlink,
-                             # Component not instance
-                             super_link("doc_id", doc_entity),
-                             # @ToDo: Remove since Site Instances are doc entities?
-                             super_link("site_id", "org_site"),
-                             Field("file", "upload",
-                                   # upload folder needs to be visible to the download() function as well as the upload
-                                   uploadfolder = os.path.join(folder,
-                                                               "uploads"),
-                                   autodelete = True
-                                   ),
-                             Field("name", length=128,
-                                   # Allow Name to be added onvalidation
-                                   requires = IS_NULL_OR(IS_LENGTH(128)),
-                                   label = T("Name")
-                                   ),
-                             Field("url",
-                                   label = T("URL"),
-                                   requires = IS_NULL_OR(IS_URL()),
-                                   represent = lambda url: \
-                                    url and A(url, _href=url) or NONE
-                                   ),
-                             Field("has_been_indexed", "boolean", 
-                                   default = False,
-                                   readable = False,
-                                   writable = False,
-                                   ),
-                             person_id(
-                                # Enable when-required
-                                readable = False,
-                                writable = False,
-                                label=T("Author"),
-                                comment=person_comment(T("Author"),
-                                                       T("The Author of this Document (optional)"))
-                                ),
-                             organisation_id(
-                                # Enable when-required
-                                readable = False,
-                                writable = False,
-                                widget = org_widget,
-                                ),
-                             s3_date(label = T("Date Published")),
-                             # @ToDo: Move location to link table
-                             location_id(
-                                # Enable when-required
-                                readable = False,
-                                writable = False,
-                                ),
-                             s3_comments(),
-                             Field("checksum",
-                                   readable = False,
-                                   writable = False,
-                                   ),
-                             *s3_meta_fields())
-
-        # Field configuration
-        table.file.represent = lambda file, table=table: \
-                               self.doc_file_represent(file, table)
+        define_table(tablename,
+                     # Instance
+                     self.stats_source_superlink,
+                     # Component not instance
+                     super_link("doc_id", "doc_entity"),
+                     # @ToDo: Remove since Site Instances are doc entities?
+                     super_link("site_id", "org_site"),
+                     Field("file", "upload",
+                           # upload folder needs to be visible to the download() function as well as the upload
+                           uploadfolder = os.path.join(folder,
+                                                       "uploads"),
+                           autodelete = True,
+                           represent = lambda file: \
+                                       self.doc_file_represent(file, tablename),
+                           ),
+                     Field("name", length=128,
+                           # Allow Name to be added onvalidation
+                           requires = IS_EMPTY_OR(IS_LENGTH(128)),
+                           label = T("Name")
+                           ),
+                     Field("url",
+                           label = T("URL"),
+                           requires = IS_EMPTY_OR(IS_URL()),
+                           represent = lambda url: \
+                           url and A(url, _href=url) or NONE
+                           ),
+                     Field("has_been_indexed", "boolean",
+                           default = False,
+                           readable = False,
+                           writable = False,
+                           ),
+                     person_id(
+                        # Enable when-required
+                        readable = False,
+                        writable = False,
+                        label=T("Author"),
+                        comment=person_comment(T("Author"),
+                                                T("The Author of this Document (optional)"))
+                     ),
+                     organisation_id(
+                        # Enable when-required
+                        readable = False,
+                        writable = False,
+                        widget = org_widget,
+                     ),
+                     s3_date(label = T("Date Published")),
+                     # @ToDo: Move location to link table
+                     location_id(
+                        # Enable when-required
+                        readable = False,
+                        writable = False,
+                     ),
+                     s3_comments(),
+                     Field("checksum",
+                           readable = False,
+                           writable = False,
+                           ),
+                     *s3_meta_fields())
 
         # CRUD Strings
-        ADD_DOCUMENT = T("Add Reference Document")
+        ADD_DOCUMENT = T("Create Reference Document")
         crud_strings[tablename] = Storage(
-            title_create = ADD_DOCUMENT,
+            label_create = ADD_DOCUMENT,
             title_display = T("Document Details"),
             title_list = T("Documents"),
             title_update = T("Edit Document"),
-            title_search = T("Search Documents"),
-            subtitle_create = T("Add New Document"),
             label_list_button = T("List Documents"),
-            label_create_button = ADD_DOCUMENT,
             label_delete_button = T("Delete Document"),
             msg_record_created = T("Document added"),
             msg_record_modified = T("Document updated"),
@@ -209,7 +207,7 @@ class S3DocumentLibrary(S3Model):
                              "site": "site_id",
                              },
                   deduplicate = self.document_duplicate,
-                  list_layout = doc_render_document,
+                  list_layout = doc_document_list_layout,
                   onaccept = onaccept,
                   ondelete = ondelete,
                   onvalidation = self.document_onvalidation,
@@ -217,15 +215,18 @@ class S3DocumentLibrary(S3Model):
                   )
 
         # Reusable field
-        represent = S3Represent(lookup=tablename)
-        document_id = S3ReusableField("document_id", table,
+        represent = doc_DocumentRepresent(lookup = tablename,
+                                          fields = ["name", "file", "url"],
+                                          labels = "%(name)s",
+                                          show_link = True)
+        document_id = S3ReusableField("document_id", "reference %s" % tablename,
+                                      label = T("Document"),
+                                      ondelete = "CASCADE",
+                                      represent = represent,
                                       requires = IS_ONE_OF(db,
                                                            "doc_document.id",
                                                            represent),
-                                      represent = represent,
-                                      label = T("Document"),
-                                      ondelete = "CASCADE",
-                                     )
+                                      )
 
         # ---------------------------------------------------------------------
         # Images
@@ -242,57 +243,53 @@ class S3DocumentLibrary(S3Model):
         }
 
         tablename = "doc_image"
-        table = define_table(tablename,
-                             # Component not instance
-                             super_link("doc_id", doc_entity),
-                             super_link("pe_id", "pr_pentity"), # @ToDo: Remove & make Persons doc entities instead?
-                             super_link("site_id", "org_site"), # @ToDo: Remove since Site Instances are doc entities?
-                             Field("file", "upload", autodelete=True,
-                                   requires = IS_NULL_OR(
-                                    IS_IMAGE(extensions=(s3.IMAGE_EXTENSIONS))
-                                    ),
-                                   represent = doc_image_represent,
-                                   # upload folder needs to be visible to the download() function as well as the upload
-                                   uploadfolder = os.path.join(folder,
-                                                               "uploads",
-                                                               "images"),
-                                   widget=S3ImageCropWidget((300, 300))),
-                             Field("name", length=128,
-                                   # Allow Name to be added onvalidation
-                                   requires = IS_NULL_OR(IS_LENGTH(128)),
-                                   label=T("Name")),
-                             Field("url", label=T("URL"),
-                                   requires = IS_NULL_OR(IS_URL())),
-                             Field("type", "integer",
-                                   requires = IS_IN_SET(doc_image_type_opts,
-                                                        zero=None),
-                                   default = 1,
-                                   label = T("Image Type"),
-                                   represent = lambda opt: \
-                                    doc_image_type_opts.get(opt, UNKNOWN_OPT)),
-                             person_id(label=T("Author")),
-                             organisation_id(widget = org_widget),
-                             s3_date(label = T("Date Taken")),
-                             # @ToDo: Move location to link table
-                             location_id(),
-                             s3_comments(),
-                             Field("checksum",
-                                   readable = False,
-                                   writable = False,
-                                   ),
-                             *s3_meta_fields())
+        define_table(tablename,
+                     # Component not instance
+                     super_link("doc_id", "doc_entity"),
+                     super_link("pe_id", "pr_pentity"), # @ToDo: Remove & make Persons doc entities instead?
+                     super_link("site_id", "org_site"), # @ToDo: Remove since Site Instances are doc entities?
+                     Field("file", "upload", autodelete=True,
+                           requires = IS_EMPTY_OR(
+                                        IS_IMAGE(extensions=(s3.IMAGE_EXTENSIONS))
+                                      ),
+                           represent = doc_image_represent,
+                           # upload folder needs to be visible to the download() function as well as the upload
+                           uploadfolder = os.path.join(folder,
+                                                       "uploads",
+                                                       "images"),
+                           widget=S3ImageCropWidget((300, 300))),
+                     Field("name", length=128,
+                           # Allow Name to be added onvalidation
+                           requires = IS_EMPTY_OR(IS_LENGTH(128)),
+                           label=T("Name")),
+                     Field("url", label=T("URL"),
+                           requires = IS_EMPTY_OR(IS_URL())),
+                     Field("type", "integer",
+                           requires = IS_IN_SET(doc_image_type_opts,
+                                                zero=None),
+                           default = 1,
+                           label = T("Image Type"),
+                           represent = lambda opt: \
+                           doc_image_type_opts.get(opt, UNKNOWN_OPT)),
+                     person_id(label=T("Author")),
+                     organisation_id(widget = org_widget),
+                     s3_date(label = T("Date Taken")),
+                     # @ToDo: Move location to link table
+                     location_id(),
+                     s3_comments(),
+                     Field("checksum",
+                           readable = False,
+                           writable = False,
+                           ),
+                     *s3_meta_fields())
 
         # CRUD Strings
-        ADD_IMAGE = T("Add Photo")
         crud_strings[tablename] = Storage(
-            title_create = ADD_IMAGE,
+            label_create = T("Add Photo"),
             title_display = T("Photo Details"),
             title_list = T("Photos"),
             title_update = T("Edit Photo"),
-            title_search = T("Search Photos"),
-            subtitle_create = T("Add New Photo"),
             label_list_button = T("List Photos"),
-            label_create_button = ADD_IMAGE,
             label_delete_button = T("Delete Photo"),
             msg_record_created = T("Photo added"),
             msg_record_modified = T("Photo updated"),
@@ -323,9 +320,10 @@ class S3DocumentLibrary(S3Model):
 
     # -------------------------------------------------------------------------
     @staticmethod
-    def doc_file_represent(file, table):
+    def doc_file_represent(file, tablename):
         """ File representation """
 
+        table = current.db[tablename]
         if file:
             try:
                 # Read the filename from the file
@@ -528,9 +526,9 @@ def doc_checksum(docstr):
     return converted
 
 # =============================================================================
-def doc_render_document(list_id, item_id, resource, rfields, record):
+def doc_document_list_layout(list_id, item_id, resource, rfields, record):
     """
-        Custom dataList item renderer for Documents, e.g. on the HRM Profile
+        Default dataList item renderer for Documents, e.g. on the HRM Profile
 
         @param list_id: the HTML ID of the list
         @param item_id: the HTML ID of the item
@@ -626,5 +624,33 @@ def doc_render_document(list_id, item_id, resource, rfields, record):
                )
 
     return item
+
+# =============================================================================
+class doc_DocumentRepresent(S3Represent):
+    """ Representation of Documents """
+
+    # -------------------------------------------------------------------------
+    def link(self, k, v, row=None):
+        """
+            Represent a (key, value) as hypertext link.
+
+            @param k: the key (doc_document.id)
+            @param v: the representation of the key
+            @param row: the row with this key
+        """
+
+        if row:
+            try:
+                filename = row["doc_document.file"]
+                url = row["doc_document.url"]
+            except AttributeError:
+                return v
+            else:
+                if filename:
+                    url = URL(c="default", f="download", args=filename)
+                    return A(v, _href=url)
+                elif url:
+                    return A(v, _href=url)
+        return v
 
 # END =========================================================================
