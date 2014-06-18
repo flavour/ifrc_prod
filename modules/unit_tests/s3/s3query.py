@@ -291,6 +291,90 @@ class ResourceFilterJoinTests(unittest.TestCase):
 
     # -------------------------------------------------------------------------
     @unittest.skipIf(not current.deployment_settings.has_module("project"), "project module disabled")
+    def testGetQueryMixedQueryType(self):
+        """ Test combinations of web2py Queries with S3ResourceQueries """
+
+        s3db = current.s3db
+
+        resource = s3db.resource("project_project")
+        q = (FS("organisation_id$name") == "test") & \
+            (resource.table.name == "test")
+
+        # Test joins
+        joins, distinct = q._joins(resource)
+        self.assertEqual(joins.keys(), [])
+
+        # Test left joins
+        project_project = resource.table
+        project_task_project = s3db.project_task_project
+        project_task = s3db.project_task
+        org_organisation = s3db.org_organisation
+
+        expected = org_organisation.on(
+                        project_project.organisation_id == org_organisation.id)
+
+        joins, distinct = q._joins(resource, left=True)
+        self.assertEqual(joins.keys(), ["org_organisation"])
+
+        self.assertTrue(isinstance(joins["org_organisation"], list))
+        self.assertEqual(len(joins["org_organisation"]), 1)
+        self.assertEqual(str(joins["org_organisation"][0]), str(expected))
+        self.assertTrue(distinct)
+
+        # Test split and query
+        qq, qf = q.split(resource)
+        self.assertEqual(qf, None)
+        query = qq.query(resource)
+        expected = ((org_organisation.name == "test") & \
+                    (project_project.name == "test"))
+        self.assertEqual(str(query), str(expected))
+
+        # Test get_query
+        resource.add_filter(q)
+        query = resource.get_query()
+        expected = (((project_project.deleted != True) & \
+                     (project_project.id > 0)) & \
+                    ((org_organisation.name == "test") & \
+                     (project_project.name == "test")))
+        self.assertEqual(str(query), str(expected))
+        
+    # -------------------------------------------------------------------------
+    @unittest.skipIf(not current.deployment_settings.has_module("project"), "project module disabled")
+    def testGetQueryMixedQueryTypeVirtual(self):
+        """ Test combinations of web2py Queries with virtual field filter """
+
+        s3db = current.s3db
+
+        resource = s3db.resource("project_project")
+        q = (FS("virtualfield") == "test") & \
+            (resource.table.name == "test")
+
+        project_project = resource.table
+
+        # Test joins
+        joins, distinct = q._joins(resource)
+        self.assertEqual(joins, {})
+
+        # Test left joins
+        joins, distinct = q._joins(resource, left=True)
+        self.assertEqual(joins, {})
+
+        # Test split and query
+        qq, qf = q.split(resource)
+        expected = (project_project.name == "test")
+        self.assertEqual(str(qq), str(expected))
+        self.assertTrue(isinstance(qf, S3ResourceQuery))
+
+        # Test get_query
+        resource.add_filter(q)
+        query = resource.get_query()
+        expected =  (((project_project.deleted != True) & \
+                    (project_project.id > 0)) & \
+                    (project_project.name == "test"))
+        self.assertEqual(str(query), str(expected))
+
+    # -------------------------------------------------------------------------
+    @unittest.skipIf(not current.deployment_settings.has_module("project"), "project module disabled")
     def testGetFilterLeftJoins(self):
         """ Check list of left joins in resource filters """
 
@@ -1780,6 +1864,41 @@ class URLQueryParserTests(unittest.TestCase):
         current.auth.override = False
 
 # =============================================================================
+class JoinResolutionTests(unittest.TestCase):
+
+    @unittest.skipIf(not current.deployment_settings.has_module("project"), "project module disabled")
+    def testPreferredSet(self):
+        """ Test resolution of duplicate inner/left joins """
+
+        s3db = current.s3db
+        ptable = s3db.project_project
+        ltable = s3db.project_task_project
+        ttable = s3db.project_task
+
+        ptable_join = ptable.on(ltable.project_id == ptable.id)
+        ltable_join = ltable.on(ltable.task_id == ttable.id)
+
+        # Define a set of inner joins for one table
+        ijoins = S3Joins("project_task")
+        ijoins.extend({"project_project": [ptable_join, ltable_join]})
+
+        # Define a sub-join of the inner joins as a left join
+        ljoins = S3Joins("project_task")
+        ljoins.extend({"project_task_project": [ltable_join]})
+
+        # Request joins for both tables from both sets, prefer the left joins
+        tablenames = ["project_project", "project_task_project"]
+        join = ijoins.as_list(tablenames=tablenames, prefer=ljoins)
+        left = ljoins.as_list(tablenames=tablenames)
+
+        # Joins should be moved to the left joins set
+        self.assertEqual(join, [])
+        self.assertEqual(len(left), 2)
+        # Mind the order! (must be ordered by dependency)
+        self.assertEqual(str(left[0]), str(ltable_join))
+        self.assertEqual(str(left[1]), str(ptable_join))
+
+# =============================================================================
 def run_suite(*test_classes):
     """ Run the test suite """
 
@@ -1800,6 +1919,7 @@ if __name__ == "__main__":
         ResourceFilterJoinTests,
         ResourceFilterQueryTests,
         ResourceContextFilterTests,
+        JoinResolutionTests,
 
         URLQueryParserTests,
 
