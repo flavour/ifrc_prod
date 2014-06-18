@@ -4178,10 +4178,15 @@ class S3ResourceFilter(object):
 
                 # Split DAL and virtual filters
                 self.rfltr, self.vfltr = transformed.split(resource)
-                
-            if self.rfltr:
-                # Add to query
-                query &= self.rfltr.query(self.resource)
+
+            # Add to query
+            rfltr = self.rfltr
+            if rfltr is not None:
+                if isinstance(rfltr, S3ResourceQuery):
+                    query &= rfltr.query(resource)
+                else:
+                    # Combination of virtual field filter and web2py Query
+                    query &= rfltr
 
         self.query = query
         return query
@@ -4411,7 +4416,7 @@ class S3ResourceFilter(object):
             ljoins = S3Joins(tablename, self.get_joins(left=True))
             ljoins.add(left)
 
-            join = ijoins.as_list(exclude=ljoins)
+            join = ijoins.as_list(prefer=ljoins)
             left = ljoins.as_list()
 
             cnt = table._id.count()
@@ -4597,8 +4602,8 @@ class S3ResourceData(object):
 
         # Joins for filter query
         filter_ijoins = ijoins.as_list(tablenames=filter_tables,
-                                       exclude=ljoins,
-                                       aqueries=aqueries)
+                                       aqueries=aqueries,
+                                       prefer=ljoins)
         filter_ljoins = ljoins.as_list(tablenames=filter_tables,
                                        aqueries=aqueries)
 
@@ -4672,8 +4677,8 @@ class S3ResourceData(object):
 
         # Joins for master query
         master_ijoins = ijoins.as_list(tablenames=master_tables,
-                                       exclude=ljoins,
-                                       aqueries=aqueries)
+                                       aqueries=aqueries,
+                                       prefer=ljoins)
         master_ljoins = ljoins.as_list(tablenames=master_tables,
                                        aqueries=aqueries)
                                        
