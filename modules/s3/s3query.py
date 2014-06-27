@@ -516,32 +516,32 @@ class S3FieldPath(object):
 
         components = resource.components
         links = resource.links
+        linked = resource.linked
 
-        if alias in components:
+        if linked and linked.alias == alias:
+            # It's the linked table
+            linktable = resource.table
+            ktable = linked.table
+            join = [ktable.on(ktable[linked.fkey] == linktable[linked.rkey])]
 
+        elif alias in components:
             # Is a component
             component = components[alias]
-
             ktable = component.table
             join = component._join()
             multiple = component.multiple
 
         elif alias in links:
-
             # Is a linktable
             link = links[alias]
-
             ktable = link.table
             join = link._join()
 
         elif "_" in alias:
-
             # Is a free join
             DELETED = current.xml.DELETED
-
             table = resource.table
             tablename = resource.tablename
-
             pkey = fkey = None
 
             # Find the table
