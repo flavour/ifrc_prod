@@ -20,6 +20,13 @@ settings = current.deployment_settings
     Template settings for Community Resilience Mapping Tool
 """
 
+# -----------------------------------------------------------------------------
+# Pre-Populate
+settings.base.prepopulate = ["CRMT", "demo/users"]
+
+settings.base.system_name = T("Community Resilience Mapping Tool")
+settings.base.system_name_short = T("CRMT")
+
 # =============================================================================
 # US Settings
 # -----------------------------------------------------------------------------
@@ -104,13 +111,6 @@ def audit_write(method, tablename, form, record, representation):
     return False
 
 settings.security.audit_write = audit_write
-
-# -----------------------------------------------------------------------------
-# Pre-Populate
-settings.base.prepopulate = ["CRMT"]
-
-settings.base.system_name = T("Community Resilience Mapping Tool")
-settings.base.system_name_short = T("CRMT")
 
 # -----------------------------------------------------------------------------
 # Theme (folder to use for views/layout.html)
@@ -204,12 +204,12 @@ current.response.menu = menu
 # -----------------------------------------------------------------------------
 # Summary Pages
 settings.ui.summary = [{"common": True,
-                        "name": "cms",
-                        "widgets": [{"method": "cms"}]
-                        },
-                       {"common": True,
                         "name": "add",
                         "widgets": [{"method": "create"}],
+                        },
+                       {"common": True,
+                        "name": "cms",
+                        "widgets": [{"method": "cms"}]
                         },
                        {"name": "table",
                         "label": "Table",
@@ -344,6 +344,12 @@ settings.hrm.teams = False
 #
 # Make Facility Types Hierarchical
 settings.org.facility_types_hierarchical = True
+# Make Organisation Types Hierarchical
+#settings.org.organisation_types_hierarchical = True
+# Make Organisation Types Multiple
+#settings.org.organisation_types_multiple = True
+# Make Services Hierarchical
+settings.org.services_hierarchical = True
 # Enable the use of Organisation Groups
 settings.org.groups = "Coalition"
 # Set the label for Sites
@@ -674,6 +680,7 @@ def customise_project_activity_controller(**attr):
             s3.crud_strings[tablename].title_update = T("Update Activities")
             table.date.label = T("Date")
             table.name.label = T("Activity Name")
+            table.comments.label = T("Description")
             table.location_id.represent = s3db.gis_LocationRepresent(address_only=True)
 
             # Custom Form (Read/Create/Update inc embedded Summary)
@@ -725,8 +732,13 @@ def customise_project_activity_controller(**attr):
                     name = "file",
                     label = T("Files"),
                     fields = [("", "file"),
-                              #"comments",
                               ],
+                    comment =  DIV(_class="tooltip",
+                                   _title="%s|%s" % 
+                                          (T("Files"),
+                                           T("Upload Photos, Promotional Material, Documents or Reports related to the Activity")
+                                           )
+                                   )
                 ),
                 "comments",
             )
@@ -832,6 +844,7 @@ def org_facility_types(row):
     """
         The Types of the Facility
         - required since we can't have a component within an Inline Component
+        UNUSED
     """
 
     if hasattr(row, "org_facility"):
@@ -866,6 +879,13 @@ def org_organisation_postprocess(form):
 # -----------------------------------------------------------------------------
 def customise_org_organisation_controller(**attr):
 
+    if "summary" in current.request.args:
+        settings.gis.toolbar = False
+        from s3.s3utils import s3_set_default_filter
+        s3_set_default_filter("org_group_membership.group_id",
+                              default_coalition_filter,
+                              tablename = "org_organisation")
+
     # Custom PreP
     s3 = current.response.s3
     standard_prep = s3.prep
@@ -891,8 +911,11 @@ def customise_org_organisation_controller(**attr):
             list_fields = ["id",
                            "name",
                            (T("Coalition Member"), "group_membership.group_id"),
+                           (T("Address"), "facility.location_id"),
+                           #"facility.location_id$addr_postcode",
                            (T("Sectors"), "sector_organisation.sector_id"),
                            (T("Services"), "service_organisation.service_id"),
+                           "phone",
                            "website",
                            "comments",
                            ]
@@ -908,7 +931,7 @@ def customise_org_organisation_controller(**attr):
             table.name.label = T("Organization Name")
 
             if method in ("summary", "report"):
-                from s3.s3filter import S3OptionsFilter, S3TextFilter
+                from s3.s3filter import S3OptionsFilter, S3TextFilter, S3HierarchyFilter
                 filter_widgets = [S3TextFilter(["name",
                                                 "group_membership.group_id",
                                                 "sector_organisation.sector_id",
@@ -925,10 +948,14 @@ def customise_org_organisation_controller(**attr):
                                                   label = T("Sector"),
                                                   header = True,
                                                   ),
-                                  S3OptionsFilter("service_organisation.service_id",
-                                                  label = T("Service"),
-                                                  header = True,
-                                                  ),
+                                  S3HierarchyFilter("service_organisation.service_id",
+                                                    label = T("Service"),
+                                                    header = True,
+                                                    ),
+                                  #S3HierarchyFilter("organisation_organisation_type.organisation_type_id",
+                                  #                  label = T("Type of Organization"),
+                                  #                  #multiple = False,
+                                  #                  )
                                   ]
 
                 s3.crud_strings.org_organisation.title_report = T("Organization Matrix")
@@ -962,7 +989,7 @@ def customise_org_organisation_controller(**attr):
                                filter_widgets = filter_widgets,
                                report_options = report_options,
                                # No Map for Organisations
-                               summary = [s for s in settings.ui.summary if s["name"] != "map"],
+                               #summary = [s for s in settings.ui.summary if s["name"] != "map"],
                                )
 
             if not current.auth.is_logged_in():
@@ -976,9 +1003,12 @@ def customise_org_organisation_controller(**attr):
                                crud_form = crud_form,
                                )
 
-            elif method in ("read", "create", "update", "summary"):
+            elif method in ("read", "create", "update", "summary", "import"):
                 # Custom Form (Read/Create/Update inc embedded Summary)
-                from s3.s3forms import S3SQLCustomForm, S3SQLInlineComponent, S3SQLInlineComponentMultiSelectWidget
+                from s3.s3forms import S3SQLCustomForm, S3SQLInlineComponent, S3SQLInlineComponentMultiSelectWidget, S3SQLInlineLink
+
+                # Allow free-text in Phone
+                table.phone.requires = None
 
                 ftable = s3db.org_facility
                 ftable.name.default = "TEMP" # replace in form postprocess
@@ -1058,55 +1088,60 @@ def customise_org_organisation_controller(**attr):
                                                                           parent="group_membership",
                                                                           child="status_id"
                                                                           ))
-                form_fields = [
-                    "name",
-                    "logo",
-                    S3SQLInlineComponent(
-                        "group_membership",
-                        label = T("Coalition Member"),
-                        fields = [("", "group_id"),
-                                  ("", "status_id"),
-                                  ],
-                    ),
-                    S3SQLInlineComponentMultiSelectWidget(
-                        "sector",
-                        label = T("Sectors"),
-                        field = "sector_id",
-                    ),
-                    S3SQLInlineComponentMultiSelectWidget(
-                        "service",
-                        label = T("Services"),
-                        field = "service_id",
-                    ),
-                    S3SQLInlineComponent(
-                        "resource",
-                        label = T("Organization's Resources"),
-                        fields = ["parameter_id", 
-                                  "value",
-                                  "comments",
-                                  ],
-                    ),
-                    "website",
-                    S3SQLInlineComponent(
-                        "contact",
-                        name = "twitter",
-                        label = T("Twitter"),
-                        multiple = False,
-                        fields = [("", "value")],
-                        filterby = dict(field = "contact_method",
-                                        options = "TWITTER"
-                                        )
-                    ),
-                    # Not fully ready yet
-                    S3SQLInlineComponent(
-                        "facility",
-                        label = T("Address"),
-                        fields = [("", "location_id"),
-                                  ],
-                        multiple = False,
-                    ),
-                    "comments",
-                ]
+
+                form_fields = ["name",
+                               "logo",
+                               S3SQLInlineComponent(
+                                    "group_membership",
+                                    label = T("Coalition Member"),
+                                    fields = [("", "group_id"),
+                                              ("", "status_id"),
+                                              ],
+                                    ),
+                               S3SQLInlineComponentMultiSelectWidget(
+                                    "sector",
+                                    label = T("Sectors"),
+                                    field = "sector_id",
+                                    ),
+                               S3SQLInlineLink(
+                                    "service",
+                                    label = T("Services"),
+                                    field = "service_id",
+                                    leafonly = False,
+                                    widget = "hierarchy",
+                                    ),
+                               S3SQLInlineComponent(
+                                    "resource",
+                                    label = T("Organization's Resources"),
+                                    fields = ["parameter_id", 
+                                              "value",
+                                              "comments",
+                                              ],
+                                    ),
+                               "phone",
+                               "website",
+                               S3SQLInlineComponent(
+                                    "contact",
+                                    name = "twitter",
+                                    label = T("Twitter"),
+                                    multiple = False,
+                                    fields = [("", "value")],
+                                    filterby = dict(field = "contact_method",
+                                                    options = "TWITTER"
+                                                    )
+                                    ),
+                               # Not fully ready yet
+                               S3SQLInlineComponent(
+                                    "facility",
+                                    #label = T("Address"),
+                                    label = "",
+                                    fields = [("", "location_id"),
+                                              ],
+                                    multiple = False,
+                                    ),
+                               "comments",
+                               ]
+
                 if method not in ("create", "update", "summary"):
                     hrtable = s3db.hrm_human_resource
                     hrtable.person_id.widget = None
@@ -1118,6 +1153,7 @@ def customise_org_organisation_controller(**attr):
                                  #"email",
                                  #"phone",
                                  ]
+
                     #if method not in ["create", "update"]:
                     #    hr_fields.insert(1, "site_id")
                     #    if method == "update":
@@ -1266,9 +1302,38 @@ def facility_onaccept(form):
                     if match:
                         break
                 if match:
-                    ltable.insert(group_id=p[ctable].id,
-                                  site_id=site_id,
+                    group_id = p[ctable].id
+                    ltable.insert(group_id = group_id,
+                                  site_id = site_id,
                                   )
+                    # Also update the Organisation
+                    stable = db.org_site
+                    site = db(stable.id == site_id).select(stable.organisation_id,
+                                                           limitby = (0, 1)
+                                                           ).first()
+                    if not site:
+                        return
+                    organisation_id = site.organisation_id
+                    ltable = db.org_group_membership
+                    query = (ltable.organisation_id == organisation_id) & \
+                            (ltable.group_id == group_id)
+                    exists = db(query).select(ltable.id,
+                                              limitby=(0, 1))
+                    if not exists:
+                        stable = db.org_group_membership_status
+                        status = db(stable.name == "Located within Coalition").select(stable.id,
+                                                                                      cache = s3db.cache,
+                                                                                      limitby = (0, 1)
+                                                                                      ).first()
+                        if status:
+                            status_id = status.id
+                        else:
+                            # Prepop failed or Status deleted/renamed
+                            status_id = None
+                        ltable.insert(group_id = group_id,
+                                      organisation_id = organisation_id,
+                                      status_id = status_id,
+                                      )
 
     # Normal onaccept:
     # Update Affiliation, record ownership and component ownership
@@ -1280,6 +1345,7 @@ settings.base.import_callbacks = {"org_facility": {"onaccept": facility_onaccept
                                                    },
                                   }
 
+#-----------------------------------------------------------------------------
 def customise_org_facility_controller(**attr):
 
     if "summary" in current.request.args:
@@ -1345,10 +1411,13 @@ def customise_org_facility_controller(**attr):
 
             # Custom Form (Read/Create/Update inc embedded Summary)
             from s3.s3forms import S3SQLCustomForm, S3SQLInlineComponent, S3SQLInlineLink
-            if method in ("create", "update", "summary"):
+            if method in ("create", "update", "summary", "import"):
                 # Custom Widgets/Validators
                 from s3.s3validators import IS_LOCATION_SELECTOR2
                 from s3.s3widgets import S3LocationSelectorWidget2, S3MultiSelectWidget
+
+                # Allow free-text in Phone
+                table.phone1.requires = None
 
                 field = table.location_id
                 field.label = "" # Gets replaced by widget
@@ -1365,45 +1434,45 @@ def customise_org_facility_controller(**attr):
                 s3db.org_site_org_group.group_id.widget = S3MultiSelectWidget(multiple=False)
 
             # Custom Crud Form
-            crud_form = S3SQLCustomForm(
-                "name",
-                S3SQLInlineLink(
-                    "facility_type",
-                    label = T("Type of Place"),
-                    field = "facility_type_id",
-                    widget = "hierarchy",
-                ),
-                "organisation_id",
-                S3SQLInlineComponent(
-                    "site_org_group",
-                    label = T("Coalition"),
-                    fields = [("", "group_id")],
-                    multiple = False,
-                ),
-                "location_id",
-                #S3SQLInlineComponent(
-                #    "human_resource",
-                #    label = T("Place's Contacts"),
-                #    fields = ["person_id",
-                #              #"job_title_id",
-                #              #"email",
-                #              #"phone",
-                #              ],
-                #),
-                # Can't have Components of Components Inline, so just use simple fields
-                "contact",
-                "phone1",
-                "email",
-                S3SQLInlineComponent(
-                    "document",
-                    name = "file",
-                    label = T("Files"),
-                    fields = [("", "file"),
-                              #"comments",
-                              ],
-                ),
-                "comments",
-            )
+            crud_form = S3SQLCustomForm("name",
+                                        S3SQLInlineLink(
+                                            "facility_type",
+                                            label = T("Type of Place"),
+                                            field = "facility_type_id",
+                                            widget = "hierarchy",
+                                            ),
+                                        "organisation_id",
+                                        S3SQLInlineComponent(
+                                            "site_org_group",
+                                            label = T("Coalition"),
+                                            fields = [("", "group_id")],
+                                            multiple = False,
+                                            ),
+                                        "location_id",
+                                        #S3SQLInlineComponent(
+                                        #    "human_resource",
+                                        #    label = T("Place's Contacts"),
+                                        #    fields = ["person_id",
+                                        #              #"job_title_id",
+                                        #              #"email",
+                                        #              #"phone",
+                                        #              ],
+                                        #),
+                                        # Can't have Components of Components Inline, so just use simple fields
+                                        "contact",
+                                        "phone1",
+                                        "email",
+                                        S3SQLInlineComponent(
+                                            "document",
+                                            name = "file",
+                                            label = T("Files"),
+                                            fields = [("", "file"),
+                                                      #"comments",
+                                                      ],
+                                            ),
+                                        "comments",
+                                        )
+
             s3db.configure(tablename,
                            crud_form = crud_form,
                            )
@@ -1488,7 +1557,7 @@ def customise_org_facility_controller(**attr):
 settings.customise_org_facility_controller = customise_org_facility_controller
 
 # -----------------------------------------------------------------------------
-# People
+# People (Stats People)
 #
 def customise_stats_people_controller(**attr):
 
@@ -1541,7 +1610,7 @@ def customise_stats_people_controller(**attr):
             #table.location_id.represent = s3db.gis_LocationRepresent(address_only=True)
 
             s3.crud_strings[tablename] = Storage(
-                label_create = T("Add People"),
+                label_create = T("Add"),
                 title_display = T("People Details"),
                 title_list = T("People"),
                 title_update = T("Update People"),
@@ -1884,7 +1953,7 @@ def customise_vulnerability_risk_controller(**attr):
             table.location_id.represent = s3db.gis_LocationRepresent(address_only=True)
 
             s3.crud_strings[tablename] = Storage(
-                label_create = T("Create Hazard"),
+                label_create = T("Add"),
                 title_display = T("Hazard Details"),
                 title_list = T("Hazards"),
                 title_update = T("Update Hazard"),
