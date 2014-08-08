@@ -76,6 +76,7 @@ from gluon import *
 #from gluon.html import *
 #from gluon.http import HTTP, redirect
 from gluon.dal import Rows
+from gluon.languages import lazyT
 from gluon.storage import Storage
 
 from s3fields import s3_all_meta_field_names
