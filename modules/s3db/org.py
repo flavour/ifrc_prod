@@ -78,7 +78,11 @@ except ImportError:
         import gluon.contrib.simplejson as json # fallback to pure-Python module
 
 from gluon import *
-from gluon.dal import Row
+try:
+    from gluon.dal.objects import Row
+except ImportError:
+    # old web2py
+    from gluon.dal import Row
 from gluon.storage import Storage
 
 from ..s3 import *
@@ -422,7 +426,7 @@ class S3OrganisationModel(S3Model):
         # Default widget
         if settings.get_org_autocomplete():
             help = messages.AUTOCOMPLETE_HELP
-            default_widget = S3OrganisationAutocompleteWidget()
+            default_widget = S3OrganisationAutocompleteWidget(default_from_profile=True)
         else:
             help = T("If you don't see the Organization in the list, you can add a new one by clicking link 'Create Organization'.")
             default_widget = None
@@ -1457,11 +1461,11 @@ class S3OrganisationGroupPersonModel(S3Model):
         #
         tablename = "org_group_person"
         self.define_table(tablename,
-                          self.org_group_id(ondelete="CASCADE",
-                                            empty=False,
+                          self.org_group_id(empty = False,
+                                            ondelete = "CASCADE",
                                             ),
-                          self.pr_person_id(ondelete="CASCADE",
-                                            empty=False,
+                          self.pr_person_id(empty = False,
+                                            ondelete = "CASCADE",
                                             ),
                           *s3_meta_fields())
 
@@ -1486,11 +1490,11 @@ class S3OrganisationGroupTeamModel(S3Model):
         tablename = "org_group_team"
         self.define_table(tablename,
                           self.org_group_id("org_group_id",
-                                            ondelete="CASCADE",
-                                            empty=False,
+                                            empty = False,
+                                            ondelete = "CASCADE",
                                             ),
-                          self.pr_group_id(ondelete="CASCADE",
-                                           empty=False,
+                          self.pr_group_id(empty = False,
+                                           ondelete = "CASCADE",
                                            ),
                           *s3_meta_fields())
 
@@ -2911,11 +2915,6 @@ class S3FacilityModel(S3Model):
 
         NONE = current.messages["NONE"]
 
-        if settings.get_org_autocomplete():
-            org_widget = S3OrganisationAutocompleteWidget(default_from_profile=True)
-        else:
-            org_widget = None
-
         hierarchical_facility_types = settings.get_org_facility_types_hierarchical()
 
         # ---------------------------------------------------------------------
@@ -3012,6 +3011,7 @@ class S3FacilityModel(S3Model):
             code_requires = IS_EMPTY_OR(IS_NOT_IN_DB(db, "org_facility.code"))
         else:
             code_requires = None
+
         tablename = "org_facility"
         define_table(tablename,
                      # Instance
@@ -3030,7 +3030,9 @@ class S3FacilityModel(S3Model):
                            represent = lambda v: v or NONE,
                            requires = code_requires,
                            ),
-                     self.org_organisation_id(widget = org_widget),
+                     self.org_organisation_id(
+                        requires = self.org_organisation_requires(updateable=True),
+                        ),
                      self.gis_location_id(),
                      Field("opening_times",
                            label = T("Opening Times"),
@@ -3662,11 +3664,6 @@ class S3OfficeModel(S3Model):
         define_table = self.define_table
         super_link = self.super_link
 
-        if settings.get_org_autocomplete():
-            org_widget = S3OrganisationAutocompleteWidget(default_from_profile=True)
-        else:
-            org_widget = None
-
         # ---------------------------------------------------------------------
         # Office Types
         #
@@ -3748,7 +3745,6 @@ class S3OfficeModel(S3Model):
                      self.org_organisation_id(
                          requires = org_organisation_requires(required=True,
                                                               updateable=True),
-                         widget = org_widget,
                          ),
                      office_type_id(
                                     #readable = False,
@@ -4842,15 +4838,17 @@ def org_rheader(r, tabs=[]):
         rheader.append(rheader_tabs)
 
     elif tablename in ("org_office", "org_facility"):
-        STAFF = settings.get_hrm_staff_label()
         tabs = [(T("Basic Details"), None),
                 #(T("Contact Data"), "contact"),
-                (STAFF, "human_resource"),
                 ]
         append = tabs.append
-        if current.auth.s3_has_permission("create", "hrm_human_resource_site"):
-            #append((T("Assign %(staff)s") % dict(staff=STAFF), "human_resource_site"))
-            append((T("Assign %(staff)s") % dict(staff=STAFF), "assign")),
+        if settings.has_module("hrm"):
+            STAFF = settings.get_hrm_staff_label()
+            tabs.append((STAFF, "human_resource"))
+            permit = current.auth.s3_has_permission 
+            if permit("update", tablename, r.id) and \
+               permit("create", "hrm_human_resource_site"):
+                tabs.append((T("Assign %(staff)s") % dict(staff=STAFF), "assign"))
         if settings.get_req_summary():
             append((T("Needs"), "site_needs"))
         if settings.has_module("asset"):
@@ -5605,6 +5603,18 @@ def org_update_affiliations(table, record):
         org_group_update_affiliations(record)
 
     elif rtype == "org_site" or rtype in current.auth.org_site_types:
+
+        if "organisation_id" not in record:
+            # Probably created on component tab, so form does not have the
+            # organisation_id => reload record to get it
+            rtable = current.s3db[rtype]
+            try:
+                query = (rtable._id == record[rtable._id.name])
+            except (KeyError, AttributeError):
+                return
+            record = current.db(query).select(rtable.ALL,
+                                              limitby=(0, 1)).first()
+
         org_site_update_affiliations(record)
 
 # =============================================================================

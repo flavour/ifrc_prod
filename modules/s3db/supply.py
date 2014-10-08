@@ -46,7 +46,11 @@ __all__ = ("S3SupplyModel",
 import re
 
 from gluon import *
-from gluon.dal import Row
+try:
+    from gluon.dal.objects import Row
+except ImportError:
+    # old web2py
+    from gluon.dal import Row
 from gluon.storage import Storage
 
 from ..s3 import *
@@ -319,18 +323,9 @@ $.filterOptionsS3({
                        supply_item_category = "parent_item_category_id",
                        )
 
-        def supply_item_category_onvalidate(form):
-            """
-                Checks that either a Code OR a Name are entered
-            """
-            # If there is a tracking number check that it is unique within the org
-            if not (form.vars.code or form.vars.name):
-                error = form.errors
-                errors.code = errors.name = T("An Item Category must have a Code OR a Name.")
-
         configure(tablename,
                   deduplicate = self.supply_item_category_duplicate,
-                  onvalidation = supply_item_category_onvalidate,
+                  onvalidation = self.supply_item_category_onvalidate,
                   )
 
         # =====================================================================
@@ -857,6 +852,18 @@ $.filterOptionsS3({
                     supply_item_pack_id = item_pack_id,
                     supply_item_pack_quantity = lambda tablename: lambda row: 0,
                     )
+
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def supply_item_category_onvalidate(form):
+        """
+            Checks that either a Code OR a Name are entered
+        """
+
+        # If there is a tracking number check that it is unique within the org
+        if not (form.vars.code or form.vars.name):
+            errors = form.errors
+            errors.code = errors.name = current.T("An Item Category must have a Code OR a Name.")
 
     # -------------------------------------------------------------------------
     @staticmethod

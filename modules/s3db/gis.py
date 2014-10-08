@@ -58,8 +58,8 @@ except ImportError:
         import gluon.contrib.simplejson as json # fallback to pure-Python module
 
 from gluon import *
-from gluon.dal import Row, Rows
 from gluon.storage import Storage
+
 from ..s3 import *
 from s3layouts import S3AddResourceLink
 from s3.s3widgets import set_match_strings
@@ -1633,20 +1633,21 @@ class S3GISConfigModel(S3Model):
                      # If-needed, then Symbology should be here
                      #symbology_id(),
                      Field("image", "upload", autodelete=False,
-                           label = T("Image"),
-                           # upload folder needs to be visible to the download() function as well as the upload
-                           uploadfolder = os.path.join(current.request.folder,
-                                                       "static",
-                                                       "img",
-                                                       "markers"),
                            custom_retrieve = self.gis_marker_retrieve,
                            custom_retrieve_file_properties = self.gis_marker_retrieve_file_properties,
+                           label = T("Image"),
                            represent = lambda filename: \
                                (filename and [DIV(IMG(_src=URL(c="static",
                                                                f="img",
                                                                args=["markers",
                                                                      filename]),
                                                       _height=40))] or [""])[0],
+                           # upload folder needs to be visible to the download() function as well as the upload
+                           uploadfolder = os.path.join(current.request.folder,
+                                                       "static",
+                                                       "img",
+                                                       "markers"),
+                           widget = S3ImageCropWidget((50, 50)),
                            ),
                      # We could get size client-side using Javascript's Image() class, although this is unreliable!
                      Field("height", "integer", # In Pixels, for display purposes
@@ -1683,6 +1684,7 @@ class S3GISConfigModel(S3Model):
                                                           "%(name)s",
                                                           zero=T("Use default"))),
                                     sortby = "name",
+                                    widget = S3SelectWidget(icons=self.gis_marker_options),
                                     comment=S3AddResourceLink(c="gis",
                                                               f="marker",
                                                               #vars={"child": "marker_id",
@@ -2246,30 +2248,147 @@ class S3GISConfigModel(S3Model):
 
     # -------------------------------------------------------------------------
     @staticmethod
+    def gis_marker_options(options):
+        """
+            Function which takes a list of k/v option tuples and adds an
+            icon URL for S3SelectMenu()
+        """
+
+        marker_ids = []
+        mappend = marker_ids.append
+        for o in options:
+            mappend(o[0])
+        # Do a bulk lookup
+        mtable = current.s3db.gis_marker
+        markers = current.db(mtable.id.belongs(marker_ids)).select(mtable.id,
+                                                                   mtable.image,
+                                                                   mtable.height,
+                                                                   mtable.width,
+                                                                   )
+        markers_lookup = {}
+        base_url = "/%s/static/img/markers/" % current.request.application
+        for m in markers:
+            markers_lookup[str(m.id)] = ("%s%s" % (base_url, m.image),
+                                         m.height,
+                                         m.width,
+                                         )
+
+        new_options = []
+        oappend = new_options.append
+        for (k, v) in options:
+            i = markers_lookup.get(k, None)
+            opt = (k, v, i)
+            oappend(opt)
+
+        return new_options
+
+    # -------------------------------------------------------------------------
+    @staticmethod
     def gis_marker_onvalidation(form):
         """
             Record the size of an Image upon Upload
             Don't wish to resize here as we'd like to use full resolution for printed output
         """
 
-        vars = form.vars
-        image = vars.image
-        if not image or isinstance(image, str):
-            # No Image => CSV import of resources which just need a ref
+        form_vars = form.vars
+        image = form_vars.image
+        if image is None:
+            encoded_file = form_vars.get("imagecrop-data", None)
+            if not encoded_file:
+                # No Image => CSV import of resources which just need a ref
+                return
+            import base64
+            import uuid
+            metadata, encoded_file = encoded_file.split(",")
+            filename, datatype, enctype = metadata.split(";")
+            f = Storage()
+            f.filename = uuid.uuid4().hex + filename
+            import cStringIO
+            f.file = cStringIO.StringIO(base64.decodestring(encoded_file))
+            form_vars.image = image = f
+
+        elif isinstance(image, str):
             # Image = String => Update not a Create, so file not in form
             return
 
+        extension = image.filename.rfind(".")
+        extension = image.filename[extension + 1:].lower()
+        if extension == "jpg":
+            extension = "jpeg"
+        if extension not in ("bmp", "gif", "jpeg", "png"):
+            form.errors.image = current.T("Uploaded file(s) are not Image(s). Supported image formats are '.png', '.jpg', '.bmp', '.gif'.")
+            return
+
+        native = False
         try:
             from PIL import Image
         except ImportError:
-            import Image
+            try:
+                import Image
+            except:
+                # Native Python version
+                native = True
+                import struct
 
-        im = Image.open(image.file)
-        (width, height) = im.size
-        vars.image.file.seek(0)
+        if native:
+            # Fallbacks
+            width = height = -1
+            stream = image.file
+            if extension == "bmp":
+                if stream.read(2) == "BM":
+                    stream.read(16)
+                    width, height = struct.unpack("<LL", stream.read(8))
+            elif extension == "gif":
+                if stream.read(6) in ("GIF87a", "GIF89a"):
+                    stream = stream.read(5)
+                    if len(stream) == 5:
+                        width, height = \
+                            tuple(struct.unpack("<HHB", stream)[:-1])
+            elif extension == "jpeg":
+                if stream.read(2) == "\xFF\xD8":
+                    while True:
+                        (marker, code, length) = \
+                            struct.unpack("!BBH", stream.read(4))
+                        if marker != 0xFF:
+                            break
+                        elif code >= 0xC0 and code <= 0xC3:
+                            width, height = \
+                                tuple(reversed(struct.unpack("!xHH",
+                                                             stream.read(5))))
+                        else:
+                            stream.read(length - 2)
+            elif extension == "png":
+                if stream.read(8) == "\211PNG\r\n\032\n":
+                    stream.read(4)
+                    if stream.read(4) == "IHDR":
+                        width, height = struct.unpack("!LL", stream.read(8))
+        else:
+            # Use PIL
+            try:
+                im = Image.open(image.file)
+            except:
+                width = height = -1
+            else:
+                width, height = im.size
 
-        vars.width = width
-        vars.height = height
+        if width < 1 or height < 1:
+            form.errors.image = current.T("Invalid image!")
+            return
+
+        if width > 50 or height > 50:
+            if native:
+                form.errors.image = current.T("Maximum size 50x50!")
+                return
+            # Resize the Image
+            im.thumbnail((50, 50) , Image.ANTIALIAS)
+            width, height = im.size
+            #im.save(image.file)
+            current.session.warning = current.T("File has been resized")
+
+        image.file.seek(0)
+
+        form_vars.width = width
+        form_vars.height = height
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -4667,8 +4786,7 @@ class S3POIModel(S3Model):
                            label = T("Name"),
                            requires = IS_NOT_EMPTY(),
                            ),
-                     # @ToDo: Write style file onaccept from this
-                     #self.gis_marker_id(),
+                     self.gis_marker_id(empty = False),
                      s3_comments(),
                      *s3_meta_fields())
 
@@ -4685,7 +4803,7 @@ class S3POIModel(S3Model):
 
         self.configure(tablename,
                        deduplicate = self.gis_poi_type_deduplicate,
-                       #onaccept = self.gis_poi_type_onaccept,
+                       onaccept = self.gis_poi_type_onaccept,
                        )
 
         crud_strings[tablename] = Storage(
@@ -4765,10 +4883,102 @@ class S3POIModel(S3Model):
     @staticmethod
     def gis_poi_type_onaccept(form):
         """
-            @ToDo: Create a Feature Layer for this type
+            Update Style for the PoIs layer
+
+            @ToDo: deployment_setting to add a new Feature Layer for new PoI types
         """
 
-        return
+        db = current.db
+        s3db = current.s3db
+
+        # Read all PoI Types and their Markers
+        ptable = s3db.gis_poi_type
+        mtable = s3db.gis_marker
+        query = (ptable.deleted == False) & \
+                (mtable.id == ptable.marker_id)
+        rows = db(query).select(ptable.name,
+                                mtable.image,
+                                )
+
+        # Build Style File
+        style = []
+        sappend = style.append
+        for row in rows:
+            cat = {"prop": "poi_type_id",
+                   "cat": row["gis_poi_type.name"],
+                   "externalGraphic": "img/markers/%s" % row["gis_marker.image"]
+                   }
+            sappend(cat)
+
+        #try:
+        #    driver_auto_json = current.db._adapter.driver_auto_json
+        #except:
+        #    current.log.warning("Update Web2Py to 2.9.11 to get native JSON support")
+        #    driver_auto_json = []
+        #if "dumps" not in driver_auto_json:
+        #    style = json.dumps(style, separators=SEPARATORS)
+
+        # Find correct Layer record
+        ltable = s3db.gis_layer_feature
+        query = (ltable.controller == "gis") & \
+                (ltable.function == "poi") & \
+                (ltable.filter == None) & \
+                (ltable.deleted == False)
+        row = db(query).select(ltable.layer_id,
+                               limitby=(0, 1)
+                               ).first()
+        if row:
+            layer_id = row.layer_id
+        else:
+            # Create It
+            f_id = ltable.insert(controller = "gis",
+                                 function = "poi",
+                                 attr_fields = ["name", "poi_type_id"],
+                                 name = "PoIs",
+                                 )
+            record = dict(id=f_id)
+            s3db.update_super(ltable, record)
+            layer_id = record["layer_id"]
+
+        # Find correct Style record
+        stable = s3db.gis_style
+        query = (stable.layer_id == layer_id) & \
+                (stable.record_id == None)
+        styles = db(query).select(stable.id,
+                                  stable.config_id,
+                                  )
+        none_excluded = False
+        if len(styles) > 1:
+            # Exclude all rows for different Map Configs
+            config = current.gis.get_config()
+            config_id = config.id
+            styles.exclude(lambda row: (row.config_id == config_id) & \
+                                       (row.config_id != None))
+
+        if len(styles) > 1:
+            # Exclude all rows for the default Map Config
+            # (thus leaving just our own)
+            styles.exclude(lambda row: row.config_id == None)
+            none_excluded = True
+
+        if len(styles) == 1:
+            # Update it
+            _style = styles.first()
+            _style.update_record(style = style)
+
+        elif len(styles) == 0:
+            # Create It
+            data = dict(layer_id = layer_id,
+                        popup_format = "{name} ({poi_type_id})",
+                        style = style,
+                        )
+            if none_excluded:
+                data["config_id"] = config_id
+            stable.insert(**data)
+
+        else:
+            # Can't differentiate
+            current.log.warning("Unable to update GIS PoI Style as there are multiple possible")
 
 # =============================================================================
 class S3POIFeedModel(S3Model):
@@ -4832,7 +5042,7 @@ def gis_opacity():
                            default = 1.0,
                            label = OPACITY,
                            requires = IS_FLOAT_IN_RANGE(0, 1),
-                           widget = S3SliderWidget(0, 1, 0.01, "float"),
+                           widget = S3SliderWidget(0.01, "float"),
                            comment = DIV(_class="tooltip",
                                          _title="%s|%s" % (OPACITY,
                                                            T("Left-side is fully transparent (0), right-side is opaque (1.0)."))),

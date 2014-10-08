@@ -764,7 +764,7 @@ class S3SQLCustomForm(S3SQLForm):
         # Choose formstyle
         settings = s3.crud
         if format == "plain":
-            # Default formstyle works best when we have no formatting
+            # Simple formstyle works best when we have no formatting
             formstyle = "table3cols"
         else:
             formstyle = settings.formstyle
@@ -2210,9 +2210,10 @@ class S3SQLInlineComponent(S3SQLSubForm):
             prefix = component.prefix
             name = component.name
             tablename = component.tablename
-            table = component.table
 
             db = current.db
+            table = db[tablename]
+
             s3db = current.s3db
             auth = current.auth
 

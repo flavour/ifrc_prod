@@ -88,6 +88,12 @@ settings.base.guided_tour = True
 # The key 0 implies not realm restricted
 # The keys "organisation_id" and "site_id" can be used to indicate the user's "organisation_id" and "site_id"
 #settings.auth.registration_roles = { 0: ["STAFF", "PROJECT_EDIT"]}
+# Uncomment to activate entity role manager tabs for OrgAdmins
+#settings.auth.entity_role_manager = True
+# Define modules for entity role manager
+#settings.auth.role_modules = OrderedDict([])
+# Define access levels for entity role manager
+#settings.auth.access_levels = OrderedDict([])
 # Uncomment this to enable record approval
 #settings.auth.record_approval = True
 # Uncomment this and specify a list of tablenames for which record approval is required
@@ -127,9 +133,10 @@ settings.base.guided_tour = True
 #    ("ja", "日本語"),
 #    ("km", "ភាសាខ្មែរ"),
 #    ("ko", "한국어"),
-#    ("ne", "नेपाली"),          # Nepali
-#    ("prs", "دری"), # Dari
-#    ("ps", "پښتو"), # Pashto
+#    ("mn", "Монгол хэл"), # Mongolian
+#    ("ne", "नेपाली"),                         #  Nepali
+#    ("prs", "دری"),       # Dari
+#    ("ps", "پښتو"),       # Pashto
 #    ("pt", "Português"),
 #    ("pt-br", "Português (Brasil)"),
 #    ("ru", "русский"),
@@ -410,6 +417,8 @@ settings.gis.geonames_username = "eden_test"
 # Shelters
 # Uncomment to use a dynamic population estimation by calculations based on registrations
 #settings.cr.shelter_population_dynamic = True
+# Uncomment to disable people registration in shelters
+#settings.cr.people_registration = False
 
 # -----------------------------------------------------------------------------
 # Events
@@ -556,6 +565,8 @@ settings.gis.geonames_username = "eden_test"
 #settings.hrm.use_id = False
 # Uncomment to disable the use of HR Skills
 #settings.hrm.use_skills = False
+# Uncomment to enable tracking of staff salaries
+#settings.hrm.salary = True
 # Uncomment to disable the use of HR Teams
 #settings.hrm.teams = False
 # Uncomment to disable the use of HR Trainings

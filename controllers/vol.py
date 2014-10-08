@@ -112,9 +112,9 @@ def volunteer():
             list_fields.append("status")
 
         # Update filter widgets
-        filter_widgets = s3db.hrm_human_resource_filters(
-                                resource_type="volunteer",
-                                hrm_type_opts=s3db.hrm_type_opts)
+        filter_widgets = \
+            s3db.hrm_human_resource_filters(resource_type="volunteer",
+                                            hrm_type_opts=s3db.hrm_type_opts)
                                 
         # Reconfigure
         resource.configure(list_fields = list_fields,
@@ -129,17 +129,18 @@ def volunteer():
                     vars = {"human_resource.id": r.id,
                             "group": "volunteer"
                             }
-                    args = []
                     if r.representation == "iframe":
                         vars["format"] = "iframe"
                         args = [r.method]
+                    else:
+                        args = []
                     redirect(URL(f="person", vars=vars, args=args))
             else:
                 if r.method == "import":
                     # Redirect to person controller
                     redirect(URL(f="person",
-                                args="import",
-                                vars={"group": "volunteer"}))
+                                 args="import",
+                                 vars={"group": "volunteer"}))
                                 
                 elif not r.component and r.method != "delete":
                     # Configure AddPersonWidget
@@ -269,13 +270,6 @@ def person():
                method = "record",
                action = s3db.hrm_record)
 
-    # Plug-in role matrix for Admins/OrgAdmins
-    realms = auth.user is not None and auth.user.realms or []
-    if ADMIN in realms or ORG_ADMIN in realms:
-        set_method("pr", resourcename,
-                   method = "roles",
-                   action = s3base.S3PersonRoleManager())
-
     if settings.has_module("asset"):
         # Assets as component of people
         s3db.add_components("pr_person", asset_asset="assigned_to_id")
@@ -399,6 +393,10 @@ def person():
 
     # CRUD pre-process
     def prep(r):
+
+        # Plug-in role matrix for Admins/OrgAdmins
+        s3base.S3PersonRoleManager.set_method(r, entity="pr_person")
+
         if r.representation == "s3json":
             current.xml.show_ids = True
         elif r.interactive and r.method != "import":

@@ -277,6 +277,34 @@ S3.redraw = function() {
     }
 };
 
+// jQueryUI Icon Menus
+// - http://jqueryui.com/selectmenu/#custom_render
+// - used by S3SelectWidget()
+$.widget('custom.iconselectmenu', $.ui.selectmenu, {
+    _renderItem: function(ul, item) {
+        var li = $('<li>', {text: item.label} );
+ 
+        if (item.disabled) {
+            li.addClass('ui-state-disabled');
+        }
+ 
+        var element = item.element;
+        var _class = item.element.attr('data-class');
+        if (_class) {
+            _class = 'ui-icon ' + _class;
+        } else {
+            _class = 'ui-icon';
+        }
+        $('<span>', {
+            'style': element.attr('data-style'),
+            'class': _class
+        })
+          .appendTo(li);
+ 
+        return li.appendTo(ul);
+    }
+});
+
 // Geolocation
 // - called from Auth.login()
 S3.getClientLocation = function(targetfield) {
@@ -790,7 +818,13 @@ var s3_showMap = function(feature_id) {
                     defaultValue = value;
                 }
                 name = fncRepresent ? fncRepresent(record, prepResult) : record.name;
-                options.push('<option value="' + value + '">' + name + '</option>');
+                // Does the option have an onhover-tooltip?
+                if (record._tooltip) {
+                    title = ' title="' + record._tooltip + '"';
+                } else {
+                    title = ''
+                }
+                options.push('<option' + title + ' value="' + value + '">' + name + '</option>');
             }
             if (settings.optional) {
                 // Add (and default to) empty option
@@ -1004,6 +1038,15 @@ var s3_showMap = function(feature_id) {
                 }
             }
         }
+        var tooltip = settings.tooltip;
+        if (tooltip) {
+            tooltip = 'tooltip=' + tooltip;
+            if (url.indexOf('?') != -1) {
+                url = url.concat('&' + tooltip);
+            } else {
+                url = url.concat('?' + tooltip);
+            }
+        }
 
         var request = null;
         if (!settings.getWidgetHTML) {
@@ -1197,6 +1240,12 @@ var s3_showMap = function(feature_id) {
      * @param {string} settings.msgNoRecords - show this text for the None-option
      * @param {bool} settings.optional - add a None-option (without text) even when options
      *                                   are available (so the user can select None)
+     * @param {string} settings.tooltip - additional tooltip field to request from back-end,
+     *                                    either a field selector or an expression "f(k,v)"
+     *                                    where f is a function name that can be looked up
+     *                                    from s3db, and k,v are field selectors for the row,
+     *                                    f will be called with a list of tuples (k,v) for each
+     *                                    row and is expected to return a dict {k:tooltip}
      */
     $.filterOptionsS3 = function(settings) {
 
@@ -1294,7 +1343,6 @@ var s3_showMap = function(feature_id) {
      * @param {string} url - the URL
      */
     var stripQuery = function(url) {
-
         var newurl = url.split('?')[0].split('#')[0];
         return newurl;
     }
@@ -1305,7 +1353,6 @@ var s3_showMap = function(feature_id) {
      * @param {string} defaultURL - the default URL
      */
     $.cancelButtonS3 = function(defaultURL) {
-
         var cancelButtons = $('.s3-cancel');
         if (!cancelButtons.length) {
             return;
@@ -1619,9 +1666,21 @@ S3.reloadWithQueryStringVars = function(queryStringVars) {
                                    .replace(/[^0-9\-\.,]|[\-](?=.)|[\.](?=[0-9]*[\.])/g, '')
                                    .reverse();
         });
+
         // Auto-capitalize first names
         $('input[name="first_name"]').focusout(function() {
             this.value = this.value.charAt(0).toLocaleUpperCase() + this.value.substring(1);
+        });
+
+        // ListCreate Views
+        $('#show-add-btn').click(function() {
+            // Hide the Button
+            $('#show-add-btn').hide(10, function() {
+                // Show the Form
+                $('#list-add').slideDown('medium');
+                // Resize any jQueryUI SelectMenu buttons
+                $('.select-widget').selectmenu('refresh');
+            });
         });
 
         // Resizable textareas

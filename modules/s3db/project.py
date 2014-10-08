@@ -82,7 +82,11 @@ except:
     from gluon.contrib.simplejson.ordered_dict import OrderedDict
 
 from gluon import *
-from gluon.dal import Row
+try:
+    from gluon.dal.objects import Row
+except ImportError:
+    # old web2py
+    from gluon.dal import Row
 from gluon.storage import Storage
 
 from ..s3 import *
@@ -3079,7 +3083,13 @@ class S3ProjectOrganisationModel(S3Model):
 
         tablename = "project_organisation"
         self.define_table(tablename,
-                          self.project_project_id(),
+                          self.project_project_id(
+                            comment=S3AddResourceLink(c="project",
+                                                      f="project",
+                                                      vars = dict(prefix="project"),
+                                                      tooltip=T("If you don't see the project in the list, you can add a new one by clicking link 'Create Project'."),
+                                                      )
+                          ),
                           self.org_organisation_id(
                           requires = self.org_organisation_requires(
                                          required=True,
@@ -3792,17 +3802,17 @@ class S3ProjectDRRModel(S3Model):
         T = current.T
 
         hfa_opts = project_hfa_opts()
-        hfa_opts = dict((opt, "HFA %s" % opt) for opt in hfa_opts)
+        options = dict((opt, "HFA %s" % opt) for opt in hfa_opts)
 
         tablename = "project_drr"
         self.define_table(tablename,
                           self.project_project_id(empty=False),
                           Field("hfa", "list:integer",
                                 label = T("HFA Priorities"),
-                                represent = S3Represent(options=hfa_opts,
+                                represent = S3Represent(options=options,
                                                         multiple=True),
                                 requires = IS_EMPTY_OR(IS_IN_SET(
-                                            hfa_opts,
+                                            options,
                                             multiple = True)),
                                 widget = S3GroupedOptionsWidget(
                                             cols=1,
@@ -6521,6 +6531,7 @@ def project_project_filters(org_label):
                         ),
         S3OptionsFilter("organisation_id",
                         label = org_label,
+                        # Can be unhidden in customise_xx_resource if there is a need to use a default_filter
                         hidden = True,
                         ),
         S3LocationFilter("location.location_id",

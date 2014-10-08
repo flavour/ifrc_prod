@@ -55,7 +55,12 @@ except:
     from gluon.contrib.simplejson.ordered_dict import OrderedDict
 
 from gluon import *
-from gluon.dal import Expression, Field, Row
+try:
+    from gluon import Field
+    from gluon.dal.objects import Expression, Row
+except ImportError:
+    # old web2py
+    from gluon.dal import Expression, Field, Row
 from gluon.storage import Storage
 from gluon.languages import lazyT
 from gluon.tools import addrow
@@ -924,8 +929,9 @@ def s3_include_debug_css():
     files = files[:-1]
     include = ""
     for file in files:
-        include = '%s\n<link href="/%s/static/styles/%s" rel="stylesheet" type="text/css" />' \
-            % (include, appname, file[:-1])
+        if file[0] != "#":
+            include = '%s\n<link href="/%s/static/styles/%s" rel="stylesheet" type="text/css" />' \
+                % (include, appname, file[:-1])
     f.close()
 
     return XML(include)
@@ -949,6 +955,7 @@ def s3_include_debug_js():
 
     configDictCore = {
         ".": scripts_dir,
+        "ui": scripts_dir,
         "web2py": scripts_dir,
         "S3":     scripts_dir
     }

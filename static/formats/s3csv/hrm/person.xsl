@@ -19,6 +19,13 @@
          Office Postcode................optional.....office postcode
          Department.....................optional.....human_resource.department
          Job Title......................optional.....human_resource.job_title
+         Contract Term..................optional.....hrm_contract.term (short-term|long-term|permanent)
+         Hours Model....................optional.....hrm_contract.hours (part-time|full-time)
+         Staff Level....................optional.....salary.staff_level_id
+         Salary Grade...................optional.....salary.salary_grade_id
+         Monthly Salary.................optional.....salary.monthly_amount
+         Salary Start Date..............optional.....salary.start_date
+         Salary End Date................optional.....salary.end_date
          Status.........................optional.....human_resource.status
          Start Date.....................optional.....human_resource start date
          First Name.....................required.....person first name
@@ -48,6 +55,10 @@
          Emergency Contact Name.........optional.....pr_contact_emergency name
          Emergency Contact Relationship.optional.....pr_contact_emergency relationship
          Emergency Contact Phone........optional.....pr_contact_emergency phone
+         Social Insurance Number........optional.....hrm_insurance.insurance_number
+         Social Insurance Place.........optional.....hrm_insurance.insurer
+         Health Insurance Number........optional.....hrm_insurance.insurance_number
+         Health Care Provider...........optional.....hrm_insurance.provider
          Home Postcode..................optional.....person home address postcode
          Home Lat.......................optional.....person home address latitude
          Home Lon.......................optional.....person home address longitude
@@ -97,6 +108,10 @@
             - make updateable (don't use temporary UIDs)
 
     *********************************************************************** -->
+    <xsl:import href="salary.xsl"/>
+    <xsl:import href="insurance.xsl"/>
+    <xsl:import href="contract.xsl"/>
+
     <xsl:output method="xml"/>
     <xsl:include href="../../xml/commons.xsl"/>
     <xsl:include href="../../xml/countries.xsl"/>
@@ -171,6 +186,12 @@
 
     <xsl:key name="volunteerclustertpositions" match="row"
              use="col[@field='Volunteer Cluster Position']"/>
+
+    <xsl:key name="stafflevels" match="row"
+             use="col[@field='Staff Level']"/>
+
+    <xsl:key name="salarygrades" match="row"
+             use="col[@field='Salary Grade']"/>
 
     <!-- ****************************************************************** -->
     <xsl:template match="/">
@@ -248,6 +269,22 @@
             <xsl:for-each select="//row[generate-id(.)=generate-id(key('volunteerclustertpositions',
                                                                        col[@field='Volunteer Cluster Position'])[1])]">
                 <xsl:call-template name="VolunteerClusterPosition"/>
+            </xsl:for-each>
+
+            <!-- Staff Levels -->
+            <xsl:for-each select="//row[generate-id(.)=generate-id(key('stafflevels',
+                                                                       col[@field='Staff Level'])[1])]">
+                <xsl:call-template name="StaffLevel">
+                    <xsl:with-param name="Field">Staff Level</xsl:with-param>
+                </xsl:call-template>
+            </xsl:for-each>
+
+            <!-- Salary Grades -->
+            <xsl:for-each select="//row[generate-id(.)=generate-id(key('salarygrades',
+                                                                       col[@field='Salary Grade'])[1])]">
+                <xsl:call-template name="SalaryGrade">
+                    <xsl:with-param name="Field">Salary Grade</xsl:with-param>
+                </xsl:call-template>
             </xsl:for-each>
 
             <!-- Process all table rows for person records -->
@@ -505,6 +542,11 @@
 
         <resource name="pr_person">
 
+            <xsl:variable name="person_tuid" select="concat('Person:', position())"/>
+            <xsl:attribute name="tuid">
+                <xsl:value-of select="$person_tuid"/>
+            </xsl:attribute>
+
             <!-- Person record -->
             <data field="first_name"><xsl:value-of select="col[@field='First Name']"/></data>
             <xsl:if test="col[@field='Middle Name']!=''">
@@ -634,6 +676,7 @@
                             </xsl:call-template>
                         </xsl:with-param>
                         <xsl:with-param name="type" select="$type"/>
+                        <xsl:with-param name="person_tuid" select="$person_tuid"/>
                     </xsl:call-template>
                 </xsl:otherwise>
             </xsl:choose>
@@ -756,6 +799,7 @@
         <xsl:param name="StaffID"/>
         <xsl:param name="Status"/>
         <xsl:param name="type"/>
+        <xsl:param name="person_tuid"/>
 
         <resource name="hrm_human_resource">
 
@@ -779,9 +823,9 @@
                 <xsl:when test="$Status='resigned'">
                     <data field="status">2</data>
                 </xsl:when>
-                <xsl:default>
+                <xsl:otherwise>
                     <!-- Leave XML blank to default to 'Active' -->
-                </xsl:default>
+                </xsl:otherwise>
             </xsl:choose>
 
             <!-- Link to Department -->
@@ -836,6 +880,21 @@
                     <data field="active" value="true"/>
                 </resource>
             </xsl:if>
+
+            <!-- Salary -->
+            <xsl:if test="col[@field='Staff Level']/text() != '' or col[@field='Salary Grade']/text() != '' or col[@field='Monthly Salary']/text() != ''">
+                <xsl:call-template name="Salary">
+                    <xsl:with-param name="person_tuid">
+                        <xsl:value-of select="$person_tuid"/>
+                    </xsl:with-param>
+                </xsl:call-template>
+            </xsl:if>
+
+            <!-- Insurance -->
+            <xsl:call-template name="Insurance"/>
+
+            <!-- Contract Details -->
+            <xsl:call-template name="Contract"/>
 
             <!-- Volunteer Details -->
             <xsl:if test="col[@field='Active'] = 'true'">

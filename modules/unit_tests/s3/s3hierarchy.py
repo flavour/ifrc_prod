@@ -1,12 +1,16 @@
 # -*- coding: utf-8 -*-
 #
-# Utils Unit Tests
+# S3Hierarchy Unit Tests
 #
 # To run this script use:
-# python web2py.py -S eden -M -R applications/eden/tests/unit_tests/modules/s3/s3hierarchy.py
+# python web2py.py -S eden -M -R applications/eden/modules/unit_tests/s3/s3hierarchy.py
 #
 import unittest
-from gluon.dal import Query
+try:
+    from gluon.dal.objects import Query
+except ImportError:
+    # old web2py
+    from gluon.dal import Query
 from s3.s3utils import *
 from s3.s3rest import s3_request
 from s3 import FS, S3Hierarchy, S3HierarchyFilter, s3_uid

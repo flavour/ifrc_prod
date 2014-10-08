@@ -299,7 +299,8 @@ def warehouse():
                 list_fields = s3db.get_config("inv_inv_item", "list_fields")
                 try:
                     list_fields.remove("site_id")
-                    s3db.configure("inv_inv_item", list_fields=list_fields)
+                    s3db.configure("inv_inv_item",
+                                   list_fields = list_fields)
                 except:
                     pass
 
@@ -374,20 +375,18 @@ def warehouse():
     csv_stylesheet = "%s.xsl" % resourcename
 
     output = s3_rest_controller(module, resourcename,
-                                rheader=s3db.inv_rheader,
                                 hide_filter = {"inv_item": False,
                                                "_default": True,
                                               },
-                                csv_template = resourcename,
-                                csv_stylesheet = csv_stylesheet,
                                 # Extra fields for CSV uploads:
                                 #csv_extra_fields = [
                                 #         dict(label="Organisation",
                                 #         field=s3db.org_organisation_id(comment=None))
                                 #]
+                                csv_stylesheet = csv_stylesheet,
+                                csv_template = resourcename,
+                                rheader = s3db.inv_rheader,
                                 )
-    if "add_btn" in output:
-        del output["add_btn"]
     return output
 
 # -----------------------------------------------------------------------------
@@ -966,9 +965,8 @@ def recv():
 
     def prep(r):
         record = r.record
-        if (record and
-            (record.status != SHIP_STATUS_IN_PROCESS and
-             record.status != SHIP_STATUS_SENT)):
+        if record and \
+           record.status not in (SHIP_STATUS_IN_PROCESS, SHIP_STATUS_SENT):
             # Now that the shipment has been sent
             # lock the record so that it can't be meddled with
             s3db.configure("inv_recv",
@@ -977,12 +975,16 @@ def recv():
                            editable = False,
                            listadd = False,
                            )
-        if r.component and r.component.name == "track_item":
-            # Set the track_item attributes
-            # Can only create or delete track items for a recv record if the status is preparing
+        component = r.component
+        if record and component and component.name == "track_item":
+            # Can only create or delete track items for a recv record
+            # if the status is preparing:
             if r.method == "create" or r.method == "delete":
                 if record.status != SHIP_STATUS_IN_PROCESS:
                     return False
+
+            # Configure which fields in track_item are readable/writable
+            # depending on status:
             if r.component_id:
                 track_record = db(tracktable.id == r.component_id).select(tracktable.status,
                                                                           limitby=(0, 1)
@@ -992,14 +994,16 @@ def recv():
                 set_track_attr(TRACK_STATUS_PREPARING)
                 tracktable.status.readable = False
 
-            if r.record and r.record.status == SHIP_STATUS_IN_PROCESS:
+            # Adjust CRUD strings
+            if record.status == SHIP_STATUS_IN_PROCESS:
                 s3.crud_strings.inv_recv.title_update = \
                 s3.crud_strings.inv_recv.title_display = T("Process Received Shipment")
-                
+
             # Default the Supplier/Donor to the Org sending the shipment
             tracktable.supply_org_id.default = record.organisation_id
         else:
-            # Set the recv attributes
+            # Configure which fields in inv_recv are readable/writable
+            # depending on status
             if r.id:
                 record = db(recvtable.id == r.id).select(recvtable.status,
                                                          limitby=(0, 1)
@@ -1018,7 +1022,7 @@ def recv():
         record = db(recvtable.id == request.args[0]).select(recvtable.status,
                                                             limitby=(0, 1)
                                                             ).first()
-        status = record.status
+        status = record.status if record else None
         if status == SHIP_STATUS_SENT:
             list_fields = ["id",
                            "status",
@@ -1671,10 +1675,14 @@ def facility_type():
 
 # -----------------------------------------------------------------------------
 def incoming():
-    """ Incoming Shipments """
+    """
+        Incoming Shipments for Sites
 
-    # Defined in the Model for use from Multiple Controllers for unified menus
-    return inv_incoming()
+        Used from Requests rheader when looking at Transport Status
+    """
+
+    # @ToDo: Create this function!
+    return s3db.inv_incoming()
 
 # -----------------------------------------------------------------------------
 def req_match():

@@ -64,8 +64,10 @@ __all__ = ("S3ACLWidget",
            "S3PersonAutocompleteWidget",
            "S3PentityAutocompleteWidget",
            "S3PriorityListWidget",
+           "S3SelectWidget",
            "S3SiteAutocompleteWidget",
            "S3SliderWidget",
+           "S3StringWidget",
            "S3TimeIntervalWidget",
            #"S3UploadWidget",
            "CheckboxesWidgetS3",
@@ -680,7 +682,7 @@ class S3AddPersonWidget2(FormWidget):
         formstyle = s3.crud.formstyle
         row = formstyle("test", "test", "test", "test")
         if isinstance(row, tuple):
-            # Formstyle with separate row for label (e.g. default Eden formstyle)
+            # Formstyle with separate row for label (e.g. old default Eden formstyle)
             tuple_rows = True
         else:
             # Formstyle with just a single row (e.g. Bootstrap, Foundation or DRRPP)
@@ -1161,7 +1163,7 @@ class S3ColorPickerWidget(FormWidget):
         #"showPalette": True,
         "showPaletteOnly": True,
         "togglePaletteOnly": True,
-        "palette": ("red", "yellow", "green", "blue", "white", "black")
+        "palette": ("red", "orange", "yellow", "green", "blue", "white", "black")
     }
 
     def __init__(self, options=None):
@@ -1267,9 +1269,9 @@ class S3DateWidget(FormWidget):
             elif "-" in language:
                 parts = language.split("_", 1)
                 language = "%s-%s" % (parts[0], parts[1].upper())
-            path = os.path.join(request.folder, "static", "scripts", "i18n", "jquery.ui.datepicker-%s.js" % language)
+            path = os.path.join(request.folder, "static", "scripts", "ui", "i18n", "datepicker-%s.js" % language)
             if os.path.exists(path):
-                lscript = "/%s/static/scripts/i18n/jquery.ui.datepicker-%s.js" % (request.application, language)
+                lscript = "/%s/static/scripts/ui/i18n/datepicker-%s.js" % (request.application, language)
                 if lscript not in s3.scripts:
                     # 1st Datepicker
                     s3.scripts.append(lscript)
@@ -1450,9 +1452,9 @@ class S3DateTimeWidget(FormWidget):
             elif "-" in language:
                 parts = language.split("_", 1)
                 language = "%s-%s" % (parts[0], parts[1].upper())
-            path = os.path.join(request.folder, "static", "scripts", "i18n", "jquery.ui.datepicker-%s.js" % language)
+            path = os.path.join(request.folder, "static", "scripts", "ui", "i18n", "datepicker-%s.js" % language)
             if os.path.exists(path):
-                lscript = "/%s/static/scripts/i18n/jquery.ui.datepicker-%s.js" % (request.application, language)
+                lscript = "/%s/static/scripts/ui/i18n/datepicker-%s.js" % (request.application, language)
                 if lscript not in s3.scripts:
                     # 1st Datepicker
                     s3.scripts.append(lscript)
@@ -3854,7 +3856,6 @@ class S3LocationSelectorWidget2(FormWidget):
 
         Limitations:
         * Doesn't support variable Levels by Country
-        * Doesn't support non-strict hierarchies
         * Doesn't allow creation of new Lx Locations
         * Doesn't allow selection of existing specific Locations
         * Doesn't support manual entry of LatLons
@@ -3996,7 +3997,7 @@ class S3LocationSelectorWidget2(FormWidget):
         formstyle = s3.crud.formstyle
         row = formstyle("test", "test", "test", "test")
         if isinstance(row, tuple):
-            # Formstyle with separate row for label (e.g. default Eden formstyle)
+            # Formstyle with separate row for label (e.g. old default Eden formstyle)
             tuple_rows = True
         else:
             # Formstyle with just a single row (e.g. Bootstrap, Foundation or DRRPP)
@@ -4052,6 +4053,7 @@ class S3LocationSelectorWidget2(FormWidget):
             record = db(gtable.id == value).select(gtable.path,
                                                    gtable.parent,
                                                    gtable.level,
+                                                   gtable.gis_feature_type,
                                                    gtable.inherited,
                                                    gtable.lat,
                                                    gtable.lon,
@@ -4064,7 +4066,16 @@ class S3LocationSelectorWidget2(FormWidget):
 
             level = record.level
             parent = record.parent
-            path = record.path.split("/")
+
+            path = record.path
+            if path is None:
+                # Not updated yet? => do it now
+                try:
+                    path = current.gis.update_location_tree({"id": value})
+                except ValueError:
+                    pass
+            path = [] if path is None else path.split("/")
+
             path_ok = True
             if level:
                 if len(path) != (int(level[1:]) + 1):
@@ -4075,13 +4086,28 @@ class S3LocationSelectorWidget2(FormWidget):
                 # Only use a specific Lat/Lon when they are not inherited
                 if not record.inherited:
                     if points:
-                        lat = lat or record.lat
-                        lon = lon or record.lon
+                        if lat is None or lat is "":
+                            if record.gis_feature_type == 1:
+                                # Only use Lat for Points
+                                lat = record.lat
+                            else:
+                                lat = ""
+                        if lon is None or lon is "":
+                            if record.gis_feature_type == 1:
+                                # Only use Lat for Points
+                                lon = record.lon
+                            else:
+                                lon = ""
                     else:
                         lat = ""
                         lon = ""
                     if use_wkt:
-                        wkt = wkt or record.wkt
+                        if not wkt:
+                            if record.gis_feature_type != 1:
+                                # Only use WKT for non-Points
+                                wkt = record.wkt
+                            else:
+                                wkt = ""
                     else:
                         wkt = ""
 
@@ -4373,6 +4399,7 @@ class S3LocationSelectorWidget2(FormWidget):
 
         # Build initial location_dict
         # Read all visible levels
+        # NB (level != None) is to handle Missing Levels
         if "L0" in levels:
             query = (gtable.level == "L0")
             if len(countries):
@@ -4381,64 +4408,64 @@ class S3LocationSelectorWidget2(FormWidget):
                           (ttable.value.belongs(countries)) & \
                           (ttable.location_id == gtable.id))
             if L0 and "L1" in levels:
-                query |= (gtable.level == "L1") & \
+                query |= (gtable.level != None) & \
                          (gtable.parent == L0)
             if L1 and "L2" in levels:
-                query |= (gtable.level == "L2") & \
+                query |= (gtable.level != None) & \
                          (gtable.parent == L1)
             if L2 and "L3" in levels:
-                query |= (gtable.level == "L3") & \
+                query |= (gtable.level != None) & \
                          (gtable.parent == L2)
             if L3 and "L4" in levels:
-                query |= (gtable.level == "L4") & \
+                query |= (gtable.level != None) & \
                          (gtable.parent == L3)
             if L4 and "L5" in levels:
-                query |= (gtable.level == "L5") & \
+                query |= (gtable.level != None) & \
                          (gtable.parent == L4)
         elif L0 and "L1" in levels:
-            query = (gtable.level == "L1") & \
+            query = (gtable.level != None) & \
                     (gtable.parent == L0)
             if L1 and "L2" in levels:
-                query |= (gtable.level == "L2") & \
+                query |= (gtable.level != None) & \
                          (gtable.parent == L1)
             if L2 and "L3" in levels:
-                query |= (gtable.level == "L3") & \
+                query |= (gtable.level != None) & \
                          (gtable.parent == L2)
             if L3 and "L4" in levels:
-                query |= (gtable.level == "L4") & \
+                query |= (gtable.level != None) & \
                          (gtable.parent == L3)
             if L4 and "L5" in levels:
-                query |= (gtable.level == "L5") & \
+                query |= (gtable.level != None) & \
                          (gtable.parent == L4)
         elif L1 and "L2" in levels:
-            query = (gtable.level == "L2") & \
+            query = (gtable.level != None) & \
                     (gtable.parent == L1)
             if L2 and "L3" in levels:
-                query |= (gtable.level == "L3") & \
+                query |= (gtable.level != None) & \
                          (gtable.parent == L2)
             if L3 and "L4" in levels:
-                query |= (gtable.level == "L4") & \
+                query |= (gtable.level != None) & \
                          (gtable.parent == L3)
             if L4 and "L5" in levels:
-                query |= (gtable.level == "L5") & \
+                query |= (gtable.level != None) & \
                          (gtable.parent == L4)
         elif L2 and "L3" in levels:
-            query = (gtable.level == "L3") & \
+            query = (gtable.level != None) & \
                     (gtable.parent == L2)
             if L3 and "L4" in levels:
-                query |= (gtable.level == "L4") & \
+                query |= (gtable.level != None) & \
                          (gtable.parent == L3)
             if L4 and "L5" in levels:
-                query |= (gtable.level == "L5") & \
+                query |= (gtable.level != None) & \
                          (gtable.parent == L4)
         elif L3 and "L4" in levels:
-            query = (gtable.level == "L4") & \
+            query = (gtable.level != None) & \
                     (gtable.parent == L3)
             if L4 and "L5" in levels:
-                query |= (gtable.level == "L5") & \
+                query |= (gtable.level != None) & \
                          (gtable.parent == L4)
         elif L4 and "L5" in levels:
-            query = (gtable.level == "L5") & \
+            query = (gtable.level != None) & \
                     (gtable.parent == L4)
 
         query &= (gtable.deleted == False)
@@ -4571,21 +4598,21 @@ class S3LocationSelectorWidget2(FormWidget):
             use_callback = False
 
         specific = values["specific"]
-        args = [L0]
+        # Add only required args
         if specific:
-            # We need to provide all args
-            args += [L1, L2, L3, L4, L5, specific]
+            args = [L0, L1, L2, L3, L4, L5, specific]
+        elif L5:
+            args = [L0, L1, L2, L3, L4, L5]
+        elif L4:
+            args = [L0, L1, L2, L3, L4]
+        elif L3:
+            args = [L0, L1, L2, L3]
+        elif L2:
+            args = [L0, L1, L2]
         elif L1:
-            # Add only required args
-            args.append(L1)
-            if L2:
-                args.append(L2)
-                if L3:
-                    args.append(L3)
-                    if L4:
-                        args.append(L4)
-                        if L5:
-                            args.append(L5)
+            args = [L0, L1]
+        else:
+            args = [L0]
 
         args = [str(arg) for arg in args]
         args = ''','''.join(args)
@@ -4612,33 +4639,53 @@ class S3LocationSelectorWidget2(FormWidget):
         if show_map:
             # @ToDo: handle multiple LocationSelectors in 1 page
             # (=> multiple callbacks, as well as the need to migrate options from globals to a parameter)
+            add_points_active = add_polygon_active = add_line_active = False
             if points and lines:
                 toolbar = True              # Allow selection between
-                add_feature_active = True   # Default to Points
-                add_line_active = add_polygon_active = False
+                if wkt:
+                    if not polygons or wkt.startswith("LINE"):
+                        add_line_active = True
+                    elif polygons:
+                        add_polygon_active = True
+                    else:
+                        add_line_active = True
+                else:
+                    add_points_active = True
             elif points and polygons:
                 toolbar = True              # Allow selection between
-                add_feature_active = True   # Default to Points
-                add_line_active = add_polygon_active = False
+                if wkt:
+                    add_polygon_active = True
+                else:
+                    add_points_active = True
             elif points:
                 toolbar = False             # No need to select between
-                add_feature_active = True   # Default to Points
-                add_line_active = add_polygon_active = False
+                add_points_active = True
             elif lines and polygons:
                 toolbar = True              # Allow selection between
-                add_polygon_active = True   # Default to Polygons
-                add_feature_active = add_line_active = False
+                if wkt:
+                    if wkt.startswith("LINE"):
+                        add_line_active = True
+                    else:
+                        add_polygon_active = True
+                else:
+                    add_polygon_active = True
             elif lines:
                 toolbar = False             # No need to select between
-                add_line_active = True      # Default to Lines
-                add_feature_active = add_polygon_active = False
+                add_line_active = True
             elif polygons:
                 toolbar = False             # No need to select between
-                add_polygon_active = True   # Default to Polygons
-                add_feature_active = add_line_active = False
+                add_polygon_active = True
             else:
                 # No Valid options!
                 raise SyntaxError
+            if add_points_active:
+                add_line_active = add_polygon_active = False
+            elif add_polygon_active:
+                add_points_active = add_line_active = False
+            else:
+                # Lines active
+                add_points_active = add_polygon_active = False
+
             if not self.color_picker:
                 color_picker = False
             else:
@@ -4680,7 +4727,7 @@ class S3LocationSelectorWidget2(FormWidget):
                                 height = 340,
                                 width = 480,
                                 add_feature = points,
-                                add_feature_active = add_feature_active,
+                                add_feature_active = add_points_active,
                                 add_line = lines,
                                 add_line_active = add_line_active,
                                 add_polygon = polygons,
@@ -4702,10 +4749,27 @@ class S3LocationSelectorWidget2(FormWidget):
                 label = T("Draw on Map")
             else:
                 label = T("Find on Map")
-            if settings.ui.formstyle == "bootstrap":
+            if not location_selector_loaded:
+                global_append('''i18n.hide_map="%s"''' % T("Hide Map"))
+            _formstyle = settings.ui.formstyle
+            if not _formstyle:
+                # Default: Foundation
+                # Need to add custom classes to core HTML markup
+                map_icon = DIV(DIV(BUTTON(I(_class="icon-globe"),
+                                          SPAN(label),
+                                          _type="button", # defaults to 'submit' otherwise!
+                                          _id=icon_id,
+                                          _class="btn gis_loc_select_btn",
+                                          ),
+                                   _class="small-12 columns",
+                                   ),
+                               _id = row_id,
+                               _class = "form-row row hide",
+                               )
+            elif _formstyle == "bootstrap":
                 # Need to add custom classes to core HTML markup
                 map_icon = DIV(DIV(BUTTON(I(_class="icon-map"),
-                                          label,
+                                          SPAN(label),
                                           _type="button", # defaults to 'submit' otherwise!
                                           _id=icon_id,
                                           _class="btn gis_loc_select_btn",
@@ -4716,8 +4780,9 @@ class S3LocationSelectorWidget2(FormWidget):
                                _class = "control-group hide",
                                )
             else:
+                # Old default
                 map_icon = DIV(DIV(BUTTON(I(_class="icon-globe"),
-                                          label,
+                                          SPAN(label),
                                           _type="button", # defaults to 'submit' otherwise!
                                           _id=icon_id,
                                           _class="btn gis_loc_select_btn",
@@ -4780,8 +4845,8 @@ i18n.location_not_found="%s"''' % (T("Address Mapped"),
 class S3MultiSelectWidget(MultipleOptionsWidget):
     """
         Standard MultipleOptionsWidget, but using the jQuery UI:
-        http://www.erichynds.com/jquery/jquery-ui-multiselect-widget/
-        static/scripts/jquery.ui.multiselect.js
+            http://www.erichynds.com/jquery/jquery-ui-multiselect-widget/
+            static/scripts/ui/multiselect.js
     """
 
     def __init__(self,
@@ -4909,6 +4974,102 @@ class S3MultiSelectWidget(MultipleOptionsWidget):
             jquery_ready.append(script)
 
         return widget
+
+# =============================================================================
+class S3SelectWidget(OptionsWidget):
+    """
+        Standard OptionsWidget, but using the jQuery UI SelectMenu:
+            http://jqueryui.com/selectmenu/
+
+        Useful for showing Icons against the Options.
+    """
+
+    def __init__(self,
+                 icons = False
+                 ):
+        """
+            Constructor
+
+            @param icons: show icons next to options,
+                           can be:
+                                - False (don't show icons)
+                                - function (function to call add Icon URLs, height and width to the options)
+        """
+
+        self.icons = icons
+
+    def __call__(self, field, value, **attr):
+
+        if isinstance(field, Field):
+            selector = str(field).replace(".", "_")
+        else:
+            selector = field.name.replace(".", "_")
+
+        # Widget
+        _class = attr.get("_class", None)
+        if _class:
+            if "select-widget" not in _class:
+                attr["_class"] = "%s select-widget" % _class
+        else:
+            attr["_class"] = "select-widget"
+
+        widget = TAG[""](self.widget(field, value, **attr),
+                         requires = field.requires)
+
+        if self.icons:
+            # Use custom subclass in S3.js
+            fn = "iconselectmenu().iconselectmenu('menuWidget').addClass('customicons')"
+        else:
+            # Use default
+            fn = "selectmenu()"
+        script = '''$('#%s').%s''' % (selector, fn)
+
+        jquery_ready = current.response.s3.jquery_ready
+        if script not in jquery_ready: # Prevents loading twice when form has errors
+            jquery_ready.append(script)
+
+        return widget
+
+    # -------------------------------------------------------------------------
+    def widget(self, field, value, **attributes):
+        """
+            Generates a SELECT tag, including OPTIONs (only 1 option allowed)
+            see also: `FormWidget.widget`
+        """
+
+        default = dict(value=value)
+        attr = self._attributes(field, default,
+                               **attributes)
+        requires = field.requires
+        if not isinstance(requires, (list, tuple)):
+            requires = [requires]
+        if requires:
+            if hasattr(requires[0], "options"):
+                options = requires[0].options()
+            else:
+                raise SyntaxError(
+                    "widget cannot determine options of %s" % field)
+        icons = self.icons
+        if icons:
+            # Options including Icons
+            # Add the Icons to the Options
+            options = icons(options)
+            opts = []
+            oappend = opts.append
+            for (k, v, i) in options:
+                oattr = {"_value": k,
+                         #"_data-class": "select-widget-icon",
+                         }
+                if i:
+                    oattr["_data-style"] = "background-image:url('%s');height:%spx;width:%spx" % \
+                        (i[0], i[1], i[2])
+                opt = OPTION(v, **oattr)
+                oappend(opt)
+        else:
+            # Standard Options
+            opts = [OPTION(v, _value=k) for (k, v) in options]
+
+        return SELECT(*opts, **attr)
 
 # =============================================================================
 class S3HierarchyWidget(FormWidget):
@@ -5239,7 +5400,6 @@ class S3OrganisationHierarchyWidget(OptionsWidget):
         s3.js_global.append(javascript_array)
         s3.scripts.append("/%s/static/scripts/S3/s3.orghierarchy.js" % \
             current.request.application)
-        s3.stylesheets.append("jquery-ui/jquery.ui.menu.css")
 
         return self.widget(field, value, **attributes)
 
@@ -5559,23 +5719,19 @@ class S3SliderWidget(FormWidget):
     """
         Standard Slider Widget
 
-        @ToDo: The range of the slider should ideally be picked up from the
-               Validator
+        The range of the Slider is derived from the Validator
     """
 
     def __init__(self,
-                 min,
-                 max,
                  step = 1,
                  type = "int",
                  ):
-        self.min = min
-        self.max = max
         self.step = step
         self.type = type
 
     def __call__(self, field, value, **attributes):
 
+        validator = field.requires
         field = str(field)
         fieldname = field.replace(".", "_")
         input = INPUT(_name = field.split(".")[1],
@@ -5586,6 +5742,18 @@ class S3SliderWidget(FormWidget):
         slider = DIV(_id="%s_slider" % fieldname, **attributes)
 
         s3 = current.response.s3
+
+        if isinstance(validator, IS_EMPTY_OR):
+            validator = validator.other
+        
+        self.min = validator.minimum
+
+        # Max Value depends upon validator type
+        if isinstance(validator, IS_INT_IN_RANGE):
+            self.max = validator.maximum - 1
+        elif isinstance(validator, IS_FLOAT_IN_RANGE):
+            self.max = validator.maximum 
+
         if value is None:
             # JSONify
             value = "null"
@@ -5609,6 +5777,38 @@ class S3SliderWidget(FormWidget):
         s3.jquery_ready.append(script)
 
         return TAG[""](input, slider)
+
+# =============================================================================
+class S3StringWidget(StringWidget):
+    """
+        Extend the default Web2Py widget to include a Placeholder
+    """
+
+    def __init__(self,
+                 placeholder = None,
+                 textarea = False,
+                 ):
+        self.placeholder = placeholder
+        self.textarea = textarea
+
+    def __call__(self, field, value, **attributes):
+
+        default = dict(
+            _type = "text",
+            value = (value != None and str(value)) or "",
+            )
+        attr = StringWidget._attributes(field, default, **attributes)
+        placeholder = self.placeholder
+        if placeholder:
+            attr["_placeholder"] = placeholder
+        if self.textarea:
+            widget = TEXTAREA(**attr)
+        else:
+            widget = INPUT(**attr)
+
+        return TAG[""](widget,
+                       requires = field.requires
+                       )
 
 # =============================================================================
 class S3TimeIntervalWidget(FormWidget):
