@@ -61,6 +61,11 @@ settings.L10n.languages = OrderedDict([
 #settings.L10n.display_toolbar = False
 # Default timezone for users
 #settings.L10n.utc_offset = "UTC +0100"
+# Number formats (defaults to ISO 31-0)
+# Decimal separator for numbers (defaults to ,)
+settings.L10n.decimal_separator = "."
+# Thousands separator for numbers (defaults to space)
+settings.L10n.thousands_separator = ","
 
 # Security Policy
 # http://eden.sahanafoundation.org/wiki/S3AAA#System-widePolicy
@@ -169,76 +174,72 @@ def customise_hms_hospital_resource(r, tablename):
 settings.customise_hms_hospital_resource = customise_hms_hospital_resource
 
 # -----------------------------------------------------------------------------
+def customise_disease_stats_data_resource(r, tablename):
+
+    s3db = current.s3db
+    # Load model & set defaults
+    table = s3db.disease_stats_data
+
+    # Add a TimePlot tab to summary page
+    summary = settings.get_ui_summary()
+    settings.ui.summary = list(summary) + [{"name": "timeplot",
+                                            "label": "Progression",
+                                            "widgets": [{"method": "timeplot",
+                                                         "ajax_init": True,
+                                                         }
+                                                        ],
+                                            }]
+
+    # Default parameter filter
+    def default_parameter_filter(selector, tablename=None):
+        ptable = s3db.stats_parameter
+        query = (ptable.deleted == False) & \
+                (ptable.name == "Cases")
+        row = current.db(query).select(ptable.parameter_id,
+                                       limitby = (0, 1)).first()
+        if row:
+            return row.parameter_id
+        else:
+            return None
+
+    # Set filter defaults
+    resource = r.resource
+    filter_widgets = resource.get_config("filter_widgets", [])
+    for filter_widget in filter_widgets:
+        if filter_widget.field == "parameter_id":
+            filter_widget.opts.default = default_parameter_filter
+        elif filter_widget.field == "location_id$level":
+            filter_widget.opts.default = "L2"
+
+settings.customise_disease_stats_data_resource = customise_disease_stats_data_resource
+
+# -----------------------------------------------------------------------------
 def customise_stats_demographic_data_resource(r, tablename):
 
     s3db = current.s3db
+    # Load model & set defaults
     table = s3db.stats_demographic_data
 
-    # Add a Timeplot tab to summary page
-    # @ToDo: Widget version of timeplot
-    #settings.ui.summary = list(settings.ui.summary) + {"name": "timeplot",
-    #                                                   "label": "TimePlot",
-    #                                                   "widgets": [{"method": "timeplot", "ajax_init": True}],
-    #                                                   }
+    # Default parameter filter
+    def default_parameter_filter(selector, tablename=None):
+        ptable = s3db.stats_parameter
+        query = (ptable.deleted == False) & \
+                (ptable.name == "Population Total")
+        row = current.db(query).select(ptable.parameter_id,
+                                       limitby = (0, 1)).first()
+        if row:
+            return row.parameter_id
+        else:
+            return None
 
-    from s3 import S3OptionsFilter, S3LocationFilter
-    filter_widgets = [S3OptionsFilter("parameter_id",
-                                      label = T("Type"),
-                                      multiple = False,
-                                      # Not translateable
-                                      #represent = "%(name)s",
-                                      ),
-                      # @ToDo: 'Month' &/or Week VF
-                      #S3OptionsFilter("month",
-                      #                #multiple = False,
-                      #                operator = "anyof",
-                      #                options = lambda: \
-                      #                  stats_month_options("stats_demographic_data"),
-                      #                ),
-                      ]
-    
-    if r.method != "timeplot":
-        # This is critical for the Map, but breaks aggregated Report data
-        filter_widgets.append(S3OptionsFilter("location_id$level",
-                                              label = T("Level"),
-                                              multiple = False,
-                                              # Not translateable
-                                              #represent = "%(name)s",
-                                              ))
-    filter_widgets.append(S3LocationFilter("location_id"))
-
-    # Sum doesn't make sense for data which is already cumulative
-    #report_options = s3db.get_config(tablename, "report_options")
-    #report_options.fact = [(T("Value"), "max(value)")]
-    #report_options.defaults.fact = "max(value)"
-
-    #report_options = Storage(rows = location_fields + ["month"],
-    #                         cols = ["parameter_id"],
-    #                         fact = [(T("Value"), "max(value)"),
-    #                                 ],
-    #                         defaults = Storage(rows = "location_id",
-    #                                            cols = "parameter_id",
-    #                                            fact = "max(value)",
-    #                                            totals = True,
-    #                                            chart = "breakdown:rows",
-    #                                            table = "collapse",
-    #                                            )
-    #                         )
-
-    s3db.configure(tablename,
-                   filter_widgets = filter_widgets,
-                   #report_options = report_options,
-                   timeplot_options = {
-                            "defaults": {
-                                # @ToDo: Total Population?
-                                #"baseline": "budget_id$total_volume",
-                                "fact": "cumulate(value)",
-                                "slots": "",
-                                "start": "",
-                                #"end": "+1month",
-                            },
-                       },
-                       )
+    # Set filter defaults
+    resource = r.resource
+    filter_widgets = resource.get_config("filter_widgets", [])
+    for filter_widget in filter_widgets:
+        if filter_widget.field == "parameter_id":
+            filter_widget.opts.default = default_parameter_filter
+        elif filter_widget.field == "location_id$level":
+            filter_widget.opts.default = "L2"
 
 settings.customise_stats_demographic_data_resource = customise_stats_demographic_data_resource
 

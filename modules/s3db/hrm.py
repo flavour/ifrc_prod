@@ -4491,42 +4491,41 @@ class hrm_AssignMethod(S3Method):
 
                 db = current.db
                 table = s3db[tablename]
-                if selected:
-                    # Handle exclusion filter
-                    if post_vars.mode == "Exclusive":
-                        if "filterURL" in post_vars:
-                            filters = S3URLQuery.parse_url(post_vars.ajaxURL)
-                        else:
-                            filters = None
-                        query = ~(FS("id").belongs(selected))
-                        hresource = s3db.resource("hrm_human_resource",
-                                                  filter=query, vars=filters)
-                        rows = hresource.select(["id"], as_rows=True)
-                        selected = [str(row.id) for row in rows]
 
-                    query = (table.human_resource_id.belongs(selected)) & \
-                            (table[fkey] == record_id) & \
-                            (table.deleted != True)
-                    rows = db(query).select(table.id)
-                    rows = dict((row.id, row) for row in rows)
-                    onaccept = component.get_config("create_onaccept",
-                                                    component.get_config("onaccept",
-                                                                         None)
-                                                    )
-                    for human_resource_id in selected:
-                        try:
-                            hr_id = int(human_resource_id.strip())
-                        except ValueError:
-                            continue
-                        if hr_id not in rows:
-                            link = Storage(human_resource_id = human_resource_id)
-                            link[fkey] = record_id
-                            _id = table.insert(**link)
-                            if onaccept:
-                                link["id"] = _id
-                                form = Storage(vars=link)
-                                onaccept(form)
-                            added += 1
+                # Handle exclusion filter
+                if post_vars.mode == "Exclusive":
+                    if "filterURL" in post_vars:
+                        filters = S3URLQuery.parse_url(post_vars.filterURL)
+                    else:
+                        filters = None
+                    query = ~(FS("id").belongs(selected))
+                    hresource = s3db.resource("hrm_human_resource",
+                                              alias = self.component,
+                                              filter=query, vars=filters)
+                    rows = hresource.select(["id"], as_rows=True)
+                    selected = [str(row.id) for row in rows]
+
+                query = (table.human_resource_id.belongs(selected)) & \
+                        (table[fkey] == record_id) & \
+                        (table.deleted != True)
+                rows = db(query).select(table.id)
+                rows = dict((row.id, row) for row in rows)
+                onaccept = component.get_config("create_onaccept",
+                                                component.get_config("onaccept", None))
+                for human_resource_id in selected:
+                    try:
+                        hr_id = int(human_resource_id.strip())
+                    except ValueError:
+                        continue
+                    if hr_id not in rows:
+                        link = Storage(human_resource_id = human_resource_id)
+                        link[fkey] = record_id
+                        _id = table.insert(**link)
+                        if onaccept:
+                            link["id"] = _id
+                            form = Storage(vars=link)
+                            onaccept(form)
+                        added += 1
             current.session.confirmation = T("%(number)s assigned") % \
                                            dict(number=added)
             if added > 0:
@@ -4563,7 +4562,9 @@ class hrm_AssignMethod(S3Method):
                 list_fields.append(("Trainings", "person_id$training.course_id"))
 
             # Data table
-            resource = s3db.resource("hrm_human_resource")
+            resource = s3db.resource("hrm_human_resource",
+                                     alias=r.component.alias if r.component else None,
+                                     vars=get_vars)
             totalrows = resource.count()
             if "pageLength" in get_vars:
                 display_length = get_vars["pageLength"]
@@ -4610,10 +4611,7 @@ class hrm_AssignMethod(S3Method):
                 items = dt.html(totalrows,
                                 filteredrows,
                                 dt_id,
-                                dt_ajax_url=URL(args = r.args,
-                                                extension="aadata",
-                                                vars={},
-                                                ),
+                                dt_ajax_url=r.url(representation="aadata"),
                                 dt_bulk_actions=dt_bulk_actions,
                                 dt_pageLength=display_length,
                                 dt_pagination="true",
@@ -4647,7 +4645,7 @@ class hrm_AssignMethod(S3Method):
                                                _id="datatable-filter-form",
                                                )
                     fresource = current.s3db.resource(resource.tablename)
-                    alias = resource.alias if r.component else None
+                    alias = r.component.alias if r.component else None
                     ff = filter_form.html(fresource,
                                           r.get_vars,
                                           target="datatable",
@@ -7261,7 +7259,17 @@ class hrm_CV(S3Method):
             * Training
             * Skills
     """
-    
+
+    def __init__(self, form=None):
+        """
+            Constructor
+
+            @param form: widget config to inject at the top of the CV,
+                         or a callable to produce such a widget config
+        """
+
+        self.form = form
+
     # -------------------------------------------------------------------------
     def apply_method(self, r, **attr):
         """
@@ -7312,6 +7320,12 @@ class hrm_CV(S3Method):
                 ]
 
             profile_widgets = []
+            form = self.form
+            if form:
+                if callable(form):
+                    form = form(r)
+                if form is not None:
+                    profile_widgets.append(form)
             if vol and settings.get_hrm_use_awards():
                 awards_widget = dict(label = "Awards",
                                      label_create = "Create Award",
