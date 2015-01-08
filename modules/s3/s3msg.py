@@ -433,6 +433,11 @@ class S3Msg(object):
         db = current.db
         s3db = current.s3db
 
+        lookup_org = False
+        channels = {}
+        outgoing_sms_handler = None
+        channel_id = None
+
         if contact_method == "SMS":
             # Read all enabled Gateways
             # - we assume there are relatively few & we may need to decide which to use based on the message's organisation
@@ -459,7 +464,6 @@ class S3Msg(object):
                 org_branches = current.deployment_settings.get_org_branches()
                 if org_branches:
                     org_parents = s3db.org_parents
-                channels = {}
                 for row in rows:
                     channels[row["msg_sms_outbound_gateway.organisation_id"]] = \
                         dict(outgoing_sms_handler = row["msg_channel.instance_type"],
@@ -478,7 +482,11 @@ class S3Msg(object):
                               outbox_id,
                               message_id,
                               organisation_id = None,
-                              contact_method = contact_method):
+                              contact_method = contact_method,
+                              channel_id = channel_id,
+                              outgoing_sms_handler = outgoing_sms_handler,
+                              lookup_org = lookup_org,
+                              channels = channels):
             """
                 Helper method to send messages by pe_id
 
@@ -656,7 +664,19 @@ class S3Msg(object):
             pe_id = row.pe_id
             message_id = row.message_id
 
-            if entity_type == "pr_group":
+            if entity_type == "pr_person":
+                # Send the message to this person
+                try:
+                    status = dispatch_to_pe_id(pe_id,
+                                               subject,
+                                               message,
+                                               row.id,
+                                               message_id,
+                                               organisation_id)
+                except:
+                    status = False
+
+            elif entity_type == "pr_group":
                 # Re-queue the message for each member in the group
                 gquery = (gtable.pe_id == pe_id)
                 recipients = db(gquery).select(ptable.pe_id, left=gleft)
@@ -701,17 +721,6 @@ class S3Msg(object):
                     chainrun = True
                 status = True
 
-            elif entity_type == "pr_person":
-                # Send the message to this person
-                try:
-                    status = dispatch_to_pe_id(pe_id,
-                                               subject,
-                                               message,
-                                               row.id,
-                                               message_id,
-                                               organisation_id)
-                except:
-                    status = False
             else:
                 # Unsupported entity type
                 row.update_record(status = 4) # Invalid
