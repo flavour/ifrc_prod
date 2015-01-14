@@ -329,7 +329,7 @@ def dojs(dogis = False, warnings = True):
                      "gis.loader",
                      "gis.pois",
                      "locationselector.widget",
-                     "locationselector.widget2",
+                     "ui.locationselector",
                      "msg",
                      "popup",
                      "register_validation",
@@ -577,8 +577,9 @@ def docss():
 
     # Theme
     theme = settings.get_theme()
+    location = settings.get_template_location()
     print "Using theme %s" % theme
-    css_cfg = os.path.join("..", "..", "..", "private", "templates", theme, "css.cfg")
+    css_cfg = os.path.join("..", "..", "..", location, "templates", theme, "css.cfg")
     f = open(css_cfg, "r")
     files = f.readlines()
     f.close()
@@ -590,7 +591,7 @@ def docss():
                 # Compile the SCSS first
                 file = file[5:]
                 filename = file.split("/")[-1].split(".")[0]
-                sourcePath = os.path.join("..", "..", "..", "private", "templates", theme, "scss")
+                sourcePath = os.path.join("..", "..", "..", location, "templates", theme, "scss")
                 sourceFilename = os.path.join(sourcePath, "%s.scss" % filename)
                 sourceFile = open(sourceFilename, "r")
                 source = sourceFile.read()
@@ -736,17 +737,17 @@ def docss():
         shutil.move(outputFilenameCSS, "../../themes/IFRC")
 
 def main(argv):
-    try:
+    if len(argv) > 0:
         parameter1 = argv[0]
-    except:
+    else:
         parameter1 = "ALL"
 
-    try:
+    if len(argv) > 1:
         if(argv[1] == "DOGIS"):
             parameter2 = True
         else:
             parameter2 = False
-    except:
+    else:
         parameter2 = True
 
     closure_warnings = True

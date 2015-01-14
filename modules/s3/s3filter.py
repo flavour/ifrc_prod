@@ -2,7 +2,7 @@
 
 """ Framework for filtered REST requests
 
-    @copyright: 2013-14 (c) Sahana Software Foundation
+    @copyright: 2013-15 (c) Sahana Software Foundation
     @license: MIT
 
     @requires: U{B{I{gluon}} <http://web2py.com>}
@@ -325,7 +325,7 @@ class S3FilterWidget(object):
                                   "when rendered without resource." % \
                                   self.__class__.__name__)
             flist = self.field
-            if type(flist) is not list:
+            if not isinstance(flist, (list, tuple)):
                 flist = [flist]
             colnames = []
             for f in flist:
@@ -378,12 +378,22 @@ class S3FilterWidget(object):
         """
 
         alias = self.alias
-        if alias is None:
-            alias = "~"
-        if "." not in selector.split("$", 1)[0]:
-            return "%s.%s" % (alias, selector)
+        items = selector.split("$", 0)
+        head = items[0]
+        if "." in head:
+            if alias not in (None, "~"):
+                prefix, key = head.split(".", 1)
+                if prefix == "~":
+                    prefix = alias
+                elif prefix != alias:
+                    prefix = "%s.%s" % (alias, prefix)
+                items[0] = "%s.%s" % (prefix, key)
+                selector = "$".join(items)
         else:
-            return selector
+            if alias is None:
+                alias = "~"
+            selector = "%s.%s" % (alias, selector)
+        return selector
 
     # -------------------------------------------------------------------------
     def _selector(self, resource, fields):

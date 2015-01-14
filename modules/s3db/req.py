@@ -2,7 +2,7 @@
 
 """ Sahana Eden Request Model
 
-    @copyright: 2009-2014 (c) Sahana Software Foundation
+    @copyright: 2009-2015 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -4375,7 +4375,7 @@ def req_customise_commit_fields():
     #field = table.location_id
     #field.represent = s3db.gis_LocationRepresent(sep=" | ")
     # Required
-    #field.requires = IS_LOCATION_SELECTOR2()
+    #field.requires = IS_LOCATION()
 
     field = table.comments
     field.label = T("Donation")

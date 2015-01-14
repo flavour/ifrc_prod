@@ -2,7 +2,7 @@
 
 """ S3 SQL Forms
 
-    @copyright: 2012-14 (c) Sahana Software Foundation
+    @copyright: 2012-15 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -61,6 +61,7 @@ from gluon.validators import Validator
 
 from s3query import FS
 from s3utils import s3_mark_required, s3_represent_value, s3_store_last_record_id, s3_strip_markup, s3_unicode, s3_validate
+from s3widgets import S3Selector
 
 # Compact JSON encoding
 SEPARATORS = (",", ":")
@@ -718,6 +719,50 @@ class S3SQLDefaultForm(S3SQLForm):
 # =============================================================================
 class S3SQLCustomForm(S3SQLForm):
     """ Custom SQL Form """
+
+    # -------------------------------------------------------------------------
+    def __len__(self):
+        """
+            Support len(crud_form)
+        """
+
+        return len(self.elements)
+
+    # -------------------------------------------------------------------------
+    def insert(self, index, element):
+        """
+            S.insert(index, object) -- insert object before index
+        """
+
+        if not element:
+            return
+        if isinstance(element, S3SQLFormElement):
+            self.elements.insert(index, element)
+        elif isinstance(element, str):
+            self.elements.insert(index, S3SQLField(element))
+        elif isinstance(element, tuple):
+            l = len(element)
+            if l > 1:
+                label, selector = element[:2]
+                widget = element[2] if l > 2 else DEFAULT
+            else:
+                selector = element[0]
+                label = widget = DEFAULT
+            self.elements.insert(index, S3SQLField(selector, label=label, widget=widget))
+        else:
+            msg = "Invalid form element: %s" % str(element)
+            if current.deployment_settings.get_base_debug():
+                raise SyntaxError(msg)
+            else:
+                current.log.error(msg)
+
+    # -------------------------------------------------------------------------
+    def append(self, element):
+        """
+            S.append(object) -- append object to the end of the sequence
+        """
+
+        self.insert(len(self), element)
 
     # -------------------------------------------------------------------------
     # Rendering/Processing
@@ -1788,7 +1833,7 @@ class S3SQLSubFormLayout(object):
 
         # Don't render a header row if there are no labels
         render_header = False
-        header_row = TR(_class="label-row")
+        header_row = TR(_class="label-row static")
         happend = header_row.append
         for f in fields:
             label = f["label"]
@@ -1862,9 +1907,18 @@ class S3SQLSubFormLayout(object):
                 append(action(T("Add this entry"), "add", throbber=True))
 
     # -------------------------------------------------------------------------
+    def rowstyle_read(self, form, fields, *args, **kwargs):
+        """
+            Formstyle for subform read-rows, normally identical
+            to rowstyle, but can be different in certain layouts
+        """
+
+        return self.rowstyle(form, fields, *args, **kwargs)
+
+    # -------------------------------------------------------------------------
     def rowstyle(self, form, fields, *args, **kwargs):
         """
-            Formstyle for subform rows
+            Formstyle for subform action-rows
         """
 
         def render_col(col_id, label, widget, comment, hidden=False):
@@ -1901,7 +1955,7 @@ class S3SQLSubFormLayout(object):
         #appname = current.request.application
         #scripts = current.response.s3.scripts
 
-        #script = "/%s/static/themes/CRMT2/js/inlinecomponent.layout.js" % appname
+        #script = "/%s/static/themes/CRMT/js/inlinecomponent.layout.js" % appname
         #if script not in scripts:
             #scripts.append(script)
 
@@ -2053,7 +2107,7 @@ class S3SQLInlineComponent(S3SQLSubForm):
                 orderby = component.get_config("orderby")
 
             if record_id:
-                if "filterby" in self.options:
+                if "filterby" in options:
                     # Filter
                     f = self._filterby_query()
                     if f is not None:
@@ -2064,8 +2118,11 @@ class S3SQLInlineComponent(S3SQLSubForm):
                 else:
                     extra_fields = []
                 all_fields = fields + virtual_fields + extra_fields
+                start = 0
+                limit = 1 if options.multiple is False else None
                 data = component.select(all_fields,
-                                        limit=None,
+                                        start=start,
+                                        limit=limit,
                                         represent=True,
                                         raw_data=True,
                                         show_links=False,
@@ -2125,8 +2182,14 @@ class S3SQLInlineComponent(S3SQLSubForm):
                         continue
 
                     colname = rfield.colname
-                    if hasattr(rfield.field, "formatter"):
-                        value = rfield.field.formatter(row[colname])
+                    field = rfield.field
+
+                    widget = field.widget
+                    if isinstance(widget, S3Selector):
+                        # Use the widget extraction/serialization method
+                        value = widget.serialize(widget.extract(row[colname]))
+                    elif hasattr(field, "formatter"):
+                        value = field.formatter(row[colname])
                     else:
                         # Virtual Field
                         value = row[colname]
@@ -2252,7 +2315,7 @@ class S3SQLInlineComponent(S3SQLSubForm):
         tablename = component.tablename
 
         # Configure the layout
-        layout = current.deployment_settings.get_ui_inline_component_layout()
+        layout = self._layout()
         columns = self.options.get("columns")
         if columns:
             layout.set_columns(columns, row_actions = multiple)
@@ -2444,7 +2507,7 @@ class S3SQLInlineComponent(S3SQLSubForm):
         resource = self.resource
         component = resource.components[data["component"]]
 
-        layout = current.deployment_settings.get_ui_inline_component_layout()
+        layout = self._layout()
         columns = self.options.get("columns")
         if columns:
             layout.set_columns(columns, row_actions=False)
@@ -2533,21 +2596,30 @@ class S3SQLInlineComponent(S3SQLSubForm):
 
                 # Get the values
                 values = Storage()
+                valid = True
                 for f, d in item.iteritems():
                     if f[0] != "_" and d and isinstance(d, dict):
 
                         field = table[f]
+                        widget = field.widget
                         if not hasattr(field, "type"):
                             # Virtual Field
                             continue
-                        elif table[f].type == "upload":
+                        elif field.type == "upload":
                             # Find, rename and store the uploaded file
                             rowindex = item.get("_index", None)
                             if rowindex is not None:
                                 filename = self._store_file(table, f, rowindex)
                                 if filename:
                                     values[f] = filename
-                            continue
+                        elif isinstance(widget, S3Selector):
+                            # Value must be processed by widget post-process
+                            value, error = widget.postprocess(d["value"])
+                            if not error:
+                                values[f] = value
+                            else:
+                                valid = False
+                                break
                         else:
                             # Must run through validator again (despite pre-validation)
                             # in order to post-process widget output properly (e.g. UTC
@@ -2558,6 +2630,12 @@ class S3SQLInlineComponent(S3SQLSubForm):
                                 continue
                             if not error:
                                 values[f] = value
+                            else:
+                                valid = False
+                                break
+                if not valid:
+                    # Skip invalid items
+                    continue
 
                 record_id = item.get("_id")
                 delete = item.get("_delete")
@@ -2632,9 +2710,9 @@ class S3SQLInlineComponent(S3SQLSubForm):
                         master = Storage({pkey: master_id})
 
                     # Apply component defaults
-                    defaults = component.defaults
-                    if isinstance(defaults, dict):
-                        for k, v in defaults.items():
+                    component_defaults = component.defaults
+                    if isinstance(component_defaults, dict):
+                        for k, v in component_defaults.items():
                             if k != component.fkey and \
                                k not in values and \
                                k in component.fields:
@@ -2699,6 +2777,17 @@ class S3SQLInlineComponent(S3SQLSubForm):
                                  self.selector)
         else:
             return "%s%s" % (self.alias, self.selector)
+
+    # -------------------------------------------------------------------------
+    def _layout(self):
+        """ Get the current layout """
+
+        layout = self.options.layout
+        if not layout:
+            layout = current.deployment_settings.get_ui_inline_component_layout()
+        elif isinstance(layout, type):
+            layout = layout()
+        return layout
 
     # -------------------------------------------------------------------------
     def _render_item(self,
@@ -2779,7 +2868,13 @@ class S3SQLInlineComponent(S3SQLSubForm):
                     data[idxname] = filename
                 else:
                     value = item[fname]["value"]
-                    value, error = s3_validate(table, fname, value)
+                    widget = formfield.widget
+                    if isinstance(widget, S3Selector):
+                        # Use the widget parser to get at the selected ID
+                        value, error = widget.parse(value).get("id"), None
+                    else:
+                        # Use the validator to get at the original value
+                        value, error = s3_validate(table, fname, value)
                     if error:
                         value = None
                     data[idxname] = value
@@ -2792,13 +2887,15 @@ class S3SQLInlineComponent(S3SQLSubForm):
 
         # Render the subform
         subform_name = "sub_%s" % formname
+        rowstyle = layout.rowstyle_read if readonly else layout.rowstyle
         subform = SQLFORM.factory(*formfields,
                                   record=data,
                                   showid=False,
-                                  formstyle=layout.rowstyle,
+                                  formstyle=rowstyle,
                                   upload = s3.download_url,
                                   readonly=readonly,
                                   table_name=subform_name,
+                                  separator = ":",
                                   submit = False,
                                   buttons = [])
         subform = subform[0]

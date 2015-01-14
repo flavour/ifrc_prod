@@ -2,7 +2,7 @@
 
 """ Resource Import Tools
 
-    @copyright: 2011-14 (c) Sahana Software Foundation
+    @copyright: 2011-15 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -3630,9 +3630,16 @@ class S3BulkImporter(object):
                 (csvPath, csvFile) = os.path.split(csvFileName)
                 if csvPath != "":
                     path = os.path.join(request.folder,
-                                        "private",
+                                        "modules",
                                         "templates",
                                         csvPath)
+                    # @todo: deprecate this block once migration completed
+                    if not os.path.exists(path):
+                        # Non-standard location (legacy template)?
+                        path = os.path.join(current.request.folder,
+                                            "private",
+                                            "templates",
+                                            csvPath)
                 csv = os.path.join(path, csvFile)
 
             xslFileName = details[3].strip('" ')
@@ -3679,9 +3686,16 @@ class S3BulkImporter(object):
                 (csvPath, csvFile) = os.path.split(fileName)
                 if csvPath != "":
                     path = os.path.join(current.request.folder,
-                                        "private",
+                                        "modules",
                                         "templates",
                                         csvPath)
+                    # @todo: deprecate this block once migration completed
+                    if not os.path.exists(path):
+                        # Non-standard location (legacy template)?
+                        path = os.path.join(current.request.folder,
+                                            "private",
+                                            "templates",
+                                            csvPath)
                 csv = os.path.join(path, csvFile)
         extraArgs = None
         if len(details) >= 4:
@@ -4079,48 +4093,54 @@ class S3BulkImporter(object):
                 current.log.error("Unable to create temp folder %s!" % tempPath)
                 return
 
-        # Set the current working directory
-        os.chdir(tempPath)
-
-        try:
-            _file = fetch(url)
-        except urllib2.URLError, exception:
-            current.log.error(exception)
-            # Revert back to the working directory as before.
-            os.chdir(cwd)
-            return
-
-        fp = StringIO(_file)
+        filename = url.split("/")[-1]
         if extension == "zip":
-            # Need to unzip
-            import zipfile
+            filename = filename.replace(".zip", ".csv")
+        if os.path.exists(os.path.join(tempPath, filename)):
+            current.log.warning("Using cached copy of %s" % filename)
+        else:
+            # Download if we have no cached copy
+            # Set the current working directory
+            os.chdir(tempPath)
             try:
-                myfile = zipfile.ZipFile(fp)
-            except zipfile.BadZipfile, exception:
-                # e.g. trying to download through a captive portal
+                _file = fetch(url)
+            except urllib2.URLError, exception:
                 current.log.error(exception)
                 # Revert back to the working directory as before.
                 os.chdir(cwd)
                 return
-            files = myfile.infolist()
-            for f in files:
-                filename = f.filename
-                extension = filename.split(".")[-1]
-                if extension == "csv":
-                    _file = myfile.read(filename)
-                    _f = open(filename, "w")
-                    _f.write(_file)
-                    _f.close()
-                    break
-            myfile.close()
-        else:
-            filename = url.split("/")[-1]
-            f = open(filename, "w")
-            f.write(_file)
-            f.close()
 
-        # Revert back to the working directory as before.
-        os.chdir(cwd)
+            fp = StringIO(_file)
+
+            if extension == "zip":
+                # Need to unzip
+                import zipfile
+                try:
+                    myfile = zipfile.ZipFile(fp)
+                except zipfile.BadZipfile, exception:
+                    # e.g. trying to download through a captive portal
+                    current.log.error(exception)
+                    # Revert back to the working directory as before.
+                    os.chdir(cwd)
+                    return
+                files = myfile.infolist()
+                for f in files:
+                    filename = f.filename
+                    extension = filename.split(".")[-1]
+                    if extension == "csv":
+                        _file = myfile.read(filename)
+                        _f = open(filename, "w")
+                        _f.write(_file)
+                        _f.close()
+                        break
+                myfile.close()
+            else:
+                f = open(filename, "w")
+                f.write(_file)
+                f.close()
+
+            # Revert back to the working directory as before.
+            os.chdir(cwd)
 
         task = [1, prefix, resource,
                 os.path.join(tempPath, filename),

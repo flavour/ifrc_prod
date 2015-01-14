@@ -4,7 +4,7 @@
 
     @requires: U{B{I{gluon}} <http://web2py.com>}
 
-    @copyright: 2009-2014 (c) Sahana Software Foundation
+    @copyright: 2009-2015 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -86,6 +86,7 @@ class S3Config(Storage):
                     #"tet": "",
                     "th": "%d/%m/%Y",
                     #"tl": "",
+                    "tr": "%d.%m.%Y",
                     #"ur": "",
                     "vi": "%d/%m/%Y",
                     "zh-cn": "%Y-%m-%d",
@@ -93,6 +94,7 @@ class S3Config(Storage):
                     }
 
     def __init__(self):
+        self.asset = Storage()
         self.auth = Storage()
         self.auth.email_domains = []
         self.base = Storage()
@@ -130,6 +132,8 @@ class S3Config(Storage):
         self.vulnerability = Storage()
         self.transport = Storage()
 
+        self._debug = None
+
     # -------------------------------------------------------------------------
     # Template
     def get_template(self):
@@ -139,14 +143,102 @@ class S3Config(Storage):
         """
         return self.base.get("template", "default")
 
+    def get_template_location(self):
+
+        return self.base.get("template_location", "modules")
+
     def exec_template(self, path):
         """
-            Execute the template
+            Legacy function, retained for backwards-compatibility with
+            existing 000_config.py instances => modern 000_config.py
+            should just call settings.import_template()
+
+            @todo: deprecate
         """
-        from gluon.fileutils import read_file
-        from gluon.restricted import restricted
-        code = read_file(path)
-        restricted(code, layer=path)
+        self.import_template()
+
+    def check_debug(self):
+        """
+            (Lazy) check debug mode and activate the respective settings
+        """
+
+        debug = self._debug
+        base_debug = bool(self.get_base_debug())
+
+        # Modify settings only if self.base.debug has changed
+        if debug is None or debug != base_debug:
+            self._debug = base_debug
+            debug = base_debug or \
+                    current.request.get_vars.get("debug", False)
+            from gluon.custom_import import track_changes
+            s3 = current.response.s3
+            if debug:
+                s3.debug = True
+                track_changes(True)
+            else:
+                s3.debug = False
+                track_changes(False)
+
+    def import_template(self, config="config"):
+        """
+            Import and invoke the template config (new module pattern)
+
+            @param config: name of the config-module
+
+            @todo: rewrite all config.py's with module pattern
+            @todo: remove fallback when migration complete (+giving some
+                   time for downstream projects to adapt)
+        """
+
+        name = self.get_template()
+        package = "templates.%s" % name
+
+        self.check_debug()
+
+        template = None
+        try:
+            # Import the template
+            template = getattr(__import__(package, fromlist=[config]), config)
+        except ImportError:
+            # Legacy template in "private"?
+            self.execute_template(name)
+        else:
+            template.config(self)
+            # Store location in response.s3 for compiled views
+            current.response.s3.template_location = "modules"
+        return template
+
+    def execute_template(self, name):
+        """
+            Fallback for legacy templates - execute config.py
+        """
+
+        import os
+
+        location = "private"
+        path = os.path.join(current.request.folder,
+                            location,
+                            "templates",
+                            name,
+                            "config.py")
+
+        if os.path.exists(path):
+            # Old-style config.py => deprecation warning (S3Log not available yet)
+            import sys
+            print >> sys.stderr, "%s/config.py: script pattern deprecated." % name
+            # Remember the non-standard location
+            # (need to be in response.s3 for compiled views)
+            current.response.s3.template_location = self.base.template_location = location
+            # Execute config.py
+            from gluon.fileutils import read_file
+            from gluon.restricted import restricted
+            code = read_file(path)
+            restricted(code, layer=path)
+        else:
+            # Nonexistent template
+            # => could be ignored here, but would crash later anyway,
+            #    so exit early with a clear error message
+            raise RuntimeError("Template not found: %s" % name)
 
     # -------------------------------------------------------------------------
     # Theme
@@ -457,25 +549,26 @@ class S3Config(Storage):
         """
         T = current.T
         return self.auth.get("role_modules", OrderedDict([
-            ("staff", "Staff"),
-            ("vol", "Volunteers"),
-            ("member", "Members"),
-            ("inv", "Warehouses"),
-            ("asset", "Assets"),
-            ("project", "Projects"),
-            ("survey", "Assessments"),
-            ("irs", "Incidents")
+            ("staff", T("Staff")),
+            ("vol", T("Volunteers")),
+            ("member", T("Members")),
+            ("inv", T("Warehouses")),
+            ("asset", T("Assets")),
+            ("project", T("Projects")),
+            ("survey", T("Assessments")),
+            ("irs", T("Incidents"))
         ]))
 
     def get_auth_access_levels(self):
         """
             Access levels for the Role Manager UI
         """
+        T = current.T
         return self.auth.get("access_levels", OrderedDict([
-            ("reader", "Reader"),
-            ("data_entry", "Data Entry"),
-            ("editor", "Editor"),
-            ("super", "Super Editor")
+            ("reader", T("Reader")),
+            ("data_entry", T("Data Entry")),
+            ("editor", T("Editor")),
+            ("super", T("Super Editor"))
         ]))
 
     def get_auth_set_presence_on_login(self):
@@ -863,7 +956,7 @@ class S3Config(Storage):
         """
             Display Lat/Lon form fields when selecting Locations
         """
-        return self.gis.get("latlon_selector", True)
+        return self.gis.get("latlon_selector", False)
 
     def get_gis_layer_metadata(self):
         """
@@ -922,6 +1015,14 @@ class S3Config(Storage):
     def get_gis_map_selector(self):
         " Display a Map-based tool to select Locations "
         return self.gis.get("map_selector", True)
+
+    def get_gis_map_selector_height(self):
+        """ Height of the map selector map """
+        return self.gis.get("map_selector_height", 340)
+
+    def get_gis_map_selector_width(self):
+        """ Width of the map selector map """
+        return self.gis.get("map_selector_width", 480)
 
     def get_gis_marker_max_height(self):
         return self.gis.get("marker_max_height", 35)
@@ -1117,6 +1218,14 @@ class S3Config(Storage):
         """
         return self.gis.get("lookup_code", False)
 
+    def get_gis_popup_location_link(self):
+        """
+            Whether a Pop-up Window should open on clicking
+            Location represent links
+            - Default: Map opens in a div
+        """
+        return self.gis.get("popup_location_link", False)
+
     # -------------------------------------------------------------------------
     # L10N Settings
     def get_L10n_default_language(self):
@@ -1150,6 +1259,7 @@ class S3Config(Storage):
                                                        #("ta", "தமிழ்"),               # Tamil
                                                        #("th", "ภาษาไทย"),        # Thai
                                                        ("tl", "Tagalog"),
+                                                       ("tr", "Türkçe"),
                                                        ("ur", "اردو"),
                                                        ("vi", "Tiếng Việt"),
                                                        ]))
@@ -1260,6 +1370,13 @@ class S3Config(Storage):
             Whether to use Alternate Location names
         """
         return self.L10n.get("name_alt_gis_location", False)
+
+    def get_L10n_translate_org_organisation(self):
+        """
+            Whether to translate Organisation names/acronyms
+        """
+        return self.L10n.get("translate_org_organisation", False)
+
     def get_L10n_pootle_url(self):
         """ URL for Pootle server """
         return self.L10n.get("pootle_url", "http://pootle.sahanafoundation.org/")
@@ -1318,6 +1435,18 @@ class S3Config(Storage):
             return setting
         elif setting in self.FORMSTYLE:
             return self.FORMSTYLE[setting]
+        else:
+            return setting
+
+    def get_ui_report_formstyle(self):
+        """ Get the current report form style """
+
+        setting = self.ui.get("report_formstyle", None)
+        formstyles = self.FORMSTYLE
+        if callable(setting):
+            return setting
+        elif setting in formstyles:
+            return formstyles[setting]
         else:
             return setting
 
@@ -1526,7 +1655,7 @@ class S3Config(Storage):
     def get_ui_multiselect_widget(self):
         """
             Whether all dropdowns should use the S3MultiSelectWidget
-            - currently respected by Auth Registration & S3LocationSelectorWidget2
+            - currently respected by Auth Registration & S3LocationSelector
 
             Options:
                 False (default): No widget
@@ -1674,6 +1803,12 @@ class S3Config(Storage):
             to retry forever.
         """
         return self.msg.get("max_send_retries", 9)
+
+    def get_msg_basestation_code_unique(self):
+        """
+            Validate for Unique Basestations Codes
+        """
+        return self.msg.get("basestation_code_unique", False)
 
     # -------------------------------------------------------------------------
     # Mail settings
@@ -1836,6 +1971,15 @@ class S3Config(Storage):
     # Modules
 
     # -------------------------------------------------------------------------
+    # Asset: Asset Management
+    #
+    def get_asset_telephones(self):
+        """
+            Whether Assets should include a specific type for Telephones
+        """
+        return self.asset.get("telephones", False)
+
+    # -------------------------------------------------------------------------
     # CAP: Common Alerting Protocol
     #
     def get_cap_identifier_prefix(self):
@@ -1994,6 +2138,12 @@ class S3Config(Storage):
             Whether to show Events in News Feed
         """
         return self.cms.get("show_events", False)
+
+    def get_cms_show_attachments(self):
+        """
+            Whether to show Attachments (such as Sources) in News Feed
+        """
+        return self.cms.get("show_attachments", True)
 
     def get_cms_show_links(self):
         """
@@ -2204,6 +2354,13 @@ class S3Config(Storage):
         """
         return self.hrm.get("show_staff", True)
 
+    def get_hrm_site_contact_unique(self):
+        """
+            Whether there can be multiple site contacts per site
+            - disable this if needing a separate contact per sector
+        """
+        return self.hrm.get("site_contact_unique", True)
+
     def get_hrm_skill_types(self):
         """
             If set to True then Skill Types are exposed to the UI
@@ -2320,6 +2477,12 @@ class S3Config(Storage):
             Whether Human Resources should show ID Tab
         """
         return self.hrm.get("use_id", True)
+
+    def get_hrm_use_address(self):
+        """
+            Whether Human Resources should show address tab
+        """
+        return self.hrm.get("use_address", True)
 
     def get_hrm_use_skills(self):
         """
@@ -2454,6 +2617,12 @@ class S3Config(Storage):
 
     def get_inv_recv_shortname(self):
         return self.inv.get("recv_shortname", "GRN")
+
+    def get_inv_warehouse_code_unique(self):
+        """
+            Validate for Unique Warehouse Codes
+        """
+        return self.inv.get("warehouse_code_unique", False)
 
     # -------------------------------------------------------------------------
     # IRS
@@ -2776,6 +2945,12 @@ class S3Config(Storage):
             Use Activity Types in Activities & Projects
         """
         return self.project.get("activity_types", False)
+
+    def get_project_activity_filter_year(self):
+        """
+            Filter according to Year in Activities
+        """
+        return self.project.get("activity_filter_year", False)
 
     def get_project_codes(self):
         """

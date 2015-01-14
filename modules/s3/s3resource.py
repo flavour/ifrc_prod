@@ -2,7 +2,7 @@
 
 """ S3 Resources
 
-    @copyright: 2009-2014 (c) Sahana Software Foundation
+    @copyright: 2009-2015 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -4182,12 +4182,13 @@ class S3ResourceFilter(object):
             if vars:
                 resource.vars = Storage(vars)
 
-                # BBox
-                bbox, joins = self.parse_bbox_query(resource, vars)
-                if bbox is not None:
-                    self.queries.append(bbox)
-                    if joins:
-                        self.ljoins.update(joins)
+                if not vars.get("track"):
+                    # Apply BBox Filter unless using S3Track to geolocate
+                    bbox, joins = self.parse_bbox_query(resource, vars)
+                    if bbox is not None:
+                        self.queries.append(bbox)
+                        if joins:
+                            self.ljoins.update(joins)
 
                 # Filters
                 add_filter = self.add_filter
