@@ -2,7 +2,7 @@
 
 """ Sahana Eden Request Model
 
-    @copyright: 2009-2014 (c) Sahana Software Foundation
+    @copyright: 2009-2015 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -124,8 +124,8 @@ class S3RequestModel(S3Model):
         req_ref = S3ReusableField("req_ref", "string",
                                   label = T("%(REQ)s Number") % #
                                     dict(REQ=settings.get_req_shortname()),
-                                  writable = False,
                                   represent = self.req_ref_represent,
+                                  writable = False,
                                   )
 
         req_priority_opts = {3: T("High"),
@@ -180,24 +180,26 @@ class S3RequestModel(S3Model):
                           super_link("doc_id", "doc_entity"),
                           # @ToDo: Replace with Link Table
                           self.event_event_id(
-                               default=session.s3.event,
+                               default = session.s3.event,
+                               ondelete = "SET NULL",
                                readable = False,
                                writable = False,
-                               ondelete="SET NULL"),
+                               ),
                           Field("type", "integer",
-                                requires = IS_IN_SET(req_type_opts, zero=None),
+                                label = T("Request Type"),
                                 represent = lambda opt: \
                                             req_type_opts.get(opt, UNKNOWN_OPT),
-                                label = T("Request Type")),
+                                requires = IS_IN_SET(req_type_opts, zero=None),
+                                ),
                           req_ref(),
                           s3_datetime(label = T("Date Requested"),
-                                      default="now",
-                                      past=8760, # Hours, so 1 year
-                                      future=0,
-                                      readable=date_writable,
-                                      writable=date_writable,
-                                      #represent="date",
-                                      #widget="date",
+                                      default = "now",
+                                      past = 8760, # Hours, so 1 year
+                                      future = 0,
+                                      readable = date_writable,
+                                      writable = date_writable,
+                                      #represent = "date",
+                                      #widget = "date",
                                       ),
                           Field("priority", "integer",
                                 default = 2,
@@ -236,42 +238,42 @@ class S3RequestModel(S3Model):
                                       represent = s3_string_represent,
                                       ),
                           Field("is_template", "boolean",
+                                default = False,
                                 label = T("Recurring Request?"),
                                 represent = s3_yes_no_represent,
-                                default = False,
                                 comment = DIV(_class="tooltip",
                                                 _title="%s|%s" % (T("Recurring Request?"),
                                                                   T("If this is a request template to be added repeatedly then the schedule can be set on the next page."))),
                                 ),
                           s3_datetime("date_required",
                                       label = T("Date Needed By"),
-                                      past=1, # Allow time for people to fill out form
-                                      future=8760, # Hours, so 1 year
-                                      #represent="date",
-                                      #widget="date",
+                                      past = 1, # Allow time for people to fill out form
+                                      future = 8760, # Hours, so 1 year
+                                      #represent = "date",
+                                      #widget = "date",
                                       ),
                           s3_datetime("date_required_until",
                                       label = T("Date Required Until"),
-                                      past=0,
-                                      future=8760, # Hours, so 1 year
+                                      past = 0,
+                                      future = 8760, # Hours, so 1 year
                                       readable = False,
                                       writable = False
                                       ),
                           person_id("requester_id",
-                                    label = requester_label,
+                                    default = requester_default,
                                     empty = settings.get_req_requester_optional(),
+                                    label = requester_label,
                                     #writable = False,
                                     comment = S3AddResourceLink(c="pr", f="person",
                                                                 vars = dict(child="requester_id",
                                                                             parent="req"),
                                                                 title=crud_strings["pr_person"].label_create,
                                                                 tooltip=AUTOCOMPLETE_HELP),
-                                    default = requester_default
                                     ),
                           person_id("assigned_to_id", # This field should be in req_commit, but that complicates the UI
+                                    label = T("Assigned To"),
                                     readable = False,
                                     writable = False,
-                                    label = T("Assigned To")
                                     ),
                           person_id("approved_by_id",
                                     label = T("Approved By"),
@@ -279,33 +281,35 @@ class S3RequestModel(S3Model):
                                     writable = False,
                                     ),
                           person_id("request_for_id",
+                                    #default = auth.s3_logged_in_person(),
                                     label = T("Requested For"),
                                     readable = False,
                                     writable = False,
-                                    #default = auth.s3_logged_in_person()
                                     ),
                           Field("transport_req", "boolean",
+                                label = T("Transportation Required"),
                                 represent = s3_yes_no_represent,
                                 readable = req_ask_transport,
                                 writable = req_ask_transport,
-                                label = T("Transportation Required")),
+                                ),
                           Field("security_req", "boolean",
+                                label = T("Security Required"),
                                 represent = s3_yes_no_represent,
                                 readable = req_ask_security,
                                 writable = req_ask_security,
-                                label = T("Security Required")),
+                                ),
                           s3_datetime("date_recv",
                                       label = T("Date Received"), # Could be T("Date Delivered") - make deployment_setting
-                                      past=8760, # Hours, so 1 year
-                                      future=0,
+                                      past = 8760, # Hours, so 1 year
+                                      future = 0,
                                       readable = False,
                                       writable = False,
                                       ),
                           person_id("recv_by_id",
-                                    label = T("Received By"),
                                     # @ToDo: Set this in Update forms? Dedicated 'Receive' button?
                                     # (Definitely not in Create forms)
-                                    #default = auth.s3_logged_in_person()
+                                    #default = auth.s3_logged_in_person(),
+                                    label = T("Received By"),
                                     ),
                           # Simple Status
                           # - currently just enabled in customise_req_fields() workflow
@@ -314,26 +318,31 @@ class S3RequestModel(S3Model):
                                      ),
                           # Detailed Status
                           req_status("commit_status",
+                                     label = T("Commit. Status"),
+                                     represent = self.req_commit_status_represent,
                                      readable = use_commit,
                                      writable = req_status_writable and use_commit,
-                                     represent = self.req_commit_status_represent,
-                                     label = T("Commit. Status")),
+                                     ),
                           req_status("transit_status",
-                                     label = T("Transit Status")),
+                                     label = T("Transit Status"),
+                                     ),
                           req_status("fulfil_status",
-                                     label = T("Fulfil. Status")),
+                                     label = T("Fulfil. Status"),
+                                     ),
                           Field("closed", "boolean",
+                                default = False,
                                 label = T("Closed"),
                                 comment = DIV(_class="tooltip",
                                               _title="%s|%s" % (T("Closed"),
                                                                 T("No more items may be added to this request"))),
-                                default = False),
+                                ),
                           Field("cancel", "boolean",
+                                default = False,
                                 label = T("Cancel"),
-                                default = False),
+                                ),
                           Field.Method("details", req_req_details),
                           Field.Method("drivers", req_req_drivers),
-                          s3_comments(comment=""),
+                          s3_comments(comment = ""),
                           *s3_meta_fields())
 
         # @todo: make lazy_table
@@ -350,9 +359,8 @@ class S3RequestModel(S3Model):
             table.req_ref.writable = False
 
         # CRUD strings
-        ADD_REQUEST = T("Make Request")
         crud_strings[tablename] = Storage(
-            label_create = ADD_REQUEST,
+            label_create = T("Make Request"),
             title_display = T("Request Details"),
             title_list = T("Requests"),
             title_map=T("Map of Requests"),
@@ -447,6 +455,9 @@ class S3RequestModel(S3Model):
         # Reusable Field
         represent = self.req_represent
         req_id = S3ReusableField("req_id", "reference %s" % tablename,
+                                 label = T("Request"),
+                                 ondelete = "CASCADE",
+                                 represent = represent,
                                  requires = IS_EMPTY_OR(
                                                 IS_ONE_OF(db,
                                                           "req_req.id",
@@ -456,10 +467,7 @@ class S3RequestModel(S3Model):
                                                           orderby="req_req.date",
                                                           sort=True)
                                                 ),
-                                 represent = represent,
                                  sortby = "date",
-                                 label = T("Request"),
-                                 ondelete = "CASCADE",
                                  )
         list_fields = ["id",
                        "date",
@@ -487,8 +495,9 @@ class S3RequestModel(S3Model):
             list_fields.append("commit_status")
         list_fields.extend(("transit_status",
                             "fulfil_status",
-                            (T("Committed By"), "commit.site_id"),
                             ))
+        if use_commit:
+            list_fields.append((T("Committed By"), "commit.site_id"))
 
         self.configure(tablename,
                        context = {"event": "event_id",
@@ -555,7 +564,7 @@ class S3RequestModel(S3Model):
                                                "joinby": "req_id",
                                                "key": "item_category_id",
                                                },
-                                            
+
                        **{# Scheduler Jobs (for recurring requests)
                           S3Task.TASK_TABLENAME: {"name": "job",
                                                   "joinby": "req_id",
@@ -626,9 +635,9 @@ class S3RequestModel(S3Model):
                                                                        parent="req"),
                                                            title=s3.crud_strings["pr_person"].label_create)
             s3.jquery_ready.append('''
-S3OptionsFilter({
- 'triggerName':'site_id',
- 'targetName':'requester_id',
+$.filterOptionsS3({
+ 'trigger':'site_id',
+ 'target':'requester_id',
  'lookupResource':'staff',
  'lookupURL':S3.Ap.concat('/hrm/staff_for_site/'),
  'msgNoRecords':'%s',
@@ -702,9 +711,10 @@ i18n.req_details_mandatory="%s"''' % (table.purpose.label,
             itable.item_id.widget = None
             jquery_ready = s3.jquery_ready
             jquery_ready.append('''
-S3OptionsFilter({
- 'triggerName':'item_id',
- 'targetName':'item_pack_id',
+$.filterOptionsS3({
+ 'trigger':{'alias':'req_item','name':'item_id'},
+ 'target':{'alias':'req_item','name':'item_pack_id'},
+ 'scope':'row',
  'lookupPrefix':'supply',
  'lookupResource':'item_pack',
  'msgNoRecords':i18n.no_packs,
@@ -742,24 +752,24 @@ S3OptionsFilter({
                     # Filter the list of Contacts to those for the site
                     table.requester_id.widget = None
                     table.requester_id.comment = S3AddResourceLink(c="pr", f="person",
-                                                                   vars = dict(child="requester_id",
-                                                                               parent="req"),
-                                                                   title=s3.crud_strings["pr_person"].label_create)
+                                                                    vars = dict(child="requester_id",
+                                                                                parent="req"),
+                                                                    title=s3.crud_strings["pr_person"].label_create)
                     jquery_ready.append('''
-S3OptionsFilter({
- 'triggerName':'site_id',
- 'targetName':'requester_id',
+$.filterOptionsS3({
+ 'trigger':'site_id',
+ 'target':'requester_id',
  'lookupResource':'staff',
  'lookupURL':S3.Ap.concat('/hrm/staff_for_site/'),
  'msgNoRecords':'%s',
  'optional':true,
 })''' % T("No contacts yet defined for this site"))
                     table.site_id.comment = A(T("Set as default Site"),
-                                      _id="req_req_site_id_link",
-                                      _target="_blank",
-                                      _href=URL(c="default",
-                                                f="user",
-                                                args=["profile"]))
+                                              _id="req_req_site_id_link",
+                                              _target="_blank",
+                                              _href=URL(c="default",
+                                                        f="user",
+                                                        args=["profile"]))
 
             if settings.get_req_items_ask_purpose():
                 fields.insert(6, "purpose")
@@ -814,9 +824,9 @@ S3OptionsFilter({
                                                                                parent="req"),
                                                                    title=s3.crud_strings["pr_person"].label_create)
                     s3.jquery_ready.append('''
-S3OptionsFilter({
- 'triggerName':'site_id',
- 'targetName':'requester_id',
+$.filterOptionsS3({
+ 'trigger':'site_id',
+ 'target':'requester_id',
  'lookupResource':'staff',
  'lookupURL':S3.Ap.concat('/hrm/staff_for_site/'),
  'msgNoRecords':'%s',
@@ -980,6 +990,7 @@ S3OptionsFilter({
         else:
             filename = None
 
+        from s3.s3export import S3Exporter
         exporter = S3Exporter().pdf
         return exporter(r.resource,
                         request=r,
@@ -1196,7 +1207,7 @@ S3OptionsFilter({
 
     # -------------------------------------------------------------------------
     @staticmethod
-    def req_tabs(r):
+    def req_tabs(r, match=True):
         """
             Add a set of Tabs for a Site's Request Tasks
 
@@ -1205,14 +1216,14 @@ S3OptionsFilter({
 
         settings = current.deployment_settings
         if settings.get_org_site_inv_req_tabs():
-            s3_has_permission = current.auth.s3_has_permission
+            permit = current.auth.s3_has_permission
             if settings.has_module("req") and \
-               s3_has_permission("read", "req_req", c="req"):
+               permit("read", "req_req", c="req"):
                 T = current.T
                 tabs = [(T("Requests"), "req")]
-                if s3_has_permission("read", "req_req",
-                                     c=current.request.controller,
-                                     f="req_match"):
+                if match and permit("read", "req_req",
+                                    c=current.request.controller,
+                                    f="req_match"):
                     tabs.append((T("Match Requests"), "req_match/"))
                 if settings.get_req_use_commit():
                     tabs.append((T("Commit"), "commit"))
@@ -1490,7 +1501,8 @@ S3OptionsFilter({
                     s3db.hrm_human_resource_onaccept(Storage(id=hr_id))
 
         # Configure the next page to go to based on the request type
-        if is_template:
+        inline_forms = settings.get_req_inline_forms()
+        if inline_forms and is_template:
             s3db.configure(tablename,
                            create_next = URL(c="req",
                                              f=f,
@@ -1499,7 +1511,7 @@ S3OptionsFilter({
                                              f=f,
                                              args=["[id]", "job"]))
 
-        elif not settings.get_req_inline_forms():
+        elif not inline_forms:
             if table.type.default:
                 type = table.type.default
             elif "type" in form_vars:
@@ -1554,34 +1566,31 @@ S3OptionsFilter({
 
     # -------------------------------------------------------------------------
     @staticmethod
-    def req_req_duplicate(job):
+    def req_req_duplicate(item):
         """
           This callback will be called when importing records
           it will look to see if the record being imported is a duplicate.
 
-          @param job: An S3ImportJob object which includes all the details
-                      of the record being imported
+          @param item: An S3ImportItem object which includes all the details
+                       of the record being imported
 
-          If the record is a duplicate then it will set the job method to update
+          If the record is a duplicate then it will set the item method to update
 
           Rules for finding a duplicate:
            - If the Request Number exists then it's a duplicate
         """
 
-        if job.tablename == "req_req":
-            table = job.table
-            if "req_ref" in job.data:
-                request_number = job.data.req_ref
-            else:
-                return
+        request_number = item.data.get("req_ref")
+        if not request_number:
+            return
 
-            query = (table.req_ref == request_number)
-            _duplicate = current.db(query).select(table.id,
-                                                  limitby=(0, 1)).first()
-            if _duplicate:
-                job.id = _duplicate.id
-                job.data.id = _duplicate.id
-                job.method = job.METHOD.UPDATE
+        table = item.table
+        query = (table.req_ref == request_number)
+        duplicate = current.db(query).select(table.id,
+                                             limitby=(0, 1)).first()
+        if duplicate:
+            item.id = duplicate.id
+            item.method = item.METHOD.UPDATE
 
 # =============================================================================
 class S3RequestItemModel(S3Model):
@@ -1687,9 +1696,9 @@ class S3RequestItemModel(S3Model):
                                                                       T("Select Items from the Request"))),
                                       ondelete = "CASCADE",
                                       script = '''
-S3OptionsFilter({
- 'triggerName':'req_item_id',
- 'targetName':'item_pack_id',
+$.filterOptionsS3({
+ 'trigger':'req_item_id',
+ 'target':'item_pack_id',
  'lookupResource':'item_pack',
  'lookupPrefix':'supply',
  'lookupURL':S3.Ap.concat('/req/req_item_packs/'),
@@ -1859,64 +1868,56 @@ S3OptionsFilter({
 
     # -------------------------------------------------------------------------
     @staticmethod
-    def req_item_delete(row):
+    def req_item_duplicate(item):
         """
-            Update the
-        """
-        h
-    # -------------------------------------------------------------------------
-    @staticmethod
-    def req_item_duplicate(job):
-        """
-          This callback will be called when importing records
-          it will look to see if the record being imported is a duplicate.
+            This callback will be called when importing records. It will look
+            to see if the record being imported is a duplicate.
 
-          @param job: An S3ImportJob object which includes all the details
-                      of the record being imported
+            @param item: An S3ImportItem object which includes all the details
+                         of the record being imported
 
-          If the record is a duplicate then it will set the job method to update
+            If the record is a duplicate then it will set the item method to update
 
-          Rules for finding a duplicate:
-           - If the Request Number matches
-           - The item is the same
+            Rules for finding a duplicate:
+                - If the Request Number matches
+                - The item is the same
         """
 
-        if job.tablename == "req_req_item":
-            itable = job.table
-            s3db = current.s3db
-            rtable = s3db.req_req
-            stable = s3db.supply_item
-            req_id = None
-            item_id = None
-            for ref in job.references:
-                if ref.entry.tablename == "req_req":
-                    if ref.entry.id != None:
-                        req_id = ref.entry.id
-                    else:
-                        uuid = ref.entry.item_id
-                        jobitem = job.job.items[uuid]
-                        req_id = jobitem.id
-                elif ref.entry.tablename == "supply_item":
-                    if ref.entry.id != None:
-                        item_id = ref.entry.id
-                    else:
-                        uuid = ref.entry.item_id
-                        jobitem = job.job.items[uuid]
-                        item_id = jobitem.id
+        db = current.db
 
-            if req_id != None and item_id != None:
-                query = (itable.req_id == req_id) & \
-                        (itable.item_id == item_id)
-            else:
-                return
+        itable = item.table
+        rtable = db.req_req
+        stable = db.supply_item
 
-            _duplicate = current.db(query).select(itable.id,
-                                                  limitby=(0, 1)).first()
-            if _duplicate:
-                job.id = _duplicate.id
-                job.data.id = _duplicate.id
-                job.method = job.METHOD.UPDATE
+        req_id = None
+        item_id = None
+        for ref in item.references:
+            if ref.entry.tablename == "req_req":
+                if ref.entry.id != None:
+                    req_id = ref.entry.id
+                else:
+                    uuid = ref.entry.item_id
+                    jobitem = item.job.items[uuid]
+                    req_id = jobitem.id
+            elif ref.entry.tablename == "supply_item":
+                if ref.entry.id != None:
+                    item_id = ref.entry.id
+                else:
+                    uuid = ref.entry.item_id
+                    jobitem = item.job.items[uuid]
+                    item_id = jobitem.id
 
+        if req_id is not None and item_id is not None:
+            query = (itable.req_id == req_id) & \
+                    (itable.item_id == item_id)
+        else:
+            return
+
+        duplicate = db(query).select(itable.id,
+                                     limitby=(0, 1)).first()
+        if duplicate:
+            item.id = duplicate.id
+            item.method = item.METHOD.UPDATE
 
 # =============================================================================
 class S3RequestSkillModel(S3Model):
@@ -2022,7 +2023,7 @@ class S3RequestSkillModel(S3Model):
                        ]
         if use_commit:
             list_fields.insert(3, "quantity_commit")
-            
+
         # Filter Widgets
         filter_widgets = [
             S3OptionsFilter("req_id$fulfil_status",
@@ -2131,24 +2132,6 @@ class S3RequestRecurringModel(S3Model):
         # Pass names back to global scope (s3.*)
         #
         return dict()
-
-    # -------------------------------------------------------------------------
-    @staticmethod
-    def req_recurring_duplicate(job):
-        """
-            De-duplicate Recurring Request Jobs
-        """
-
-        if job.tablename == "req_recurring":
-            table = job.table
-            name = job.data.get("name", None)
-            query = (table.name == name)
-            _duplicate = current.db(query).select(table.id,
-                                                  limitby=(0, 1)).first()
-            if _duplicate:
-                job.id = _duplicate.id
-                job.data.id = _duplicate.id
-                job.method = job.METHOD.UPDATE
 
 # =============================================================================
 class S3RequestSummaryModel(S3Model):
@@ -2345,6 +2328,7 @@ class S3CommitModel(S3Model):
                                           readable = True,
                                           writable = True,
                                           represent = self.org_site_represent,
+                                          updateable = True,
                                           widget = site_widget,
                                           ),
                           self.gis_location_id(
@@ -2448,15 +2432,16 @@ class S3CommitModel(S3Model):
 
         # Reusable Field
         commit_id = S3ReusableField("commit_id", "reference %s" % tablename,
-                                    sortby="date",
+                                    label = T("Commitment"),
+                                    ondelete = "CASCADE",
+                                    represent = self.commit_represent,
                                     requires = IS_EMPTY_OR(
                                                     IS_ONE_OF(db, "req_commit.id",
                                                               self.commit_represent,
                                                               orderby="req_commit.date",
                                                               sort=True)),
-                                    represent = self.commit_represent,
-                                    label = T("Commitment"),
-                                    ondelete = "CASCADE")
+                                    sortby = "date",
+                                    )
 
         self.configure(tablename,
                        context = {"event": "req_id$event_id",
@@ -2490,11 +2475,11 @@ class S3CommitModel(S3Model):
         # Components
         add_components(tablename,
                        # Committed Items
-                       req_commit_item="commit_id",
+                       req_commit_item = "commit_id",
                        # Committed Persons
-                       req_commit_person="commit_id",
+                       req_commit_person = "commit_id",
                        # Committed Skills
-                       req_commit_skill="commit_id",
+                       req_commit_skill = "commit_id",
                       )
 
         # ---------------------------------------------------------------------
@@ -3030,7 +3015,7 @@ class S3CommitItemModel(S3Model):
         insert = tracktable.insert
         for row in records:
             rim = row.req_req_item
-            # Now done as a VirtualField instead (looks better & updates closer to real-time, so less of a race condition) 
+            # Now done as a VirtualField instead (looks better & updates closer to real-time, so less of a race condition)
             #quantity_shipped = max(rim.quantity_transit, rim.quantity_fulfil)
             #quantity_needed = rim.quantity - quantity_shipped
             id = insert(req_item_id = rim.id,
@@ -3618,14 +3603,15 @@ def req_rheader(r, check_page=False):
                             query = (table.uuid == site_record.uuid)
                             id = db(query).select(table.id,
                                                   limitby=(0, 1)).first().id
-                            transit_status = SPAN(transit_status,
-                                                  A(T("Incoming Shipments"),
-                                                    _href = URL(c = instance_type.split("_")[0],
-                                                                f = "incoming",
-                                                                vars = {"viewing" : "%s.%s" % (instance_type, id)}
-                                                                )
-                                                    )
-                                                  )
+                            # @ToDo: Create this function!
+                            #transit_status = SPAN(transit_status,
+                            #                      A(T("Incoming Shipments"),
+                            #                        _href = URL(c = instance_type.split("_")[0],
+                            #                                    f = "incoming",
+                            #                                    vars = {"viewing" : "%s.%s" % (instance_type, id)}
+                            #                                    )
+                            #                        )
+                            #                      )
                     except:
                         pass
                     transit_status = (TH("%s: " % T("Transit Status")),
@@ -3698,10 +3684,10 @@ def req_rheader(r, check_page=False):
     return None
 
 # =============================================================================
-def req_match():
+def req_match(rheader=None):
     """
         Function to be called from controller functions to display all
-        requests as a tab for a site.
+        requests for a site as a tab.
     """
 
     T = current.T
@@ -3716,14 +3702,18 @@ def req_match():
     if not viewing:
         return output
     if "." in viewing:
-        tablename, id = viewing.split(".", 1)
+        tablename, record_id = viewing.split(".", 1)
     else:
         return output
 
     table = s3db[tablename]
-    site_id = current.db(table.id == id).select(table.site_id,
-                                                limitby=(0, 1)
-                                                ).first().site_id
+    row = current.db(table.id == record_id).select(table.site_id, 
+                                                   limitby=(0, 1)).first()
+    if row:
+        site_id = row.site_id
+    else:
+        return output
+
     actions = [dict(url = URL(c = "req",
                               f = "req",
                               args = ["[id]", "check"],
@@ -3733,59 +3723,53 @@ def req_match():
                     label = str(T("Check")),
                     )
                ]
-    if settings.get_req_use_commit():
+
+    if current.auth.s3_has_permission("update", tablename, record_id):
+        # @ToDo: restrict to those which we've not already committed/sent?
+        if settings.get_req_use_commit():
+            actions.append(
+                dict(url = URL(c = "req",
+                               f = "commit_req",
+                               args = ["[id]"],
+                               vars = {"site_id": site_id}
+                               ),
+                     _class = "action-btn",
+                     label = str(T("Commit")),
+                     )
+                )
         actions.append(
-            dict(url = URL(c = "req",
-                           f = "commit_req",
-                           args = ["[id]"],
-                           vars = {"site_id": site_id}
-                           ),
-                 _class = "action-btn",
-                 label = str(T("Commit")),
+                dict(url = URL(c = "req",
+                               f = "send_req",
+                               args = ["[id]"],
+                               vars = {"site_id": site_id}
+                               ),
+                     _class = "action-btn dispatch",
+                     label = str(T("Send")),
+                     )
                 )
-            )
-    actions.append(
-            dict(url = URL(c = "req",
-                           f = "send_req",
-                           args = ["[id]"],
-                           vars = {"site_id": site_id}
-                           ),
-                 _class = "action-btn dispatch",
-                 label = str(T("Send")),
-                )
-        )
+
     s3.actions = actions
 
-    if tablename == "org_office":
-        rheader = s3db.org_rheader
-    elif tablename == "org_facility":
-        rheader = s3db.org_facility_rheader
-    elif tablename == "inv_warehouse":
-        rheader = s3db.inv_rheader
-    elif tablename == "cr_shelter":
-        rheader = s3db.cr_shelter_rheader
-    elif tablename == "hms_hospital":
-        rheader = s3db.hms_hospital_rheader
-    else:
-        rheader = None
+    if rheader is None:
+        if tablename == "org_office":
+            rheader = s3db.org_rheader
+        elif tablename == "org_facility":
+            rheader = s3db.org_facility_rheader
+        elif tablename == "inv_warehouse":
+            rheader = s3db.inv_rheader
+        elif tablename == "cr_shelter":
+            rheader = s3db.cr_shelter_rheader
+        elif tablename == "hms_hospital":
+            rheader = s3db.hms_hospital_rheader
 
     s3.filter = (s3db.req_req.site_id != site_id)
-    s3db.configure("req_req", insertable=False)
+    s3db.configure("req_req",
+                   insertable = False)
 
     # Pre-process
     def prep(r):
-        # Plugin OrgRoleManager
-        auth = current.auth
-        if auth.user is not None and \
-           tablename in S3OrgRoleManager.ENTITY_TYPES:
-
-            sr = auth.get_system_roles()
-            realms = auth.user.realms or Storage()
-
-            if sr.ADMIN in realms or sr.ORG_ADMIN in realms and \
-               (realms[sr.ORG_ADMIN] is None or \
-                r.record.pe_id in realms[sr.ORG_ADMIN]):
-                r.set_handler("roles", S3OrgRoleManager())
+        # Plugin OrgRoleManager when appropriate
+        S3OrgRoleManager.set_method(r, entity=tablename, record_id=record_id)
         return True
     s3.prep = prep
 
@@ -3796,7 +3780,8 @@ def req_match():
         return output
     s3.postp = postp
 
-    output = current.rest_controller("req", "req", rheader=rheader)
+    output = current.rest_controller("req", "req",
+                                     rheader = rheader)
     return output
 
 # =============================================================================
@@ -4100,7 +4085,7 @@ function(status){s3_debug(status)})''' % site_id
                    )
 
     return table
-    
+
 # =============================================================================
 def req_req_list_layout(list_id, item_id, resource, rfields, record):
     """
@@ -4390,7 +4375,7 @@ def req_customise_commit_fields():
     #field = table.location_id
     #field.represent = s3db.gis_LocationRepresent(sep=" | ")
     # Required
-    #field.requires = IS_LOCATION_SELECTOR2()
+    #field.requires = IS_LOCATION()
 
     field = table.comments
     field.label = T("Donation")
@@ -4473,7 +4458,7 @@ def req_customise_commit_fields():
                    )
 
     return table
-    
+
 # =============================================================================
 def req_commit_list_layout(list_id, item_id, resource, rfields, record):
     """
@@ -4541,7 +4526,7 @@ def req_commit_list_layout(list_id, item_id, resource, rfields, record):
         avatar = s3_avatar_represent(person_id,
                                      tablename="pr_person",
                                      _class="media-object")
-        
+
         avatar = A(avatar,
                    _href=person_url,
                    _class="pull-left",

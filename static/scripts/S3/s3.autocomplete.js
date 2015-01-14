@@ -16,7 +16,7 @@
         var dummy = 'dummy_' + input;
         var dummy_input = $('#' + dummy);
 
-        if (dummy_input == 'undefined') {
+        if (!dummy_input.length) {
             return;
         }
 
@@ -86,16 +86,14 @@
                         //    create.click();
                         //} else {
                             // No link to create new (e.g. no permission to do so)
-                            data.push({
-                                id: 0,
-                                label: i18n.no_matching_records
-                            });
+                            var extra = {id: 0};
+                            extra[fieldname] = i18n.no_matching_records;
+                            data.push(extra);
                         //}
                     } else {
-                        data.push({
-                            id: 0,
-                            label: i18n.none_of_the_above
-                        });
+                        var extra = {id: 0};
+                        extra[fieldname] = i18n.none_of_the_above;
+                        data.push(extra);
                     }
                     response(data);
                 });
@@ -114,12 +112,12 @@
             select: function(event, ui) {
                 var item = ui.item;
                 if (item.id) {
-                    dummy_input.val(item.label);
+                    dummy_input.val(item[fieldname]);
                     real_input.val(item.id).change();
                     // Update existing, so blur does not remove
                     // the selection again:
                     existing = {value: item.id,
-                                label: item.label
+                                label: item[fieldname]
                                 };
                 } else {
                     // No Match & no ability to create new
@@ -135,7 +133,7 @@
         })
         .data('ui-autocomplete')._renderItem = function(ul, item) {
             return $('<li>').data('item.autocomplete', item)
-                            .append('<a>' + item.label + '</a>')
+                            .append('<a>' + item[fieldname] + '</a>')
                             .appendTo(ul);
         };
         dummy_input.blur(function() {
@@ -160,7 +158,7 @@
         var dummy = 'dummy_' + input;
         var dummy_input = $('#' + dummy);
 
-        if (dummy_input == 'undefined') {
+        if (!dummy_input.length) {
             return;
         }
 
@@ -307,7 +305,18 @@
             return item.label;
         }
         if (item.name) {
-            var name = item.name;
+            var name;
+            if (item.match_type) {
+                if (item.next_string) {
+                    name = item.match_string + '<b>' + item.next_string + '</b>';
+                }
+                else {
+                    name = item.match_string;
+                }
+            }
+            else {
+                name = item.name;
+            }
         } else {
             // Site contents
             var name = ''
@@ -372,7 +381,7 @@
         var dummy = 'dummy_' + input;
         var dummy_input = $('#' + dummy);
 
-        if (dummy_input == 'undefined') {
+        if (!dummy_input.length) {
             return;
         }
 
@@ -485,7 +494,7 @@
             }
         })
         .data('ui-autocomplete')._renderItem = function(ul, item) {
-            var label = represent(item);
+            var label = represent_location(item);
             return $('<li>').data('item.autocomplete', item)
                             .append('<a>' + label + '</a>')
                             .appendTo(ul);
@@ -525,16 +534,20 @@
      * S3PersonAutocompleteWidget & hence S3AddPersonWidget
      * - used first/middle/last, but anything non-generic left?
      */
-    S3.autocomplete.person = function(controller, fn, input, postprocess, delay, min_length) {
+    S3.autocomplete.person = function(controller, fn, input, ajax_filter, postprocess, delay, min_length) {
         var dummy = 'dummy_' + input;
         var dummy_input = $('#' + dummy);
 
-        if (dummy_input == 'undefined') {
+        if (!dummy_input.length) {
             return;
         }
 
         var represent = represent_person;
         var url = S3.Ap.concat('/', controller, '/', fn, '/search_ac.json');
+
+        if (ajax_filter) {
+            url += "?" + ajax_filter;
+        }
 
         var real_input = $('#' + input);
         // Bootstrap overides .hide :/
@@ -665,7 +678,7 @@
         var dummy = 'dummy_' + input;
         var dummy_input = $('#' + dummy);
 
-        if (dummy_input == 'undefined') {
+        if (!dummy_input.length) {
             return;
         }
 
@@ -835,7 +848,7 @@
         var dummy = 'dummy_' + input;
         var dummy_input = $('#' + dummy);
 
-        if (dummy_input == 'undefined') {
+        if (!dummy_input.length) {
             return;
         }
 
@@ -1021,7 +1034,7 @@
         var dummy = 'dummy_' + input;
         var dummy_input = $('#' + dummy);
 
-        if (dummy_input == 'undefined') {
+        if (!dummy_input.length) {
             return;
         }
 
@@ -1284,7 +1297,7 @@
         var dummy = 'dummy_' + input;
         var dummy_input = $('#' + dummy);
 
-        if (dummy_input == 'undefined') {
+        if (!dummy_input.length) {
             return;
         }
 

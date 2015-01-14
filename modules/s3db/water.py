@@ -2,7 +2,7 @@
 
 """ Sahana Eden Water Model
 
-    @copyright: 2011-14 (c) Sahana Software Foundation
+    @copyright: 2011-15 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -27,8 +27,7 @@
     OTHER DEALINGS IN THE SOFTWARE.
 """
 
-__all__ = ["S3WaterModel",
-           ]
+__all__ = ("S3WaterModel",)
 
 from gluon import *
 from gluon.storage import Storage
@@ -41,13 +40,13 @@ class S3WaterModel(S3Model):
         Water Sources
     """
 
-    names = ["water_zone_type",
+    names = ("water_zone_type",
              "water_zone",
              "water_river",
              "water_gauge",
              #"water_debris_basin",
              #"water_reservoir",
-             ]
+             )
 
     def model(self):
 
@@ -70,7 +69,7 @@ class S3WaterModel(S3Model):
                      *s3_meta_fields())
 
         # CRUD strings
-        ADD_ZONE_TYPE = T("Add Zone Type")
+        ADD_ZONE_TYPE = T("Create Zone Type")
         crud_strings[tablename] = Storage(
             label_create = ADD_ZONE_TYPE,
             title_display = T("Zone Type Details"),
@@ -112,17 +111,17 @@ class S3WaterModel(S3Model):
                                                        tooltip=T("Select a Zone Type from the list or click 'Add Zone Type'")),
                            ),
                      location_id(
-                        widget = S3LocationSelectorWidget2(
-                           catalog_layers=True,
-                           polygons=True
-                           )
-                        ),
+                        widget = S3LocationSelector(catalog_layers = True,
+                                                    points = False,
+                                                    polygons = True,
+                                                    ),
+                     ),
                      s3_comments(),
                      *s3_meta_fields())
 
         # CRUD strings
         crud_strings[tablename] = Storage(
-            label_create = T("Add Zone"),
+            label_create = T("Create Zone"),
             title_display = T("Zone Details"),
             title_list = T("Zones"),
             title_update = T("Edit Zone"),
@@ -145,16 +144,16 @@ class S3WaterModel(S3Model):
                            requires = IS_NOT_EMPTY(),
                            ),
                      location_id(
-                        widget = S3LocationSelectorWidget2(
-                           catalog_layers=True,
-                           polygons=True
-                           )
-                        ),
+                        widget = S3LocationSelector(catalog_layers = True,
+                                                    points = False,
+                                                    polygons = True,
+                                                    )
+                     ),
                      s3_comments(),
                      *s3_meta_fields())
 
         # CRUD strings
-        ADD_RIVER = T("Add River")
+        ADD_RIVER = T("Create River")
         crud_strings[tablename] = Storage(
             label_create = ADD_RIVER,
             title_display = T("River Details"),
@@ -182,12 +181,12 @@ class S3WaterModel(S3Model):
         #
         # @ToDo: Link together ones on same river with upstream/downstream relationships
         #
-        flowstatus_opts = {
-            1:T("Normal"),
-            2:T("High"),
-            3:T("Very High"),
-            4:T("Low")
-        }
+        flowstatus_opts = {1: T("Normal"),
+                           2: T("High"),
+                           3: T("Very High"),
+                           4: T("Low")
+                           }
+
         tablename = "water_gauge"
         define_table(tablename,
                      Field("name",
@@ -220,7 +219,7 @@ class S3WaterModel(S3Model):
                      *s3_meta_fields())
 
         crud_strings[tablename] = Storage(
-            label_create = T("Add Gauge"),
+            label_create = T("Create Gauge"),
             title_display = T("Gauge Details"),
             title_list = T("Gauges"),
             title_update = T("Edit Gauge"),
@@ -245,7 +244,7 @@ class S3WaterModel(S3Model):
         #             *s3_meta_fields())
 
         #crud_strings[tablename] = Storage(
-        #    label_create = T("Add Debris Basin"),
+        #    label_create = T("Create Debris Basin"),
         #    title_display = T("Debris Basin Details"),
         #    title_list = T("Debris Basins"),
         #    title_update = T("Edit Debris Basin"),
@@ -270,7 +269,7 @@ class S3WaterModel(S3Model):
         #             *s3_meta_fields())
 
         #crud_strings[tablename] = Storage(
-        #    label_create = T("Add Reservoir"),
+        #    label_create = T("Create Reservoir"),
         #    title_display = T("Reservoir Details"),
         #    title_list = T("Reservoirs"),
         #    title_update = T("Edit Reservoir"),

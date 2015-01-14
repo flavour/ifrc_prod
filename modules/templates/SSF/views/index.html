@@ -1,0 +1,98 @@
+{{extend "layout.html"}}{{theme=response.s3.theme}}
+<style>body{background:none;}div.container.main-container{width:100%!important;padding-left:0;}
+@media(min-width:1200px){div.container.main-container{width:1200px!important;}}</style>
+
+
+<section id='intro-section' style='padding-bottom:20px;'>
+  <div class='container'>
+    <div class='row'>
+      <div class='span6'>
+        
+        <div class='row'>
+          <div class='span1'>
+            <img src='/{{=appname}}/static/themes/{{=theme}}/img/logo.png' alt=''/>
+          </div>
+          <div class='span5'>
+            <h2> {{=title}}</h2>
+          </div>
+        </div>
+
+        <!-- Login/Register, Report a Problem buttons -->
+        <div class='row'>
+          <div class='span2'>
+            {{if not auth.is_logged_in():}}
+            <div class='btn-group'>
+              <button type='button' class='btn btn-primary dropdown-toggle' data-toggle='dropdown'>
+                <i class='icon-signin icon-white'></i> {{=T("Login/Register")}}
+              </button>
+              <ul class='dropdown-menu' role='menu'>
+                <li><a href='/{{=appname}}/default/user/login'>{{=T("Login")}}</a></li>
+                <li><a href='/{{=appname}}/default/user/register'>{{=T("Register")}}</a></li>
+              </ul>
+            </div>
+            {{else:}}
+            <div class='span2'>
+              <a type='button' class='btn btn-lg btn-primary' href='/{{=appname}}/pr/person/{{=s3_logged_in_person()}}'>
+                <i class='icon-user icon-white'></i> {{=T("Profile")}}
+              </a>
+            </div>
+            {{pass}}
+          </div>
+          <div class='span2'>
+            <a type='button' class='btn btn-lg btn-primary' href='/{{=appname}}/project/task?~.status__belongs=2,3,4,11'>
+              <i class="icon-pencil icon-white"></i> {{=T("Work on a Task")}}
+            </a>
+          </div>
+          <div class='span2'>
+            <div class = 'btn-group'>
+              <button type='button' class='btn btn-primary dropdown-toggle' data-toggle='dropdown'>
+                <i class='icon-exclamation-sign icon-white'></i> {{=T("Create a Task")}}
+              </button>
+              <ul class='dropdown-menu' role='menu'>
+                <li><a href='/{{=appname}}/project/task/create?bug=1'>{{=T("Report a Bug")}}</a></li>
+                <li><a href='/{{=appname}}/project/task/create?featureRequest=1'>{{=T("Request a Feature")}}</a></li>
+                <li><a href='/{{=appname}}/project/task/create?support=1'>{{=T("Request Support")}}</a></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class='span6'>
+        <div class = 'well'>
+          <p>{{=T("Sahana Sunflower is the Sahana Software Foundation’s Community Management Tool. It is built using the Sahana Eden Open Source Disaster Management Platform.")}}</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id='content' class='st'>
+ <div class='container'>
+  <div class='row'>
+   <div class='span4'>
+    
+    <h2><i class='icon-news'></i> {{=T("Updates Feed")}}</h2>
+    <div class = 'well'>
+     <div id='feed-control'>
+      <span>{{=T("Loading")}}...</span>
+     </div>
+     <div> &nbsp;
+       <a id='feed-url' type='button' class='pull-right btn btn-lg btn-primary' target='_blank'>
+        <i class='icon-rss'></i>
+       </a>
+     </div>
+    </div>
+   </div>
+
+   <div class='span8'>
+    <div id='map-container'>
+     <h2><i class='icon-globe'></i> {{=T("Map")}}</h2>
+      <!-- Map here -->
+      {{=XML(map)}}
+    </div>
+   </div>
+  </div>
+ </div>
+</section>

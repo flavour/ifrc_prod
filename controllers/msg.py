@@ -65,9 +65,10 @@ def message():
     s3.postp = postp
 
     s3db.configure(tablename,
-                   deletable=False,
-                   insertable=False,
-                   editable=False)
+                   deletable = False,
+                   editable = False,
+                   insertable = False,
+                   )
 
     return s3_rest_controller()
 
@@ -87,7 +88,7 @@ def mark_sender():
 
     # @ToDo: Replace 2 queries with Join
     srecord = db(mtable.id == mid).select(mtable.from_address,
-                                          limitby=(0,1)
+                                          limitby=(0, 1)
                                           ).first()
     sender = srecord.from_address
     record = db(stable.sender == sender).select(stable.id,
@@ -146,9 +147,10 @@ def outbox():
 
     s3db.configure(tablename,
                    # Permissions-based
-                   #deletable=False,
-                   insertable=False,
-                   editable=False)
+                   #deletable = False,
+                   editable = False,
+                   insertable = False,
+                   )
 
     return s3_rest_controller()
 
@@ -296,10 +298,11 @@ def sms_outbox():
     s3db.configure(tablename,
                    # Permissions-based
                    #deletable = False,
+                   editable = False,
                    insertable = False,
                    listadd = False,
-                   editable = False,
                    list_fields = ["id",
+                                  "date",
                                   "to_address",
                                   "body",
                                   ],
@@ -347,10 +350,11 @@ def twitter_outbox():
     s3db.configure(tablename,
                    # Permissions-based
                    #deletable = False,
+                   editable = False,
                    insertable = False,
                    listadd = False,
-                   editable = False,
                    list_fields = ["id",
+                                  "date",
                                   "to_address",
                                   "body",
                                   ],
@@ -387,9 +391,10 @@ def inbox():
     s3db.configure(tablename,
                    # Permissions-based
                    #deletable = False,
-                   insertable = False,
                    editable = False,
+                   insertable = False,
                    list_fields = ["id",
+                                  "date",
                                   "channel_id",
                                   "from_address",
                                   "body",
@@ -491,9 +496,10 @@ def rss():
     s3db.configure(tablename,
                    # Permissions-based
                    #deletable = False,
-                   insertable = False,
                    editable = False,
+                   insertable = False,
                    list_fields = ["id",
+                                  "date",
                                   "body",
                                   ],
                    )
@@ -529,9 +535,10 @@ def sms_inbox():
     s3db.configure(tablename,
                    # Permissions-based
                    #deletable = False,
-                   insertable = False,
                    editable = False,
+                   insertable = False,
                    list_fields = ["id",
+                                  "date",
                                   "from_address",
                                   "body",
                                   ],
@@ -548,9 +555,10 @@ def twitter():
     """
 
     s3db.configure("msg_twitter",
-                   insertable = False,
                    editable = False,
+                   insertable = False,
                    list_fields = ["id",
+                                  "date",
                                   "from_address",
                                   "to_address",
                                   "body",
@@ -586,9 +594,10 @@ def twitter_inbox():
     )
 
     s3db.configure(tablename,
-                   insertable = False,
                    editable = False,
+                   insertable = False,
                    list_fields = ["id",
+                                  "date",
                                   "from_address",
                                   "body",
                                   ],
@@ -1411,7 +1420,7 @@ def twitter_search():
 
         try:
             supported_languages = map(lambda x: str(x["code"]), twitter_api.supported_languages())
-        except tweepy.TweepError:
+        except (tweepy.TweepError, AttributeError):
             # List according to Twitter 1.1 API https://dev.twitter.com/docs/api/1.1/get/help/languages
             pass
 
@@ -1528,7 +1537,7 @@ def twitter_result():
     s3.crud_strings[tablename] = Storage(
         title_display = T("Twitter Search Results"),
         title_list = T("Twitter Search Results"),
-        label_list_button = T("View Tweet"),
+        label_list_button = T("View Tweets"),
         msg_record_deleted = T("Tweet deleted"),
         msg_list_empty = T("No Tweets Available."),
         )
@@ -1564,7 +1573,6 @@ def twitter_result():
             totals=True,
         )
     )
-
     s3db.configure(tablename,
                    deletable=False,
                    editable=False,
@@ -1572,6 +1580,42 @@ def twitter_result():
                    filter_widgets=filter_widgets,
                    report_options=report_options,
                    )
+
+    def postp(r, output):
+        if r.id or r.method in ("read", "display"):
+            # Display the Tweet as an Embedded tweet
+            record = output["item"].record
+            # Tweet link
+            twitter_url = "https://twitter.com/%s/statuses/%s" % (record.from_address, 
+                                                                  record.tweet_id)
+            script_url = "https://platform.twitter.com/widgets.js"
+            # Themeable Throbber
+            throbber = DIV(_class = "s3-twitter-throbber",
+                           )
+            # Display throbber while Tweet loads
+            tweet_container = DIV(throbber,
+                                  _class = "s3-twitter-container",
+                                  )
+            tweet_user = TAG[""](A(_href = twitter_url,
+                                   _style = "display: none"),
+                                 )
+            # Configure Tweet display
+            attributes = {"_width": "350px",
+                          "_data-conversation": "none",
+                          "_class": "twitter-tweet",
+                          "lang": record.lang,
+                          } 
+            tweet = TAG["blockquote"](tweet_container,
+                                      tweet_user,
+                                      SCRIPT(_src = script_url,
+                                             _charset = "utf-8"),
+                                      **attributes
+                                      ) 
+            # Insert tweet 
+            output["item"] = tweet
+        return output
+    
+    s3.postp = postp
 
     return s3_rest_controller()
 
@@ -1647,7 +1691,7 @@ def parser():
             import sys
 
             template = settings.get_msg_parser()
-            module_name = "applications.%s.private.templates.%s.parser" % \
+            module_name = "applications.%s.modules.templates.%s.parser" % \
                 (appname, template)
             __import__(module_name)
             mymodule = sys.modules[module_name]

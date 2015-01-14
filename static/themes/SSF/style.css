@@ -12,5 +12,33 @@
 #logo {
 	width: 55px;
 	position: relative;
-	top:-19px;
+	top: -19px;
+}
+#feed-control span {
+	color: #676767;
+	font-size: 11px;
+	margin: 10px;
+	padding: 4px;
+}
+.controls {
+    white-space: pre-line;
+}
+.s3_add_resource_link {
+    float: left;
+    margin: -5px 0px -8px 5px;
+}
+#assign-role {
+    outline: 0;
+}
+#assign-role span {
+    margin-left: 8px;
+}
+#assign-container {
+    margin-left: 1%;
+}
+
+/* Sunflower Throbber */
+.s3-twitter-throbber {
+    background-image: url(../../img/sunflower_spin_throbber.gif);
+    background-repeat: no-repeat;
 }

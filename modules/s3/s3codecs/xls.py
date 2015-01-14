@@ -28,7 +28,7 @@
     OTHER DEALINGS IN THE SOFTWARE.
 """
 
-__all__ = ["S3XLS"]
+__all__ = ("S3XLS",)
 
 try:
     from cStringIO import StringIO    # Faster, where available
@@ -78,7 +78,7 @@ class S3XLS(S3Codec):
         """
 
         title = self.crud_string(resource.tablename, "title_list")
-        
+
         vars = Storage(current.request.vars)
         vars["iColumns"] = len(list_fields)
         filter, orderby, left = resource.datatable_filter(list_fields, vars)
@@ -98,7 +98,7 @@ class S3XLS(S3Codec):
 
         rfields = result["rfields"]
         rows = result["rows"]
-        
+
         types = []
         lfields = []
         heading = {}
@@ -139,7 +139,8 @@ class S3XLS(S3Codec):
         try:
             import xlwt
         except ImportError:
-            if current.auth.permission.format in request.INTERACTIVE_FORMATS:
+            from ..s3rest import S3Request
+            if current.auth.permission.format in S3Request.INTERACTIVE_FORMATS:
                 current.session.error = self.ERROR.XLWT_ERROR
                 redirect(URL(extension=""))
             else:
@@ -151,7 +152,8 @@ class S3XLS(S3Codec):
                                     xldate_from_time_tuple, \
                                     xldate_from_datetime_tuple
         except ImportError:
-            if current.auth.permission.format in request.INTERACTIVE_FORMATS:
+            from ..s3rest import S3Request
+            if current.auth.permission.format in S3Request.INTERACTIVE_FORMATS:
                 current.session.error = self.ERROR.XLRD_ERROR
                 redirect(URL(extension=""))
             else:

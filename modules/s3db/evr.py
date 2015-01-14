@@ -2,7 +2,7 @@
 
 """ Sahana Eden Evacuees Registry Model
 
-    @copyright: 2014 (c) Sahana Software Foundation
+    @copyright: 2015 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -27,36 +27,56 @@
     OTHER DEALINGS IN THE SOFTWARE.
 """
 
-__all__ = ["S3EVRCaseModel",
+__all__ = ("S3EVRCaseModel",
            "evr_rheader",
            "evr_AddGroupMembers",
-           ]
+           )
 
 from gluon import *
-from gluon.storage import Storage
-from gluon.tools import callback
 from ..s3 import *
-from s3layouts import S3AddResourceLink
 
 # =============================================================================
 class S3EVRCaseModel(S3Model):
 
-    names = ["evr_case"]
+    names = ("evr_case",
+             "evr_medical_details",
+             )
 
     def model(self):
 
         T = current.T
-        db = current.db
+        settings = current.deployment_settings
+
         define_table = self.define_table
         person_id = self.pr_person_id
 
         # ---------------------------------------------------------------------
         # Case Data
         #
+        enable_evr_organisation = settings.get_evr_link_to_organisation()
+        organisation_label = settings.get_hrm_organisation_label()
+
+        org_organisation_represent = self.org_OrganisationRepresent()
+        org_widget = S3HierarchyWidget(lookup="org_organisation",
+                                       represent=org_organisation_represent,
+                                       multiple=False,
+                                       leafonly=False,)
+
         tablename = "evr_case"
         define_table(tablename,
-                     person_id(ondelete="CASCADE"),
-                     Field("fiscal_code", "string", length = 16,
+                     person_id(ondelete = "CASCADE"),
+                     self.org_organisation_id(
+                        empty = not settings.get_hrm_org_required(),
+                        label = organisation_label,
+                        requires = self.org_organisation_requires(required=True),
+                        comment = DIV(_class="tooltip",
+                                      _title="%s|%s" % (T("Designed Organisation"),
+                                                        T("Organisation designed to take care of evacuee"))),
+                        widget = org_widget,
+                        readable = enable_evr_organisation,
+                        writable = enable_evr_organisation,
+                        ),
+                     Field("fiscal_code", "string", length=16,
                            label = T("Fiscal Code"),
                            comment = DIV(_class="tooltip",
                                          _title="%s|%s" % (T("Fiscal Code"),
@@ -169,7 +189,7 @@ class S3EVRCaseModel(S3Model):
                                         label = T("Allergies"),
                                         ),
                      Field("diet",
-                           label = T("Diet"),
+                           label = T("Food intolerance"),
                            ),
                      med_multiopt_field("disability",
                                         evr_disability_opts,
@@ -222,23 +242,49 @@ class S3EVRCaseModel(S3Model):
         tablename = "evr_background"
         define_table(tablename,
                      person_id(),
-                     Field("legal_measure", "boolean",
-                           label = T("Legal measure / Home warrant")
+                     Field("legal_measure",
+                           label = T("Legal measure / Home warrant"),
+                           comment = DIV(_class="tooltip",
+                                         _title="%s|%s" % (T("Legal measure / Home warrant"),
+                                                           T("Evacuee subject to special or legal measures/penalities")
+                                                           )
+                                         ),
                            ),
-                     Field("social_welfare", "boolean",
-                           label = T("Social Welfare")
+                     Field("diet_restrictions",
+                           label = T("Food Restrictions")
+                           ),
+                     Field("social_welfare",
+                           label = T("Social Welfare"),
+                           comment = DIV(_class="tooltip",
+                                         _title="%s|%s" % (T("Social Welfare"),
+                                                           T("Evacuee subject to Social Welfare")
+                                                           )
+                                         ),
+                           ),
+                     Field("interpreter",
+                           label = T("Interpreter / Cultural Mediator Required"),
+                           comment = DIV(_class="tooltip",
+                                         _title="%s|%s" % (T("Interpreter / Cultural Mediator"),
+                                                           T("Specific language interpreter and/or cultural mediator required")
+                                                           )
+                                         ),
                            ),
                      Field("home_help", "boolean",
-                           label = T("Home Help")
-                           ),
-                     Field("interpreter", "boolean",
-                           label = T("Interpreter / Cultural Mediator")
+                           label = T("Home Help"),
+                           comment = DIV(_class="tooltip",
+                                         _title="%s|%s" % (T("Home Help"),
+                                                           T("Evacuee requiring dedicated assistance at home")
+                                                           )
+                                         ),
                            ),
                      Field("distance_from_shelter", "integer",
-                           label = T("Distance from Shelter (km)")
+                           label = T("Working Distance from Shelter (km)")
                            ),
                      Field("job_lost_by_event", "boolean",
                            label = T("Job lost by event")
+                           ),
+                     Field("domestic_animal", "boolean",
+                           label = T("With Domestic Animals")
                            ),
                      Field("car_available", "boolean",
                            label = T("Car available")
@@ -255,9 +301,11 @@ class S3EVRCaseModel(S3Model):
         """
 
         # Initialization
-        fiscal_code = form.vars.fiscal_code.upper()
-        if fiscal_code == "":
+        fiscal_code = form.vars.fiscal_code
+        if fiscal_code == "" or fiscal_code == None:
             return
+        fiscal_code = fiscal_code.upper()
+
         MALE = 3
         CONSONANTS = "BCDFGHJKLMNPQRSTVWXYZ"
         VOWELS = "AEIOU"
@@ -353,6 +401,8 @@ def evr_rheader(r):
     """
 
     T = current.T
+    settings = current.deployment_settings
+
     if r.representation != "html" or not r.record:
         return None
 
@@ -370,11 +420,14 @@ def evr_rheader(r):
                 #(T("Identity Documents"), "identity"),
                 #(T("Case Details"), "case"),
                 (T("Images"), "image"),
-                (T("Physical Description"), "physical_description"),
                 (T("Medical Information"), "medical_details"),
                 (T("Socio-Economic Background"), "background"),
-                (T("Shelter Registration"), "shelter_registration"),
                 ]
+        if settings.get_evr_show_physical_description():
+            tabs.append((T("Physical Description"), "physical_description"))
+
+        if settings.has_module("cr"):
+            tabs.append((T("Shelter Registration"), "shelter_registration"))
 
         rheader_fields = [["first_name", "last_name"],
                           ["date_of_birth"],
@@ -395,7 +448,7 @@ def evr_rheader(r):
                       _class="th",
                       _href=URL(f="person", args=[r.id, "image", "create"]),
                       )
-            
+
         return DIV(DIV(image, _style="float:left"),
                    S3ResourceHeader(rheader_fields, tabs)(r))
 
@@ -416,7 +469,7 @@ def evr_rheader(r):
                           ]
 
         return S3ResourceHeader(rheader_fields, tabs)(r)
-        
+
     return None
 
 # =============================================================================
@@ -452,7 +505,7 @@ class evr_AddGroupMembers(S3Method):
         """
             Add-members action: renders a filtered multi-select datatable
             form, and creates group_memberships on POST
-            
+
             @param r: the S3Request
             @param attr: dictionary of parameters for the method handler
 
@@ -525,12 +578,12 @@ class evr_AddGroupMembers(S3Method):
             else:
                 session.confirmation = T("%(number)s Members added to Group") % \
                                         dict(number=added)
-                                        
+
             # Go back to list of existing group members
             redirect(r.url(method = "",
                            id = group_id,
                            component = "group_membership"))
-            
+
         else:
             resource = s3db.resource("pr_person", vars=r.get_vars)
             resource.add_filter(unaffiliated)
@@ -555,12 +608,12 @@ class evr_AddGroupMembers(S3Method):
 
             # Data table boundaries
             get_vars = self.request.get_vars
-            if "iDisplayStart" in get_vars:
-                start = int(get_vars["iDisplayStart"])
+            if "displayStart" in get_vars:
+                start = int(get_vars["displayStart"])
             else:
                 start = None
-            if "iDisplayLength" in get_vars:
-                display_length = int(get_vars["iDisplayLength"])
+            if "pageLength" in get_vars:
+                display_length = int(get_vars["pageLength"])
             else:
                 display_length = response.s3.ROWSPERPAGE
             limit = 4 * display_length
@@ -609,16 +662,16 @@ class evr_AddGroupMembers(S3Method):
                 items = dt.html(totalrows,
                                 filteredrows,
                                 dt_id,
-                                dt_displayLength=display_length,
                                 dt_ajax_url=URL(c="evr",
                                                 f="group",
                                                 args=["add_members"],
                                                 vars={},
                                                 extension="aadata",
                                                 ),
-                                dt_bFilter="false",
-                                dt_pagination="true",
                                 dt_bulk_actions=dt_bulk_actions,
+                                dt_pageLength=display_length,
+                                dt_pagination="true",
+                                dt_searching="false",
                                 )
 
                 resource.configure(deletable = False)
@@ -648,7 +701,7 @@ class evr_AddGroupMembers(S3Method):
                                                _class="filter-form",
                                                _id="datatable-filter-form",
                                                )
-                                            
+
                     # Render filter form
                     fresource = s3db.resource(resource.tablename)
                     alias = resource.alias if r.component else None
@@ -669,8 +722,8 @@ class evr_AddGroupMembers(S3Method):
 
             else:
                 # Ajax refresh
-                if "sEcho" in get_vars:
-                    echo = int(get_vars.sEcho)
+                if "draw" in get_vars:
+                    echo = int(get_vars.draw)
                 else:
                     echo = None
                 items = dt.json(totalrows,

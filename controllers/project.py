@@ -35,10 +35,10 @@ def project():
     if "tasks" in get_vars:
         # Open-Tasks-For-Project Selector
         return open_tasks_for_project()
-        
+
     # Pre-process
     def prep(r):
-        
+
         # Location Filter
         s3db.gis_location_filter(r)
 
@@ -88,9 +88,7 @@ def project():
                             (table.deleted == False)
                     rows = db(query).select(table.sector_id)
                     sector_ids = [row.sector_id for row in rows]
-                else:
-                    sector_ids = []
-                set_theme_requires(sector_ids)
+                    set_theme_requires(sector_ids)
 
             if not r.component:
                 if r.method in ("create", "update"):
@@ -109,7 +107,7 @@ def project():
                 if r.id:
                     r.table.human_resource_id.represent = \
                         s3db.hrm_HumanResourceRepresent(show_link=True)
-                    
+
                 elif r.get_vars.get("project.status_id", None):
                     stable = s3db.project_status
                     status = get_vars.get("project.status_id")
@@ -118,7 +116,7 @@ def project():
                     if row:
                         r.table.status_id.default = row.id
                         r.table.status_id.writable = False
-                        
+
             elif component_name == "organisation":
                 if r.method != "update":
                     allowed_roles = dict(settings.get_project_organisation_roles())
@@ -164,6 +162,22 @@ def project():
                     statuses = s3.project_task_active_statuses
                     query = FS("status").belongs(statuses)
                     r.resource.add_component_filter("task", query)
+
+                # Filter activities and milestones to the current project
+                options_filter = {"filterby": "project_id",
+                                  "filter_opts": (r.id,),
+                                  }
+                fields = []
+                if settings.get_project_activities():
+                    fields.append(s3db.project_task_activity.activity_id)
+                if settings.get_project_milestones():
+                    fields.append(s3db.project_task_milestone.milestone_id)
+                for f in fields:
+                    requires = f.requires
+                    if isinstance(requires, IS_EMPTY_OR):
+                        requires = requires.other
+                    if hasattr(requires, "set_filter"):
+                        requires.set_filter(**options_filter)
 
             elif component_name == "beneficiary":
                 # Filter the location selector to the project's locations
@@ -224,9 +238,9 @@ def project():
 
     # Post-process
     def postp(r, output):
-        
+
         if r.interactive:
-            
+
             if not r.component:
                 # Set the minimum end_date to the same as the start_date
                 s3.jquery_ready.append(
@@ -237,12 +251,19 @@ def project():
                     s3_action_buttons(r,
                                       read_url=read_url,
                                       update_url=update_url)
-                                              
+
             elif r.component_name == "beneficiary":
                 # Set the minimum end_date to the same as the start_date
                 s3.jquery_ready.append(
 '''S3.start_end_date('project_beneficiary_date','project_beneficiary_end_date')''')
-                
+
+            if r.component_name == "task" and r.component_id:
+                # Put Comments in rfooter
+                s3db.project_ckeditor()
+                s3.rfooter = LOAD("project", "comments.load",
+                                  args=[r.component_id],
+                                  ajax=True)
+
         return output
     s3.postp = postp
 
@@ -258,7 +279,7 @@ def open_tasks_for_project():
         Simplified controller to select a project and open the
         list of open tasks for it
     """
-    
+
     def prep(r):
         tablename = "project_project"
         s3.crud_strings[tablename].title_list = T("Open Tasks for Project")
@@ -280,7 +301,7 @@ def open_tasks_for_project():
                               update_url=tasklist_url)
         return output
     s3.postp = postp
-    
+
     return s3_rest_controller(module, "project",
                               hide_filter=False,
                              )
@@ -293,13 +314,13 @@ def set_theme_requires(sector_ids):
     ttable = s3db.project_theme
     tstable = s3db.project_theme_sector
 
-    # All themes linked to the project's sectors or to no sectors 
+    # All themes linked to the project's sectors or to no sectors
     rows = db().select(ttable.id,
                        tstable.sector_id,
                        left=tstable.on(ttable.id == tstable.theme_id))
     sector_ids = sector_ids or []
-    theme_ids = [row.project_theme.id for row in rows 
-                 if not row.project_theme_sector.sector_id or 
+    theme_ids = [row.project_theme.id for row in rows
+                 if not row.project_theme_sector.sector_id or
                     row.project_theme_sector.sector_id in sector_ids]
     table = s3db.project_theme_project
     table.theme_id.requires = IS_EMPTY_OR(
@@ -321,12 +342,12 @@ def set_activity_type_requires(tablename, sector_ids):
     if sector_ids:
         atstable = s3db.project_activity_type_sector
 
-        # All activity_types linked to the projects sectors or to no sectors 
+        # All activity_types linked to the projects sectors or to no sectors
         rows = db().select(attable.id,
                            atstable.sector_id,
                            left=atstable.on(attable.id == atstable.activity_type_id))
-        activity_type_ids = [row.project_activity_type.id for row in rows 
-                     if not row.project_activity_type_sector.sector_id or 
+        activity_type_ids = [row.project_activity_type.id for row in rows
+                     if not row.project_activity_type_sector.sector_id or
                         row.project_activity_type_sector.sector_id in sector_ids]
     else:
         activity_type_ids = []
@@ -338,26 +359,6 @@ def set_activity_type_requires(tablename, sector_ids):
                                               sort=True,
                                               )
                                     )
-
-# -----------------------------------------------------------------------------
-def project_theme_id_widget():
-    """
-        Used by the project controller to return dynamically generated 
-        theme_id widget based on sector_id
-        - deprecated?
-    """
-
-    table = s3db.project_theme_project
-    sector_ids = [int(id) for id in request.vars.sector_ids.split(",") if id]
-    if "value" in request.vars:
-        value = [int(id) for id in request.vars.value.split(",") if id]
-    else:
-        value = []
-    
-    set_theme_requires(sector_ids)
-    widget = table.theme_id.widget(table.theme_id,
-                                   value)
-    return widget
 
 # =============================================================================
 def sector():
@@ -401,40 +402,6 @@ def theme_sector():
     s3.prep = prep
 
     return s3_rest_controller()
-
-# -----------------------------------------------------------------------------
-def theme_sector_widget():
-    """ Render a Widget with Theme options filtered by Sector """
-
-    try:
-        values = get_vars.sector_ids.split(",")
-        values = [int(v) for v in values]
-    except:
-        values = []
-
-    widget = s3base.s3forms.S3SQLInlineComponentCheckbox(
-        "theme",
-        label = T("Themes"),
-        field = "theme_id",
-        cols = 4,
-        translate = True,
-        # Filter Theme by Sector
-        filter = {"linktable": "project_theme_sector",
-                  "lkey": "theme_id",
-                  "rkey": "sector_id",
-                  "values": values
-                  }
-        )
-
-    resource = s3db.resource("project_project")
-    instance, fieldname, field = widget.resolve(resource)
-    
-    value = widget.extract(resource, record_id=None)
-    output = widget(s3db.project_theme_project.theme_id,
-                    value,
-                    _name=field.name)
-
-    return output
 
 # -----------------------------------------------------------------------------
 def hazard():
@@ -580,6 +547,15 @@ def activity():
                     doc_table.location_id.readable = doc_table.location_id.writable = False
         return True
     s3.prep = prep
+
+    def postp(r, output):
+        if r.interactive:
+            if not r.component:
+                s3.jquery_ready.append(
+'''S3.start_end_date('project_activity_date','project_activity_end_date')''')
+
+        return output
+    s3.postp = postp
 
     return s3_rest_controller(csv_template = "activity",
                               hide_filter = False,
@@ -802,6 +778,31 @@ def task_milestone():
     return s3_rest_controller()
 
 # =============================================================================
+def task_tag():
+    """ RESTful CRUD controller for options.s3json lookups """
+
+    # Pre-process
+    def prep(r):
+        if r.method != "options" or r.representation != "s3json":
+            return False
+        return True
+    s3.prep = prep
+
+    return s3_rest_controller()
+
+# =============================================================================
+def role():
+    """ RESTful CRUD controller """
+
+    return s3_rest_controller()
+
+# =============================================================================
+def member():
+    """ RESTful CRUD Controller """
+
+    return s3_rest_controller()
+
+# =============================================================================
 def milestone():
     """ RESTful CRUD controller """
 
@@ -810,6 +811,12 @@ def milestone():
         field.default = get_vars.project_id
         field.writable = False
         field.comment = None
+
+    return s3_rest_controller()
+
+# =============================================================================
+def tag():
+    """ RESTful CRUD controller """
 
     return s3_rest_controller()
 
@@ -826,8 +833,8 @@ def time():
         s3.crud_strings["project_time"].title_list = T("My Logged Hours")
         person_id = auth.s3_logged_in_person()
         if person_id:
-            # @ToDo: Use URL filter instead, but the Search page will have 
-            # to populate it's widgets based on the URL filter  
+            # @ToDo: Use URL filter instead, but the Search page will have
+            # to populate it's widgets based on the URL filter
             s3.filter = (table.person_id == person_id)
             # Log time with just this user's open tasks visible
             ttable = db.project_task
@@ -918,7 +925,8 @@ def comment_parse(comment, comments, task_id=None):
     thread = LI(DIV(s3base.s3_avatar_represent(comment.created_by),
                     DIV(DIV(header,
                             _class="comment-header"),
-                        DIV(XML(comment.body)),
+                        DIV(XML(comment.body),
+                            _class="comment-body"),
                         _class="comment-text"),
                         DIV(DIV(comment.created_on,
                                 _class="comment-date"),
@@ -959,233 +967,20 @@ def comments():
     field.default = task_id
     field.writable = field.readable = False
 
+    # Create S3Request for S3SQLForm
+    r = s3_request(prefix="project",
+                   name="comment",
+                   # Override task_id
+                   args=[],
+                   vars=None,
+                   # Override .loads
+                   extension="html")
+
+    # Customise resource
+    r.customise_resource()
+
     # Form to add a new Comment
-    # @ToDo: Rewrite using SQLFORM or S3SQLCustomForm
-    from gluon.tools import Crud
-    # =============================================================================
-    class CrudS3(Crud):
-        """
-            S3 extension of the gluon.tools.Crud class
-            - select() uses SQLTABLES3 (to allow different linkto construction)
-        """
-
-        def __init__(self):
-            """ Initialise parent class & make any necessary modifications """
-            Crud.__init__(self, current.db)
-
-
-        def select(
-            self,
-            table,
-            query=None,
-            fields=None,
-            orderby=None,
-            limitby=None,
-            headers={},
-            **attr):
-
-            db = current.db
-            request = current.request
-            if not (isinstance(table, db.Table) or table in db.tables):
-                raise HTTP(404)
-            if not self.has_permission("select", table):
-                redirect(current.auth.settings.on_failed_authorization)
-            #if record_id and not self.has_permission("select", table):
-            #    redirect(current.auth.settings.on_failed_authorization)
-            if not isinstance(table, db.Table):
-                table = db[table]
-            if not query:
-                query = table.id > 0
-            if not fields:
-                fields = [table.ALL]
-            rows = db(query).select(*fields, **dict(orderby=orderby,
-                limitby=limitby))
-            if not rows:
-                return None # Nicer than an empty table.
-            if not "linkto" in attr:
-                attr["linkto"] = self.url(args="read")
-            if not "upload" in attr:
-                attr["upload"] = self.url("download")
-            if request.extension != "html":
-                return rows.as_list()
-            return SQLTABLES3(rows, headers=headers, **attr)
-
-    # =============================================================================
-    class SQLTABLES3(SQLTABLE):
-        """
-            S3 custom version of gluon.sqlhtml.SQLTABLE
-
-            Given a SQLRows object, as returned by a db().select(), generates
-            an html table with the rows.
-
-                - we need a different linkto construction for our CRUD controller
-                - we need to specify a different ID field to direct to for the M2M controller
-                - used by S3Resource.sqltable
-
-            Optional arguments:
-
-            @keyword linkto: URL (or lambda to generate a URL) to edit individual records
-            @keyword upload: URL to download uploaded files
-            @keyword orderby: Add an orderby link to column headers.
-            @keyword headers: dictionary of headers to headers redefinions
-            @keyword truncate: length at which to truncate text in table cells.
-                Defaults to 16 characters.
-
-            Optional names attributes for passed to the <table> tag
-
-            Simple linkto example::
-
-                rows = db.select(db.sometable.ALL)
-                table = SQLTABLES3(rows, linkto="someurl")
-
-            This will link rows[id] to .../sometable/value_of_id
-
-            More advanced linkto example::
-
-                def mylink(field):
-                    return URL(args=[field])
-
-                rows = db.select(db.sometable.ALL)
-                table = SQLTABLES3(rows, linkto=mylink)
-
-            This will link rows[id] to::
-
-                current_app/current_controller/current_function/value_of_id
-        """
-
-        def __init__(self, sqlrows,
-                     linkto=None,
-                     upload=None,
-                     orderby=None,
-                     headers={},
-                     truncate=16,
-                     columns=None,
-                     th_link="",
-                     **attributes):
-
-            # reverted since it causes errors (admin/user & manual importing of req/req/import)
-            # super(SQLTABLES3, self).__init__(**attributes)
-            TABLE.__init__(self, **attributes)
-
-            self.components = []
-            self.attributes = attributes
-            self.sqlrows = sqlrows
-            (components, row) = (self.components, [])
-            if not columns:
-                columns = sqlrows.colnames
-            if headers=="fieldname:capitalize":
-                headers = {}
-                for c in columns:
-                    headers[c] = " ".join([w.capitalize() for w in c.split(".")[-1].split("_")])
-            elif headers=="labels":
-                headers = {}
-                for c in columns:
-                    (t, f) = c.split(".")
-                    field = sqlrows.db[t][f]
-                    headers[c] = field.label
-
-            if headers!=None:
-                for c in columns:
-                    if orderby:
-                        row.append(TH(A(headers.get(c, c),
-                                        _href=th_link+"?orderby=" + c)))
-                    else:
-                        row.append(TH(headers.get(c, c)))
-                components.append(THEAD(TR(*row)))
-
-            tbody = []
-            table_field = re.compile("[\w_]+\.[\w_]+")
-            for (rc, record) in enumerate(sqlrows):
-                row = []
-                if rc % 2 == 0:
-                    _class = "even"
-                else:
-                    _class = "odd"
-                for colname in columns:
-                    if not table_field.match(colname):
-                        if "_extra" in record and colname in record._extra:
-                            r = record._extra[colname]
-                            row.append(TD(r))
-                            continue
-                        else:
-                            raise KeyError("Column %s not found (SQLTABLE)" % colname)
-                    (tablename, fieldname) = colname.split(".")
-                    try:
-                        field = sqlrows.db[tablename][fieldname]
-                    except (KeyError, AttributeError):
-                        field = None
-                    if tablename in record \
-                            and isinstance(record, Row) \
-                            and isinstance(record[tablename], Row):
-                        r = record[tablename][fieldname]
-                    elif fieldname in record:
-                        r = record[fieldname]
-                    else:
-                        raise SyntaxError("something wrong in Rows object")
-                    r_old = r
-                    if not field:
-                        pass
-                    elif linkto and field.type == "id":
-                        #try:
-                            #href = linkto(r, "table", tablename)
-                        #except TypeError:
-                            #href = "%s/%s/%s" % (linkto, tablename, r_old)
-                        #r = A(r, _href=href)
-                        try:
-                            href = linkto(r)
-                        except TypeError:
-                            href = "%s/%s" % (linkto, r)
-                        r = A(r, _href=href)
-                    #elif linkto and field.type.startswith("reference"):
-                        #ref = field.type[10:]
-                        #try:
-                            #href = linkto(r, "reference", ref)
-                        #except TypeError:
-                            #href = "%s/%s/%s" % (linkto, ref, r_old)
-                            #if ref.find(".") >= 0:
-                                #tref,fref = ref.split(".")
-                                #if hasattr(sqlrows.db[tref],"_primarykey"):
-                                    #href = "%s/%s?%s" % (linkto, tref, urllib.urlencode({fref:r}))
-                        #r = A(str(r), _href=str(href))
-                    elif linkto \
-                         and hasattr(field._table, "_primarykey") \
-                         and fieldname in field._table._primarykey:
-                        # have to test this with multi-key tables
-                        key = urllib.urlencode(dict([ \
-                                    ((tablename in record \
-                                          and isinstance(record, Row) \
-                                          and isinstance(record[tablename], Row)) \
-                                          and (k, record[tablename][k])) \
-                                          or (k, record[k]) \
-                                        for k in field._table._primarykey]))
-                        r = A(r, _href="%s/%s?%s" % (linkto, tablename, key))
-                    elif field.type.startswith("list:"):
-                        r = field.represent(r or [])
-                    elif field.represent:
-                        r = field.represent(r)
-                    elif field.type.startswith("reference"):
-                        pass
-                    elif field.type == "blob" and r:
-                        r = "DATA"
-                    elif field.type == "upload":
-                        if upload and r:
-                            r = A("file", _href="%s/%s" % (upload, r))
-                        elif r:
-                            r = "file"
-                        else:
-                            r = ""
-                    elif field.type in ["string", "text"]:
-                        r = str(field.formatter(r))
-                        ur = unicode(r, "utf8")
-                        if truncate!=None and len(ur) > truncate:
-                            r = ur[:truncate - 3].encode("utf8") + "..."
-                    row.append(TD(r))
-                tbody.append(TR(_class=_class, *row))
-            components.append(TBODY(*tbody))
-
-    crud = CrudS3()
-    crud.messages.submit_button = T("Save")
-    form = crud.create(table, formname="project_comment/%s" % task_id)
+    form = s3base.S3SQLCustomForm("parent", "task_id", "body")(r)
 
     # List of existing Comments
     comments = db(field == task_id).select(table.id,
@@ -1224,6 +1019,11 @@ $('#submit_record__row input').click(function(){
                  SCRIPT(script))
 
     return XML(output)
+
+def comment():
+    """ RESTful CRUD controller """
+
+    return s3_rest_controller()
 
 # =============================================================================
 # Campaigns

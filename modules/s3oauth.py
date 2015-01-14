@@ -4,7 +4,7 @@
 
     @requires: U{B{I{gluon}} <http://web2py.com>}
 
-    @copyright: (c) 2010-2014 Sahana Software Foundation
+    @copyright: (c) 2010-2015 Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -29,9 +29,9 @@
     OTHER DEALINGS IN THE SOFTWARE.
 """
 
-__all__ = ["FaceBookAccount",
+__all__ = ("FaceBookAccount",
            "GooglePlusAccount",
-           ]
+           )
 
 import time
 import urllib

@@ -26,6 +26,12 @@ def ifrc24h():
     # This function uses it's own Theme
     settings.base.theme = "mobile"
 
+    # No need to capture DoB/Gender of community contact people
+    settings.pr.request_dob = False
+    settings.pr.request_gender = False
+    # Keep UX simple
+    settings.pr.lookup_duplicates = False
+
     return s3_rest_controller("assess", "24h")
 
 # -----------------------------------------------------------------------------
@@ -34,7 +40,6 @@ def building_marker_fn(record):
         Function to decide which Marker to use for Building Assessments Map
         @ToDo: Legend
         @ToDo: Move to Templates
-        @ToDo: Use Symbology
     """
 
     # Use Marker in preferential order

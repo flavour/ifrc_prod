@@ -17,7 +17,7 @@
 
     @requires: U{B{I{gluon}} <http://web2py.com>}
 
-    @copyright: 2011-14 (c) Sahana Software Foundation
+    @copyright: 2011-15 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -88,8 +88,8 @@ class S3Task(object):
     def configure_tasktable_crud(self,
                                  task=None,
                                  function=None,
-                                 args=[],
-                                 vars={},
+                                 args=None,
+                                 vars=None,
                                  period = 3600, # seconds, so 1 hour
                                  ):
         """
@@ -102,6 +102,11 @@ class S3Task(object):
             @param vars: the function named arguments
         """
 
+        if args is None:
+            args = []
+        if vars is None:
+            vars = {}
+
         T = current.T
         NONE = current.messages["NONE"]
         UNLIMITED = T("unlimited")
@@ -110,6 +115,8 @@ class S3Task(object):
         table = current.db[tablename]
 
         table.uuid.readable = table.uuid.writable = False
+
+        table.prevent_drift.readable = table.prevent_drift.writable = False
 
         table.sync_output.readable = table.sync_output.writable = False
 
@@ -224,7 +231,7 @@ class S3Task(object):
     # -------------------------------------------------------------------------
     # API Function run within the main flow of the application
     # -------------------------------------------------------------------------
-    def async(self, task, args=[], vars={}, timeout=300):
+    def async(self, task, args=None, vars=None, timeout=300):
         """
             Wrapper to call an asynchronous task.
             - run from the main request
@@ -236,6 +243,11 @@ class S3Task(object):
             @param timeout: The length of time available for the task to complete
                             - default 300s (5 mins)
         """
+        
+        if args is None:
+            args = []
+        if vars is None:
+            vars = {}
 
         # Check that task is defined
         tasks = current.response.s3.tasks
@@ -254,7 +266,9 @@ class S3Task(object):
                 elif isinstance(arg, basestring):
                     _args.append("%s" % str(json.dumps(arg)))
                 else:
-                    raise HTTP(501, "Unhandled arg type")
+                    error = "Unhandled arg type: %s" % arg
+                    current.log.error(error)
+                    raise HTTP(501, error)
             args = ",".join(_args)
             _vars = ",".join(["%s=%s" % (str(var),
                                          str(vars[var])) for var in vars])
@@ -286,8 +300,8 @@ class S3Task(object):
     # -------------------------------------------------------------------------
     def schedule_task(self,
                       task,
-                      args=[], # args to pass to the task
-                      vars={}, # vars to pass to the task
+                      args=None, # args to pass to the task
+                      vars=None, # vars to pass to the task
                       function_name=None,
                       start_time=None,
                       next_run_time=None,
@@ -297,7 +311,8 @@ class S3Task(object):
                       timeout=None,
                       enabled=None, # None = Enabled
                       group_name=None,
-                      ignore_duplicate=False):
+                      ignore_duplicate=False,
+                      sync_output=0):
         """
             Schedule a task in web2py Scheduler
 
@@ -314,7 +329,13 @@ class S3Task(object):
             @param enabled: enabled flag for the scheduled task
             @param group_name: group_name for the scheduled task
             @param ignore_duplicate: disable or enable duplicate checking
+            @param sync_output: sync output every n seconds (0 = disable sync)
         """
+
+        if args is None:
+            args = []
+        if vars is None:
+            vars = {}
 
         kwargs = {}
 
@@ -359,6 +380,9 @@ class S3Task(object):
             # if duplicate task exists, do not insert a new one
             current.log.warning("Duplicate Task, Not Inserted", value=task)
             return False
+
+        if sync_output != 0:
+            kwargs["sync_output"] = sync_output
 
         auth = current.auth
         if auth.is_logged_in():

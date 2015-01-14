@@ -76,7 +76,7 @@ def staff():
                            "department_id",
                            "site_id",
                            #"site_contact",
-                          ]
+                           ]
         else:
             # Adapt list_fields
             list_fields = ["person_id",
@@ -104,7 +104,11 @@ def staff():
                         "human_resource.id": r.id,
                         "group": "staff"
                     }
-                    redirect(URL(f="person", vars=vars))
+                    args = []
+                    if r.representation == "iframe":
+                        vars["format"] = "iframe"
+                        args = [r.method]
+                    redirect(URL(f="person", vars=vars, args=args))
             else:
                 if r.method == "import":
                     # Redirect to person controller
@@ -217,12 +221,14 @@ def profile():
 
     # Custom Method for Contacts
     s3db.set_method("pr", resourcename,
-                    method="contacts",
-                    action=s3db.pr_contacts)
+                    method = "contacts",
+                    action = s3db.pr_contacts)
 
     if settings.has_module("asset"):
         # Assets as component of people
-        s3db.add_components("pr_person", asset_asset="assigned_to_id")
+        s3db.add_components("pr_person",
+                            asset_asset = "assigned_to_id",
+                            )
 
     group = get_vars.get("group", "staff")
 
@@ -235,7 +241,8 @@ def profile():
     tablename = "pr_person"
     table = s3db[tablename]
     s3db.configure(tablename,
-                   deletable=False)
+                   deletable = False,
+                   )
 
     # Configure for personal mode
     s3.crud_strings[tablename].update(
@@ -286,7 +293,7 @@ def profile():
     s3.postp = postp
 
     output = s3_rest_controller("pr", "person",
-                                rheader=s3db.hrm_rheader,
+                                rheader = s3db.hrm_rheader,
                                 )
     return output
 
@@ -556,6 +563,10 @@ def competency():
     """
 
     s3.filter = FS("person_id$human_resource.type") == 1
+
+    field = s3db.hrm_competency.person_id
+    field.widget = S3PersonAutocompleteWidget(ajax_filter = "~.human_resource.type=1")
+
     return s3db.hrm_competency_controller()
 
 # =============================================================================
@@ -630,6 +641,95 @@ def staff_for_site():
 
     response.headers["Content-Type"] = "application/json"
     return result
+
+# =============================================================================
+# Salaries
+# =============================================================================
+def staff_level():
+    """ Staff Levels Controller """
+
+    mode = session.s3.hrm.mode
+    if mode is not None:
+        session.error = T("Access denied")
+        redirect(URL(f="index"))
+
+    output = s3_rest_controller()
+    return output
+
+def salary_grade():
+    """ Salary Grade Controller """
+
+    mode = session.s3.hrm.mode
+    if mode is not None:
+        session.error = T("Access denied")
+        redirect(URL(f="index"))
+
+    output = s3_rest_controller()
+    return output
+
+# =============================================================================
+# Insurance Information
+# =============================================================================
+def insurance():
+    """ Insurance Information Controller """
+
+    mode = session.s3.hrm.mode
+    if mode is not None:
+        session.error = T("Access denied")
+        redirect(URL(f="index"))
+
+    output = s3_rest_controller()
+    return output
+
+# =============================================================================
+# Awards
+# =============================================================================
+def award_type():
+    """ Award Type Controller """
+
+    mode = session.s3.hrm.mode
+    if mode is not None:
+        session.error = T("Access denied")
+        redirect(URL(f="index"))
+
+    output = s3_rest_controller()
+    return output
+
+def award():
+    """ Awards Controller """
+
+    mode = session.s3.hrm.mode
+    if mode is not None:
+        session.error = T("Access denied")
+        redirect(URL(f="index"))
+
+    output = s3_rest_controller()
+    return output
+
+# =============================================================================
+# Disciplinary Record
+# =============================================================================
+def disciplinary_type():
+    """ Disciplinary Type Controller """
+
+    mode = session.s3.hrm.mode
+    if mode is not None:
+        session.error = T("Access denied")
+        redirect(URL(f="index"))
+
+    output = s3_rest_controller()
+    return output
+
+def disciplinary_action():
+    """ Disciplinary Action Controller """
+
+    mode = session.s3.hrm.mode
+    if mode is not None:
+        session.error = T("Access denied")
+        redirect(URL(f="index"))
+
+    output = s3_rest_controller()
+    return output
 
 # =============================================================================
 # Messaging

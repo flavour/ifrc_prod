@@ -2,7 +2,7 @@
 
 """ Sahana Eden Common Alerting Protocol (CAP) Model
 
-    @copyright: 2009-2014 (c) Sahana Software Foundation
+    @copyright: 2009-2015 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -27,13 +27,13 @@
     OTHER DEALINGS IN THE SOFTWARE.
 """
 
-__all__ = ["S3CAPModel",
+__all__ = ("S3CAPModel",
            "cap_info_labels",
            "cap_alert_is_template",
            "cap_rheader",
            "cap_gis_location_xml_post_parse",
            "cap_gis_location_xml_post_render",
-           ]
+           )
 
 import datetime
 import urllib2          # Needed for quoting & error handling on fetch
@@ -56,7 +56,7 @@ class S3CAPModel(S3Model):
         http://eden.sahanafoundation.org/wiki/BluePrint/Messaging#CAP
     """
 
-    names = ["cap_alert",
+    names = ("cap_alert",
              "cap_alert_represent",
              "cap_info",
              "cap_info_represent",
@@ -66,7 +66,7 @@ class S3CAPModel(S3Model):
              "cap_area_location",
              "cap_area_tag",
              "cap_info_category_opts",
-             ]
+             )
 
     def model(self):
 
@@ -793,7 +793,7 @@ class S3CAPModel(S3Model):
                                                          fields = ["tag",
                                                                    "value",
                                                                    ],
-  
+
                                                          ),
                                     "altitude",
                                     "ceiling",
@@ -838,11 +838,12 @@ class S3CAPModel(S3Model):
                               ),
                      area_id(),
                      self.gis_location_id(
-                        widget = S3LocationSelectorWidget2(polygons=True,
-                                                           show_map=True,
-                                                           show_address=False,
-                                                           show_postcode=False,
-                                                           ),
+                        widget = S3LocationSelector(points = False,
+                                                    polygons = True,
+                                                    show_map = True,
+                                                    show_address = False,
+                                                    show_postcode = False,
+                                                    ),
                         ),
                      )
 
@@ -1299,7 +1300,7 @@ def update_alert_id(tablename):
             except:
                 # Nothing we can do
                 return
-        else:    
+        else:
             info_id = form_vars.get("info_id", None)
             if not info_id:
                 # Get the full record
@@ -1398,7 +1399,7 @@ def cap_gis_location_xml_post_render(element, record):
 
         Convert Eden WKT polygon (and eventually circle) representation to
         CAP format and provide them in the rendered s3xml.
-        
+
         Not all internal formats have a parallel in CAP, but an effort is made
         to provide a resonable substitute:
         Polygons are supported.
@@ -1444,7 +1445,7 @@ def cap_gis_location_xml_post_render(element, record):
     NAME = ATTRIBUTE["name"]
     FIELD = ATTRIBUTE["field"]
     VALUE = ATTRIBUTE["value"]
-    
+
     loc_tablename = "gis_location"
     tag_tablename = "gis_location_tag"
     tag_fieldname = "tag"
@@ -1499,7 +1500,7 @@ def cap_gis_location_xml_post_render(element, record):
     # definite export values. For others, we'll attempt to produce either a
     # circle or polygon: Locations with a bounding box will get a box polygon,
     # points will get a zero-radius circle.
-    
+
     # Currently wkt is stripped out of gis_location records right here:
     # https://github.com/flavour/eden/blob/master/modules/s3/s3resource.py#L1332
     # https://github.com/flavour/eden/blob/master/modules/s3/s3resource.py#L1426
@@ -1545,13 +1546,13 @@ def cap_gis_location_xml_post_render(element, record):
     # Instead, just go ahead and add the fallbacks under different tag names,
     # and let the export.xsl sort them out. This only wastes a little time
     # compared to a db query.
-    
+
     # ToDo: MULTIPOLYGON -- Can stitch together the outer polygons in the
     # multipolygon, but would need to assure all were the same handedness.
-    
+
     # The remaining cases are for locations that don't have either polygon wkt
     # or a cap_circle tag.
-    
+
     # Bounding box: Make a four-vertex polygon from the bounding box.
     # This is a fallback, as if there is a circle tag, we'll use that.
     lon_min = record.get("lon_min", None)

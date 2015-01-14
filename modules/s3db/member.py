@@ -2,7 +2,7 @@
 
 """ Sahana Eden Members Model
 
-    @copyright: 2012-14 (c) Sahana Software Foundation
+    @copyright: 2012-15 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -27,9 +27,9 @@
     OTHER DEALINGS IN THE SOFTWARE.
 """
 
-__all__ = ["S3MembersModel",
+__all__ = ("S3MembersModel",
            "member_rheader"
-           ]
+           )
 
 import datetime
 from gluon import *
@@ -42,9 +42,9 @@ class S3MembersModel(S3Model):
     """
     """
 
-    names = ["member_membership_type",
+    names = ("member_membership_type",
              "member_membership",
-             ]
+             )
 
     def model(self):
 
@@ -52,7 +52,6 @@ class S3MembersModel(S3Model):
         db = current.db
         auth = current.auth
         s3 = current.response.s3
-        settings = current.deployment_settings
 
         organisation_id = self.org_organisation_id
 
@@ -72,25 +71,23 @@ class S3MembersModel(S3Model):
         else:
             filter_opts = (None,)
 
-        if settings.get_org_autocomplete():
-            org_widget = S3OrganisationAutocompleteWidget(default_from_profile=True)
-        else:
-            org_widget = None
-
         # ---------------------------------------------------------------------
         # Membership Types
         #
         tablename = "member_membership_type"
         define_table(tablename,
                      Field("name", notnull=True, length=64,
-                           label=T("Name")),
+                           label = T("Name"),
+                           ),
                      # Only included in order to be able to set
                      # realm_entity to filter appropriately
                      organisation_id(default = root_org,
                                      readable = is_admin,
                                      writable = is_admin,
                                      ),
-                     s3_comments(label=T("Description"), comment=None),
+                     s3_comments(label = T("Description"),
+                                 comment = None,
+                                 ),
                      *s3_meta_fields())
 
         ADD_MEMBERSHIP_TYPE = T("Create Membership Type")
@@ -109,19 +106,20 @@ class S3MembersModel(S3Model):
 
         represent = S3Represent(lookup=tablename)
         membership_type_id = S3ReusableField("membership_type_id", "reference %s" % tablename,
-                                             sortby = "name",
                                              label = T("Type"),
+                                             ondelete = "SET NULL",
+                                             represent = represent,
                                              requires = IS_EMPTY_OR(
                                                             IS_ONE_OF(db, "member_membership_type.id",
                                                                       represent,
                                                                       filterby="organisation_id",
                                                                       filter_opts=filter_opts)),
-                                             represent = represent,
+                                             sortby = "name",
                                              comment=S3AddResourceLink(f="membership_type",
                                                                        label=ADD_MEMBERSHIP_TYPE,
                                                                        title=ADD_MEMBERSHIP_TYPE,
                                                                        tooltip=T("Add a new membership type to the catalog.")),
-                                             ondelete = "SET NULL")
+                                             )
 
         configure(tablename,
                   deduplicate = self.member_type_duplicate,
@@ -137,8 +135,7 @@ class S3MembersModel(S3Model):
                         requires = self.org_organisation_requires(
                                         updateable = True,
                                         ),
-                        widget = org_widget,
-                      ),
+                        ),
                       Field("code",
                             label = T("Member ID"),
                             #readable = False,
@@ -161,11 +158,12 @@ class S3MembersModel(S3Model):
                             label = T("Membership Fee"),
                             ),
                       s3_date("membership_paid",
-                              label = T("Membership Paid")
+                              label = T("Membership Paid"),
                               ),
                       # Location (from pr_address component)
                       self.gis_location_id(readable = False,
-                                           writable = False),
+                                           writable = False,
+                                           ),
                       Field.Method("paid",
                                    self.member_membership_paid),
                       *s3_meta_fields())
@@ -216,7 +214,7 @@ class S3MembersModel(S3Model):
 
         report_fields = ["person_id",
                          "membership_type_id",
-                         "paid",
+                         (T("Paid"), "paid"),
                          "organisation_id",
                          ]
 
@@ -234,10 +232,25 @@ class S3MembersModel(S3Model):
             report_fields.append(lfield)
             text_fields.append(lfield)
 
+        if current.deployment_settings.get_org_branches():
+            org_filter = S3HierarchyFilter("organisation_id",
+                                           # Can be unhidden in customise_xx_resource if there is a need to use a default_filter
+                                           hidden = True,
+                                           leafonly = False,
+                                           )
+        else:
+            org_filter = S3OptionsFilter("organisation_id",
+                                         filter = True,
+                                         header = "",
+                                         # Can be unhidden in customise_xx_resource if there is a need to use a default_filter
+                                         hidden = True,
+                                         )
+
         filter_widgets = [
             S3TextFilter(text_fields,
                          label = T("Search"),
                          ),
+            org_filter,
             S3OptionsFilter("membership_type_id",
                             cols = 3,
                             options = member_type_opts,
@@ -245,20 +258,16 @@ class S3MembersModel(S3Model):
                             ),
             S3OptionsFilter("paid",
                             cols = 3,
+                            label = T("Paid"),
                             options = {T("paid"):    T("paid"),
                                        T("overdue"): T("overdue"),
                                        T("expired"): T("expired"),
                                        },
                             hidden = True,
                             ),
-            S3OptionsFilter("organisation_id",
-                            widget = "multiselect",
-                            hidden = True,
-                            ),
             S3LocationFilter("location_id",
                              label = T("Location"),
                              levels = levels,
-                             widget = "multiselect",
                              hidden = True,
                              ),
             ]
@@ -278,17 +287,18 @@ class S3MembersModel(S3Model):
                   create_next = URL(f="person", args="address",
                                     vars={"membership.id": "[id]"}),
                   deduplicate = self.member_duplicate,
-                  extra_fields = ["start_date", "membership_paid"],
+                  extra_fields = ("start_date",
+                                  "membership_paid",
+                                  ),
+                  filter_widgets = filter_widgets,
                   list_fields = list_fields,
                   onaccept = self.member_onaccept,
                   report_options = report_options,
-                  filter_widgets = filter_widgets,
-                  update_realm = True,
                   # Default summary
                   summary = [{"name": "addform",
                               "common": True,
                               "widgets": [{"method": "create"}],
-                             },
+                              },
                              {"name": "table",
                               "label": "Table",
                               "widgets": [{"method": "datatable"}]
@@ -304,41 +314,42 @@ class S3MembersModel(S3Model):
                                            "ajax_init": True}],
                               },
                              ],
+                  update_realm = True,
                   )
 
         # Components
-        add_components(tablename,
-                       # Contact Information
-                       pr_contact = (# Email
-                                     {"name": "email",
-                                      "link": "pr_person",
-                                      "joinby": "id",
-                                      "key": "pe_id",
-                                      "fkey": "pe_id",
-                                      "pkey": "person_id",
-                                      "filterby": "contact_method",
-                                      "filterfor": ("EMAIL",),
-                                     },
-                                     # Phone
-                                     {"name": "phone",
-                                      "link": "pr_person",
-                                      "joinby": "id",
-                                      "key": "pe_id",
-                                      "fkey": "pe_id",
-                                      "pkey": "person_id",
-                                      "filterby": "contact_method",
-                                      "filterfor": ("SMS",
-                                                    "HOME_PHONE",
-                                                    "WORK_PHONE",
-                                                    ),
-                                     },
-                                    ),
-                      )
+        self.add_components(tablename,
+                            # Contact Information
+                            pr_contact = (# Email
+                                          {"name": "email",
+                                           "link": "pr_person",
+                                           "joinby": "id",
+                                           "key": "pe_id",
+                                           "fkey": "pe_id",
+                                           "pkey": "person_id",
+                                           "filterby": "contact_method",
+                                           "filterfor": ("EMAIL",),
+                                           },
+                                          # Phone
+                                          {"name": "phone",
+                                           "link": "pr_person",
+                                           "joinby": "id",
+                                           "key": "pe_id",
+                                           "fkey": "pe_id",
+                                           "pkey": "person_id",
+                                           "filterby": "contact_method",
+                                           "filterfor": ("SMS",
+                                                         "HOME_PHONE",
+                                                         "WORK_PHONE",
+                                                         ),
+                                           },
+                                          ),
+                            )
                       
         # ---------------------------------------------------------------------
         # Pass names back to global scope (s3.*)
         #
-        return Storage()
+        return dict()
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -484,22 +495,20 @@ class S3MembersModel(S3Model):
             Member record duplicate detection, used for the deduplicate hook
         """
 
-        if item.tablename == "member_membership":
+        data = item.data
+        person_id = data.get("person_id")
+        organisation_id = data.get("organisation_id")
 
-            data = item.data
-            person_id = "person_id" in data and data.person_id or None
-            organisation_id = "organisation_id" in data and data.organisation_id or None
-
-            table = item.table
-            # 1 Membership record per Person<>Organisation
-            query = (table.deleted != True) & \
-                    (table.person_id == person_id) & \
-                    (table.organisation_id == organisation_id)
-            row = current.db(query).select(table.id,
-                                           limitby=(0, 1)).first()
-            if row:
-                item.id = row.id
-                item.method = item.METHOD.UPDATE
+        table = item.table
+        # 1 Membership record per Person<>Organisation
+        query = (table.deleted != True) & \
+                (table.person_id == person_id) & \
+                (table.organisation_id == organisation_id)
+        row = current.db(query).select(table.id,
+                                       limitby=(0, 1)).first()
+        if row:
+            item.id = row.id
+            item.method = item.METHOD.UPDATE
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -508,22 +517,20 @@ class S3MembersModel(S3Model):
             Membership Type duplicate detection, used for the deduplicate hook
         """
 
-        if item.tablename == "member_membership_type":
+        data = item.data
+        name = data.get("name")
+        organisation_id = data.get("organisation_id")
 
-            data = item.data
-            name = "name" in data and data.name or None
-            organisation_id = "organisation_id" in data and data.organisation_id or None
-
-            table = item.table
-            # 1 Membership Type per Name<>Organisation
-            query = (table.deleted != True) & \
-                    (table.name == name) & \
-                    (table.organisation_id == organisation_id)
-            row = current.db(query).select(table.id,
-                                           limitby=(0, 1)).first()
-            if row:
-                item.id = row.id
-                item.method = item.METHOD.UPDATE
+        table = item.table
+        # 1 Membership Type per Name<>Organisation
+        query = (table.deleted != True) & \
+                (table.name == name) & \
+                (table.organisation_id == organisation_id)
+        row = current.db(query).select(table.id,
+                                       limitby=(0, 1)).first()
+        if row:
+            item.id = row.id
+            item.method = item.METHOD.UPDATE
 
 # =============================================================================
 def member_rheader(r, tabs=[]):
@@ -563,8 +570,7 @@ def member_rheader(r, tabs=[]):
             rheader = DIV(DIV(s3_avatar_represent(person.id,
                                                   "pr_person",
                                                   _class="fleft"),
-                              # @ToDo: Move to CSS
-                              _style="padding-bottom:10px",
+                              _class="rheader-avatar",
                               ),
                           TABLE(TR(TH(s3_fullname(person))),
                                 ),
@@ -580,8 +586,7 @@ def member_rheader(r, tabs=[]):
         rheader = DIV(DIV(s3_avatar_represent(record.id,
                                               "pr_person",
                                               _class="fleft"),
-                          # @ToDo: Move to CSS
-                          _style="padding-bottom:10px",
+                          _class="rheader-avatar",
                           ),
                       TABLE(TR(TH(s3_fullname(record))),
                             ),

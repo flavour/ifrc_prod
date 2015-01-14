@@ -133,6 +133,8 @@ if len(pop_list) > 0:
 
     # Override authorization
     auth.override = True
+    # No location tree updates
+    gis.disable_update_location_tree = True
 
     # Load all Models to ensure all DB tables present
     s3db.load_all_models()
@@ -148,24 +150,6 @@ if len(pop_list) > 0:
 
     # Synchronisation
     db.sync_config.insert() # Defaults are fine
-
-    # Person Registry
-    tablename = "pr_person"
-    # Add extra indexes on search fields
-    # Should work for our 3 supported databases: sqlite, MySQL & PostgreSQL
-    field = "first_name"
-    db.executesql("CREATE INDEX %s__idx on %s(%s);" % (field, tablename, field))
-    field = "middle_name"
-    db.executesql("CREATE INDEX %s__idx on %s(%s);" % (field, tablename, field))
-    field = "last_name"
-    db.executesql("CREATE INDEX %s__idx on %s(%s);" % (field, tablename, field))
-
-    # GIS
-    # Add extra index on search field
-    # Should work for our 3 supported databases: sqlite, MySQL & PostgreSQL
-    tablename = "gis_location"
-    field = "name"
-    db.executesql("CREATE INDEX %s__idx on %s(%s);" % (field, tablename, field))
 
     # Messaging Module
     if has_module("msg"):
@@ -225,6 +209,7 @@ if len(pop_list) > 0:
     s3.import_user = bi.import_user
     s3.import_image = bi.import_image
     s3.import_remote_csv = bi.import_remote_csv
+    s3.import_script = bi.import_script
 
     # Relax strict email-matching rule for import updates of person records
     email_required = settings.get_pr_import_update_requires_email()
@@ -251,19 +236,25 @@ if len(pop_list) > 0:
         if pop_setting == 1:
             # Populate with the default data
             path = path_join(request_folder,
-                             "private",
+                             "modules",
                              "templates",
                              "default")
             bi.perform_tasks(path)
         else:
             path = path_join(request_folder,
-                             "private",
+                             "modules",
                              "templates",
                              pop_setting)
-            if os.path.exists(path):
-                bi.perform_tasks(path)
-            else:
-                print >> sys.stderr, "Unable to install data %s no valid directory found" % pop_setting
+            if not os.path.exists(path):
+                # Legacy template?
+                path = path_join(request_folder,
+                                 "private",
+                                 "templates",
+                                 pop_setting)
+                if not os.path.exists(path):
+                    print >> sys.stderr, "Unable to install data %s no valid directory found" % pop_setting
+                    continue
+            bi.perform_tasks(path)
 
         grandTotalEnd = datetime.datetime.now()
         duration = grandTotalEnd - grandTotalStart
@@ -293,6 +284,8 @@ if len(pop_list) > 0:
 
     # Restore Auth
     auth.override = False
+    # Enable location tree updates
+    gis.disable_update_location_tree = False
 
     # Update Location Tree (disabled during prepop)
     start = datetime.datetime.now()
@@ -302,6 +295,14 @@ if len(pop_list) > 0:
 
     # Countries are only editable by MapAdmin
     db(db.gis_location.level == "L0").update(owned_by_group=map_admin)
+
+    if has_module("disease"):
+        # Populate disease_stats_aggregate (disabled during prepop)
+        # - needs to be done after locations
+        start = datetime.datetime.now()
+        s3db.disease_stats_rebuild_all_aggregates()
+        end = datetime.datetime.now()
+        print >> sys.stdout, "Disease Statistics data aggregation completed in %s" % (end - start)
 
     if has_module("stats"):
         # Populate stats_demographic_aggregate (disabled during prepop)
@@ -328,6 +329,35 @@ if len(pop_list) > 0:
     except AttributeError:
         # older Python
         print >> sys.stdout, "Pre-populate completed in %s" % duration
+
+    # =========================================================================
+    # Indexes
+    #
+
+    # Person Registry
+    tablename = "pr_person"
+    # Add extra indexes on search fields
+    # Should work for our 3 supported databases: sqlite, MySQL & PostgreSQL
+    field = "first_name"
+    db.executesql("CREATE INDEX %s__idx on %s(%s);" % (field, tablename, field))
+    field = "middle_name"
+    db.executesql("CREATE INDEX %s__idx on %s(%s);" % (field, tablename, field))
+    field = "last_name"
+    db.executesql("CREATE INDEX %s__idx on %s(%s);" % (field, tablename, field))
+
+    # GIS
+    # Add extra index on search field
+    # Should work for our 3 supported databases: sqlite, MySQL & PostgreSQL
+    tablename = "gis_location"
+    field = "name"
+    db.executesql("CREATE INDEX %s__idx on %s(%s);" % (field, tablename, field))
+    if settings.get_gis_spatialdb():
+        # Add Spatial Index (PostgreSQL-only currently)
+        db.executesql("CREATE INDEX gis_location_gist on %s USING GIST (the_geom);" % tablename)
+        # Ensure the Planner takes this into consideration
+        # Vacuum cannot run in a transaction block
+        # autovacuum should be on anyway so will run ANALYZE after 50 rows inserted/updated/deleted
+        #db.executesql("VACUUM ANALYZE;")
 
     # Restore view
     response.view = "default/index.html"

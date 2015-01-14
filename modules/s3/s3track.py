@@ -2,7 +2,7 @@
 
 """ Simple Generic Location Tracking System
 
-    @copyright: 2011-14 (c) Sahana Software Foundation
+    @copyright: 2011-15 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -31,7 +31,12 @@
 from datetime import datetime, timedelta
 
 from gluon import current
-from gluon.dal import Table, Rows, Row
+from gluon.storage import Storage
+try:
+    from gluon.dal.objects import Table, Rows, Row
+except ImportError:
+    # old web2py
+    from gluon.dal import Table, Rows, Row
 from gluon.html import *
 
 from s3rest import S3Method
@@ -614,7 +619,7 @@ class S3Trackable(object):
         # => this can happen table-wise = less queries
         track_ids = [r[TRACK_ID] for r in self.records if TRACK_ID in r]
         rows = db(self.table[TRACK_ID].belongs(track_ids)).select()
-        
+
         tables = []
         append = tables.append
         types = set()
@@ -776,12 +781,12 @@ class S3CheckInMethod(S3Method):
                 _id = "location_id"
                 label = LABEL("%s:" % T("Location"))
 
-                from s3.s3widgets import S3LocationSelectorWidget2
+                from s3.s3widgets import S3LocationSelector
                 field = table.location_id
                 #value = tracker.get_location(_fields=["id"],
                 #                             as_rows=True).first().id
                 value = None # We always want to create a new Location, not update the existing one
-                widget = S3LocationSelectorWidget2()(field, value)
+                widget = S3LocationSelector(show_latlon = True)(field, value)
 
                 row = formstyle("%s__row" % _id, label, widget, comment)
                 if tuple_rows:

@@ -7,7 +7,7 @@
     @requires: U{B{I{gluon}} <http://web2py.com>}
     @requires: U{B{I{lxml}} <http://codespeak.net/lxml>}
 
-    @copyright: 2009-2014 (c) Sahana Software Foundation
+    @copyright: 2009-2015 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -127,46 +127,42 @@ class S3XML(S3Codec):
         ]
 
     TAG = Storage(
-        root="s3xml",
-        resource="resource",
-        reference="reference",
-        description="description",
+        col="col",
         contents="contents",
-        meta="meta",
         data="data",
-        list="list",
-        item="item",
-        object="object",
-        select="select",
+        description="description",
         field="field",
+        fields="fields",
+        item="item",
+        list="list",
+        meta="meta",
+        object="object",
         option="option",
         options="options",
-        fields="fields",
-        table="table",
+        reference="reference",
+        resource="resource",
+        root="s3xml",
         row="row",
-        col="col",
+        select="select",
+        table="table",
         )
 
     ATTRIBUTE = Storage(
-        id="id",
-        name="name",
-        table="table",
-        field="field",
-        value="value",
         alias="alias",
-        resource="resource",
-        ref="ref",
+        attributes="attributes", # for GeoJSON exports
+        comment="comment",
         domain="domain",
-        url="url",
-        filename="filename",
         error="error",
-        start="start",
-        limit="limit",
-        success="success",
-        results="results",
+        field="field",
+        filename="filename",
+        has_options="has_options",
+        hashtag="hashtag",
+        id="id",
+        label="label",
         lat="lat",
         latmin="latmin",
         latmax="latmax",
+        limit="limit",
         lon="lon",
         lonmin="lonmin",
         lonmax="lonmax",
@@ -174,20 +170,26 @@ class S3XML(S3Codec):
         marker_url="marker_url",
         marker_height="marker_height",
         marker_width="marker_width",
+        name="name",
         parent="parent",
-        popup="popup",          # for GIS Feature Layers/Queries
-        popup_url="popup_url",  # for map popups
-        sym="sym",              # for GPS
-        attributes="attributes",# For GeoJSON exports
+        #popup="popup", # for GIS Feature Layers/Queries
+        #popup_url="popup_url", # for map popups
+        ref="ref",
+        replaced_by="replaced_by",
+        resource="resource",
+        results="results",
+        sym="sym", # for GPS
+        start="start",
+        style="style", # For GeoJSON exports
+        success="success",
+        table="table",
+        tuid="tuid",
         type="type",
         readable="readable",
+        url="url",
+        value="value",
         writable="writable",
         wkt="wkt",
-        has_options="has_options",
-        tuid="tuid",
-        label="label",
-        comment="comment",
-        replaced_by="replaced_by"
         )
 
     ACTION = Storage(
@@ -198,10 +200,10 @@ class S3XML(S3Codec):
         )
 
     PREFIX = Storage(
-        resource="$",
+        attribute="@",
         options="$o",
         reference="$k",
-        attribute="@",
+        resource="$",
         text="$",
         )
 
@@ -212,7 +214,7 @@ class S3XML(S3Codec):
         self.domain = current.request.env.server_name
         self.error = None
         self.filter_mci = False # Set to true to suppress export at MCI<0
-        
+
         self.show_ids = False
         self.show_urls = True
 
@@ -257,7 +259,7 @@ class S3XML(S3Codec):
             _args = dict((k, "'%s'" % args[k]) for k in args)
         else:
             _args = None
-            
+
         if isinstance(stylesheet_path, (etree._ElementTree, etree._Element)):
             # Pre-parsed stylesheet
             stylesheet = stylesheet_path
@@ -277,6 +279,10 @@ class S3XML(S3Codec):
                 e = sys.exc_info()[1]
                 self.error = e
                 current.log.error(e)
+                #output = self.tostring(tree, pretty_print=True)
+                #outputFile = open("failed_transform.xml", "w")
+                #outputFile.write(output)
+                #outputFile.close()
                 return None
         else:
             # Error parsing the XSL stylesheet
@@ -518,7 +524,7 @@ class S3XML(S3Codec):
         else:
             fields = [f for f in fields if f in record and record[f]]
             #replace = False
-            
+
         if not fields:
             return reference_map
 
@@ -566,7 +572,7 @@ class S3XML(S3Codec):
             if not ktablename:
                 # Not a foreign key
                 continue
-            
+
             val = ids = ogetattr(record, f)
 
             ktable = load_table(ktablename)
@@ -598,28 +604,28 @@ class S3XML(S3Codec):
                                            limitby=(0, 1)).first()
                 if not srecord:
                     continue
-                    
+
                 ktablename = srecord.instance_type
                 uid = ogetattr(srecord, UID)
-                
+
                 if ktablename == tablename and \
                    UID in record and ogetattr(record, UID) == uid and \
                    not self.show_ids:
                     # Super key in the main instance record, never export
                     continue
-                
+
                 ktable = load_table(ktablename)
                 if not ktable:
                     continue
-                    
+
                 # Make sure the referenced record is accessible:
                 query = current.auth.s3_accessible_query("read", ktable) & \
                         (ktable[UID] == uid)
                 krecord = db(query).select(ktable._id, limitby=(0, 1)).first()
-                
+
                 if not krecord:
                     continue
-                    
+
                 ids = [krecord[ktable._id]]
                 uids = [export_uid(uid)]
 
@@ -633,14 +639,14 @@ class S3XML(S3Codec):
                 else:
                     query &= (k_id == ids)
                     limitby = (0, 1)
-                    
+
                 if DELETED in ktable_fields:
                     query = (ktable.deleted != True) & query
                 if filter_mci and MCI in ktable_fields:
                     query = (ktable.mci >= 0) & query
 
                 if UID in ktable_fields:
-                    
+
                     krecords = db(query).select(ogetattr(ktable, UID),
                                                 limitby=limitby)
                     if krecords:
@@ -650,7 +656,7 @@ class S3XML(S3Codec):
                     else:
                         continue
                 else:
-                    
+
                     krecord = db(query).select(k_id, limitby=(0, 1)).first()
                     if not krecord:
                         continue
@@ -703,14 +709,14 @@ class S3XML(S3Codec):
 
         UID = self.UID
         REPLACEDBY = self.REPLACEDBY
-        
+
         as_json = json.dumps
         SubElement = etree.SubElement
 
         for i in xrange(0, len(rmap)):
 
             r = rmap[i]
-            
+
             f = r.field
             if f == REPLACEDBY:
                 element.set(RB, r.uid[0])
@@ -729,7 +735,7 @@ class S3XML(S3Codec):
                 attr[ID] = ids
 
             if r.uid:
-                
+
                 if r.multiple:
                     uids = str(as_json(r.uid))
                 else:
@@ -757,9 +763,9 @@ class S3XML(S3Codec):
 
             @param rmap: the reference map of the tree
         """
-        
+
         ATTRIBUTE = self.ATTRIBUTE
-        
+
         locations = {}
         for reference in rmap:
             if reference.table == "gis_location" and len(reference.id) == 1:
@@ -792,7 +798,7 @@ class S3XML(S3Codec):
                    resource,
                    record,
                    element,
-                   location_data = {},
+                   location_data={},
                    ):
         """
             GIS-encodes the master resource so that it can be transformed into
@@ -813,24 +819,21 @@ class S3XML(S3Codec):
         tablename = resource.tablename
         if tablename == "gis_feature_query":
             # Requires no special handling: XSLT uses normal fields
-            return dict()
+            return
 
-        db = current.db
         gis = current.gis
         request = current.request
         settings = current.deployment_settings
 
         ATTRIBUTE = self.ATTRIBUTE
-        WKTFIELD = self.WKT
 
         # Retrieve data prepared earlier in gis.get_location_data()
         latlons = location_data.get("latlons", [])
         geojsons = location_data.get("geojsons", [])
-        wkts = location_data.get("wkts", [])
-        #popup_url = location_data.get("popup_url", [])
-        markers = location_data.get("markers", [])
-        tooltips = location_data.get("tooltips", [])
+        #wkts = location_data.get("wkts", [])
         attributes = location_data.get("attributes", [])
+        markers = location_data.get("markers", [])
+        styles = location_data.get("styles", [])
 
         map_data = element.find("map")
         if map_data:
@@ -848,73 +851,87 @@ class S3XML(S3Codec):
                 if geojson:
                     geometry = etree.SubElement(map_data, "geometry")
                     geometry.set("value", geojson)
-                    #if tablename in attributes:
-                    #    # Add Attributes
-                    #    _attr = ""
-                    #    attrs = attributes[tablename][record_id]
-                    #    for a in attrs:
-                    #        if _attr:
-                    #            _attr = "%s,[%s]=[%s]" % (_attr, a, attrs[a])
-                    #        else:
-                    #            _attr = "[%s]=[%s]" % (a, attrs[a])
-                    #    if _attr:
-                    #        attr[ATTRIBUTE.attributes] = _attr
-                if tablename in tooltips:
-                    # Retrieve the HTML for the onHover Tooltip
-                    tooltip = tooltips[tablename][record_id]
-                    if type(tooltip) is not unicode:
-                        try:
-                            # encode suitable for use as XML attribute
-                            tooltip = tooltip.decode("utf-8")
-                        except:
-                            pass
-                    else:
-                        attr[ATTRIBUTE.popup] = tooltip
-                # Use the current controller for map popup URLs to get
-                # the controller settings applied even for map popups
-                url = URL(request.controller,
-                          request.function).split(".", 1)[0]
-                # Assume being used within the Sahana Mapping client
-                # so use local URLs to keep filesize down
-                url = "%s/%i.plain" % (url, record_id)
-                attr[ATTRIBUTE.popup_url] = url
 
-            elif tablename in wkts:
-                # Nothing gets here currently
-                # tbc: KML Polygons (or we should also do these outside XSLT)
-                wkt = wkts[tablename][record_id]
-                # Convert the WKT in XSLT
-                attr[ATTRIBUTE.wkt] = wkt
+            #  @ToDo: KML/GPX/GeoRSS Polygons (or we should also do these outside XSLT)
+            #elif tablename in wkts:
+            #    wkt = wkts[tablename][record_id]
+            #    # Convert the WKT in XSLT
+            #    attr[ATTRIBUTE.wkt] = wkt
+
+            elif tablename in latlons:
+                # These have been looked-up in bulk
+                LatLon = latlons[tablename].get(record_id, None)
+                if LatLon:
+                    lat = LatLon[0]
+                    lon = LatLon[1]
+                    if lat is not None and lon is not None:
+                        attr[ATTRIBUTE.lat] = "%.4f" % lat
+                        attr[ATTRIBUTE.lon] = "%.4f" % lon
 
             else:
                 # Lookup record by record :/
-                table = resource.table
-                query = (table._id == record_id)
-                if settings.get_gis_spatialdb():
-                    # Do the Simplify direct from the DB
-                    row = db(query).select(table.the_geom.st_simplify(0.01).st_astext().with_alias("wkt"),
-                                           limitby=(0, 1)).first()
-                    if row:
-                        # Convert the WKT in XSLT
-                        attr[ATTRIBUTE.wkt] = row.wkt
-                        # Locate the attributes
-                        #row = row[tablename]
-                else:
-                    row = db(query).select(table[WKTFIELD],
-                                           limitby=(0, 1)).first()
-                    if row:
-                        wkt = row[WKTFIELD]
-                        if wkt:
-                            # Simplify the polygon to reduce download size
-                            # & also to work around the recursion limit in libxslt
-                            # http://blog.gmane.org/gmane.comp.python.lxml.devel/day=20120309
-                            wkt = gis.simplify(wkt)
-                            # Convert the WKT in XSLT
-                            attr[ATTRIBUTE.wkt] = wkt
+                # Nothing should get here
+                return
+                #table = resource.table
+                #wkts = gis.get_locations(table,
+                #                         (table._id == record_id),
+                #                         join=False,
+                #                         geojson=False)
+                ## Convert the WKT in XSLT
+                #if record_id in wkts:
+                #    attr[ATTRIBUTE.wkt] = wkts[record_id]
 
-            if format == "kml":
+            if format == "geojson":
+                if tablename in attributes:
+                    # Add Attributes
+                    attrs = attributes[tablename][record_id]
+                    if attrs:
+                        # Encode in a way which we can decode in static/formats/geojson/export.xsl
+                        # - double up all tokens to reduce chances of them being within represents
+                        # NB Ensure we don't double-encode unicode!
+                        _attr = json.dumps(attrs, separators=(",,", "::"),
+                                           ensure_ascii=False)
+                        attr[ATTRIBUTE.attributes] = "{%s}" % _attr.replace('"', "||")
+
+                if tablename in markers:
+                    _markers = markers[tablename]
+                    if _markers.get("image", None):
+                        # Single Marker here
+                        m = _markers
+                    else:
+                        # We have a separate Marker per-Feature
+                        m = _markers[record_id]
+                    if m:
+                        # Assume being used within the Sahana Mapping client
+                        # so use local URLs to keep filesize down
+                        download_url = "/%s/static/img/markers" % \
+                            request.application
+                        attr[ATTRIBUTE.marker_url] = "%s/%s" % (download_url,
+                                                                m["image"])
+                        attr[ATTRIBUTE.marker_height] = str(m["height"])
+                        attr[ATTRIBUTE.marker_width] = str(m["width"])
+
+                if tablename in styles:
+                    # Add Styles
+                    style = styles[tablename].get(record_id)
+                    if style:
+                        _style = etree.SubElement(map_data, "style")
+                        _style.set("value", style)
+
+                # Now built client-side from the id (=> saves bandwidth)
+                # Use gis/location controller in all reports
+                #url = URL(c="gis", f="location").split(".", 1)[0]
+                # Assume being used within the Sahana Mapping client
+                # so use local URLs to keep filesize down
+                #url = "%s/%i.plain" % (url, record_id)
+                #attr[ATTRIBUTE.popup_url] = url
+
+                # End: format == "geojson"
+                return
+
+            elif format == "kml":
                 # GIS marker
-                marker = current.gis.get_marker() # Default Marker
+                marker = gis.get_marker() # Default Marker
                 # Quicker to download Icons from Static
                 # also doesn't require authentication so KML files can work in
                 # Google Earth
@@ -923,6 +940,7 @@ class S3XML(S3Codec):
                      request.application)
                 marker_url = "%s/%s" % (marker_download_url, marker.image)
                 attr[ATTRIBUTE.marker] = marker_url
+
             elif format =="gpx":
                 symbol = "White Dot"
                 attr[ATTRIBUTE.sym] = symbol
@@ -941,59 +959,33 @@ class S3XML(S3Codec):
                     geometry.set("value", geojson)
                     if tablename in attributes:
                         # Add Attributes
-                        #_attr = ""
                         attrs = attributes[tablename][record_id]
-                        #for a in attrs:
-                        #    if _attr:
-                        #        _attr = "%s,[%s]=[%s]" % (_attr, a, attrs[a])
-                        #    else:
-                        #        _attr = "[%s]=[%s]" % (a, attrs[a])
-                        #if _attr:
-                        #    attr[ATTRIBUTE.attributes] = _attr
                         if attrs:
-                            _attr = json.dumps(attrs, separators=SEPARATORS)
-                            attr[ATTRIBUTE.attributes] = _attr.replace('"', "|")
-            elif tablename in wkts:
-                # Nothing gets here currently
-                # tbc: KML Polygons (or we should also do these outside XSLT)
-                wkt = wkts[tablename][record_id]
-                # Convert the WKT in XSLT
-                attr[ATTRIBUTE.wkt] = wkt
+                            # Encode in a way which we can decode in static/formats/geojson/export.xsl
+                            # - double up all tokens to reduce chances of them being within represents
+                            # NB Ensure we don't double-encode unicode!
+                            _attr = json.dumps(attrs, separators=(",,", "::"),
+                                               ensure_ascii=False)
+                            attr[ATTRIBUTE.attributes] = "{%s}" % _attr.replace('"', "||")
+
+            #  @ToDo: KML/GPX/GeoRSS Polygons (or we should also do these outside XSLT)
+            #elif tablename in wkts:
+            #    wkt = wkts[tablename][record_id]
+            #    # Convert the WKT in XSLT
+            #    attr[ATTRIBUTE.wkt] = wkt
+
             else:
                 # Lookup record by record :/
-                table = resource.table
-                query = (table._id == record_id)
-                #fields = []
-                #fappend = fields.append
-                #for f in table.fields:
-                #    if f not in ("id", "layer_id", "lat", "lon", "wkt"):
-                #        fappend(f)
-                if settings.get_gis_spatialdb():
-                    # Do the Simplify direct from the DB
-                    #fields.remove("the_geom")
-                    #_fields = [table[f] for f in fields]
-                    row = db(query).select(table.the_geom.st_simplify(0.01).st_astext().with_alias("wkt"),
-                                           #*_fields,
-                                           limitby=(0, 1)).first()
-                    if row:
-                        # Convert the WKT in XSLT
-                        attr[ATTRIBUTE.wkt] = row.wkt
-                        # Locate the attributes
-                        #row = row[tablename]
-                else:
-                    # _fields = [table[f] for f in fields]
-                    row = db(query).select(table[WKTFIELD],
-                                           #*_fields,
-                                           limitby=(0, 1)).first()
-                    if row:
-                        wkt = row[WKTFIELD]
-                        if wkt:
-                            # Simplify the polygon to reduce download size
-                            # & also to work around the recursion limit in libxslt
-                            # http://blog.gmane.org/gmane.comp.python.lxml.devel/day=20120309
-                            wkt = gis.simplify(wkt)
-                            # Convert the WKT in XSLT
-                            attr[ATTRIBUTE.wkt] = wkt
+                # Nothing should get here
+                return
+                #table = resource.table
+                #wkts = gis.get_locations(table,
+                #                         (table._id == record_id),
+                #                         join=False,
+                #                         geojson=False)
+                ## Convert the WKT in XSLT
+                #if record_id in wkts:
+                #    attr[ATTRIBUTE.wkt] = wkts[record_id]
 
             # End: Shapefile data
             return
@@ -1018,60 +1010,54 @@ class S3XML(S3Codec):
                         attr[ATTRIBUTE.lon] = "%.4f" % lon
             else:
                 # Error
-                raise
+                raise RuntimeError("Bulk lookup of GeoJSON or Lat/Lon data failed for %s" % tablename)
 
             if tablename in attributes:
                 # Add Attributes
-                #_attr = ""
                 attrs = attributes[tablename][record_id]
-                #for a in attrs:
-                #    if _attr:
-                #        _attr = "%s,[%s]=[%s]" % (_attr, a, attrs[a])
-                #    else:
-                #        _attr = "[%s]=[%s]" % (a, attrs[a])
-                #if _attr:
-                #    attr[ATTRIBUTE.attributes] = _attr
                 if attrs:
-                    _attr = json.dumps(attrs, separators=SEPARATORS)
-                    attr[ATTRIBUTE.attributes] = _attr.replace('"', "|")
+                    # Encode in a way which we can decode in static/formats/geojson/export.xsl
+                    # - double up all tokens to reduce chances of them being within represents
+                    # NB Ensure we don't double-encode unicode!
+                    _attr = json.dumps(attrs, separators=(",,", "::"),
+                                       ensure_ascii=False)
+                    attr[ATTRIBUTE.attributes] = "{%s}" % _attr.replace('"', "||")
 
             if tablename in markers:
                 _markers = markers[tablename]
-                if _markers.get("image", None):
-                    # Single Marker here
-                    m = _markers
-                else:
-                    # We have a separate Marker per-Feature
-                    m = _markers[record_id]
-                if m:
-                    # Assume being used within the Sahana Mapping client
-                    # so use local URLs to keep filesize down
-                    download_url = "/%s/static/img/markers" % \
-                        request.application
-                    attr[ATTRIBUTE.marker_url] = "%s/%s" % (download_url,
-                                                            m["image"])
-                    attr[ATTRIBUTE.marker_height] = str(m["height"])
-                    attr[ATTRIBUTE.marker_width] = str(m["width"])
-            if tablename in tooltips:
-                # Retrieve the HTML for the onHover Tooltip
-                tooltip = tooltips[tablename][record_id]
-                if type(tooltip) is not unicode:
-                    try:
-                        # encode suitable for use as XML attribute
-                        tooltip = tooltip.decode("utf-8")
-                    except:
-                        pass
-                else:
-                    attr[ATTRIBUTE.popup] = tooltip
+                if _markers:
+                    if _markers.get("image", None):
+                        # Single Marker here
+                        m = _markers
+                    else:
+                        # We have a separate Marker per-Feature
+                        m = _markers[record_id]
+                    if m:
+                        # Assume being used within the Sahana Mapping client
+                        # so use local URLs to keep filesize down
+                        download_url = "/%s/static/img/markers" % \
+                            request.application
+                        attr[ATTRIBUTE.marker_url] = "%s/%s" % (download_url,
+                                                                m["image"])
+                        attr[ATTRIBUTE.marker_height] = str(m["height"])
+                        attr[ATTRIBUTE.marker_width] = str(m["width"])
 
+            if tablename in styles:
+                # Add Styles
+                style = styles[tablename].get(record_id)
+                if style:
+                    _style = etree.SubElement(map_data, "style")
+                    _style.set("value", style)
+
+            # Now built client-side from the id (=> saves bandwidth)
             # Use the current controller for map popup URLs to get
             # the controller settings applied even for map popups
-            url = URL(request.controller,
-                      request.function).split(".", 1)[0]
+            # url = URL(request.controller,
+            #           request.function).split(".", 1)[0]
             # Assume being used within the Sahana Mapping client
             # so use local URLs to keep filesize down
-            url = "%s/%i.plain" % (url, record_id)
-            attr[ATTRIBUTE.popup_url] = url
+            #url = "%s/%i.plain" % (url, record_id)
+            #attr[ATTRIBUTE.popup_url] = url
             # End: format == "geojson"
             return
 
@@ -1085,12 +1071,11 @@ class S3XML(S3Codec):
                     attr[ATTRIBUTE.lat] = "%.4f" % lat
                     attr[ATTRIBUTE.lon] = "%.4f" % lon
 
-        elif tablename in wkts:
-            # Nothing gets here currently
-            # tbc: KML Polygons (or we should also do these outside XSLT)
-            wkt = wkts[tablename][record_id]
-            # Convert the WKT in XSLT
-            attr[ATTRIBUTE.wkt] = wkt
+        #  @ToDo: KML/GPX/GeoRSS Polygons (or we should also do these outside XSLT)
+        #elif tablename in wkts:
+        #    wkt = wkts[tablename][record_id]
+        #    # Convert the WKT in XSLT
+        #    attr[ATTRIBUTE.wkt] = wkt
 
         else:
             # Lookup record by record :/
@@ -1211,7 +1196,7 @@ class S3XML(S3Codec):
                     v = 0
                 attrib[MCI] = str(int(v) + 1)
                 continue
-            
+
             if v is None or not hasattr(table, f):
                 continue
 
@@ -1276,7 +1261,7 @@ class S3XML(S3Codec):
                     # If not static - construct default download URL
                     if fileurl is None:
                         fileurl = "%s/%s" % (download_url, v)
-                        
+
                     data = SubElement(elem, DATA)
                     attr = data.attrib
                     attr[FIELD] = f
@@ -1393,7 +1378,7 @@ class S3XML(S3Codec):
             it
 
             @param table: the database table
-            
+
             @param element: the element
             @param original: the original record
             @param files: list of attached upload files
@@ -1431,7 +1416,7 @@ class S3XML(S3Codec):
         # Attributes
         deleted = False
         for f in cls.ATTRIBUTES_TO_FIELDS:
-            
+
             if f == DELETED:
                 if f in table and \
                    element.get(f, "false").lower() == "true":
@@ -1442,7 +1427,7 @@ class S3XML(S3Codec):
                     break
                 else:
                     continue
-                
+
             if f == APPROVED:
                 # Override default-approver:
                 if "approved_by" in table:
@@ -1452,10 +1437,10 @@ class S3XML(S3Codec):
                         if table["approved_by"].default == None:
                             auth.permission.set_default_approver(table)
                 continue
-            
+
             if f in IGNORE_FIELDS or f in skip:
                 continue
-            
+
             elif f in USER_FIELDS:
                 v = element.get(f, None)
                 if v and utable and "email" in utable:
@@ -1464,7 +1449,7 @@ class S3XML(S3Codec):
                     if user:
                         record[f] = user.id
                 continue
-            
+
             elif f == OGROUP:
                 v = element.get(f, None)
                 if v and gtable and "role" in gtable:
@@ -1473,7 +1458,7 @@ class S3XML(S3Codec):
                     if role:
                         record[f] = role.id
                 continue
-            
+
             if hasattr(table, f): # f in table.fields:
                 v = value = element.get(f, None)
                 if value is not None:
@@ -1680,10 +1665,10 @@ class S3XML(S3Codec):
 
         TAG = cls.TAG
         if options:
-            
+
             ATTRIBUTE = cls.ATTRIBUTE
             UID = cls.UID
-            
+
             SubElement = etree.SubElement
 
             # Create the <select> element
@@ -1731,7 +1716,7 @@ class S3XML(S3Codec):
                 # Create <option> element
                 option = SubElement(select, OPTION)
                 option.text = s3_unicode(s3_strip_markup(text))
-                
+
                 attr = option.attrib
 
                 # Add value-attribute
@@ -1749,10 +1734,10 @@ class S3XML(S3Codec):
                     p = parents[value]
                     if p:
                         attr[PARENT] = str(p)
-                
+
         elif parent is not None:
             select = None
-            
+
         else:
             select = etree.Element(TAG.select)
 
@@ -2200,6 +2185,9 @@ class S3XML(S3Codec):
             native = False
 
         root_dict = cls.__element2json(root, native=native)
+        if "s3" in root_dict:
+            # Don't double JSON-encode
+            root_dict["s3"] = json.loads(root_dict["s3"])
 
         if pretty_print:
             js = json.dumps(root_dict, indent=4)
@@ -2260,6 +2248,7 @@ class S3XML(S3Codec):
     def xls2tree(cls, source,
                  resourcename=None,
                  extra_data=None,
+                 hashtags=None,
                  sheet=None,
                  rows=None,
                  cols=None,
@@ -2276,7 +2265,8 @@ class S3XML(S3Codec):
             @param source: the XLS source (stream, or XLRD book, or
                            None if sheet is an open XLRD sheet)
             @param resourcename: the resource name
-            @param extra_data: dict of extra cols to add to each row
+            @param extra_data: dict of extra cols {key:value} to add to each row
+            @param hashtags: dict of hashtags for extra cols {key:hashtag}
             @param sheet: sheet name or index, or an open XLRD sheet
                           (open work sheet overrides source)
             @param rows: Rows range, integer (length from 0) or
@@ -2298,10 +2288,11 @@ class S3XML(S3Codec):
         """
 
         import xlrd
-        
+
         # Shortcuts
         ATTRIBUTE = cls.ATTRIBUTE
         FIELD = ATTRIBUTE.field
+        HASHTAG = ATTRIBUTE.hashtag
         TAG = cls.TAG
         COL = TAG.col
         SubElement = etree.SubElement
@@ -2383,7 +2374,7 @@ class S3XML(S3Codec):
             # Lambda to decode XLS dates into an ISO datetime-string
             decode_date = lambda v: datetime.datetime(
                                     *xlrd.xldate_as_tuple(v, wb.datemode))
-                                    
+
             encode_iso_datetime = cls.encode_iso_datetime
             def decode(t, v):
                 """
@@ -2407,7 +2398,7 @@ class S3XML(S3Codec):
                         text = str(value).lower()
                 return text
 
-            def add_col(row, name, t, v):
+            def add_col(row, name, t, v, hashtags=None):
                 """
                     Helper method to add a column to an output row
 
@@ -2418,7 +2409,13 @@ class S3XML(S3Codec):
                 """
                 col = SubElement(row, COL)
                 col.set(FIELD, name)
+                if hashtags:
+                    hashtag = hashtags.get(name)
+                    if hashtag and hashtag[1:]:
+                        col.set(HASHTAG, hashtag)
                 col.text = decode(t, v)
+
+            hashtags = dict(hashtags) if hashtags else {}
 
             # Process the rows
             ROW = TAG.row
@@ -2429,7 +2426,7 @@ class S3XML(S3Codec):
                 # Read types and values
                 types = s.row_types(ridx, *cols)
                 values = s.row_values(ridx, *cols)
-                
+
                 if header_row and record_idx == 0:
                     # Read column headers
                     if not fields:
@@ -2440,6 +2437,21 @@ class S3XML(S3Codec):
                                 extra_fields.discard(header)
                         check_headers = False
                 else:
+                    if not fields and \
+                       (header_row and record_idx == 1 or record_idx == 0):
+                        # Autodetect hashtags
+                        items = {}
+                        for cidx, name in headers.items():
+                            try:
+                                t = types[cidx]
+                                v = values[cidx]
+                            except IndexError:
+                                continue
+                            if v:
+                                items[name] = v
+                        if items and all(v[0] == '#' for v in items.values()):
+                            hashtags.update(items)
+                            continue
                     # Add output row
                     orow = SubElement(root, ROW)
                     for cidx, name in headers.items():
@@ -2451,22 +2463,26 @@ class S3XML(S3Codec):
                         except IndexError:
                             pass
                         else:
-                            add_col(orow, name, t, v)
+                            add_col(orow, name, t, v, hashtags=hashtags)
                     check_headers = False
-                            
+
                     # Add extra data
                     if extra_fields:
                         for key in extra_fields:
-                            add_col(orow, key, None, extra_data[key])
+                            add_col(orow, key, None, extra_data[key], hashtags=hashtags)
                 record_idx += 1
 
+        # Use this to debug the source tree if needed:
+        #print >>sys.stderr, cls.tostring(root, pretty_print=True)
+
         return  etree.ElementTree(root)
-        
+
     # -------------------------------------------------------------------------
     @classmethod
     def csv2tree(cls, source,
                  resourcename=None,
                  extra_data=None,
+                 hashtags=None,
                  delimiter=",",
                  quotechar='"'):
         """
@@ -2475,7 +2491,8 @@ class S3XML(S3Codec):
 
             @param source: the source (file-like object)
             @param resourcename: the resource name
-            @param extra_data: dict of extra cols to add to each row
+            @param extra_data: dict of extra cols {key:value} to add to each row
+            @param hashtags: dict of hashtags for extra cols {key:hashtag}
             @param delimiter: delimiter for values
             @param quotechar: quotation character
 
@@ -2484,12 +2501,13 @@ class S3XML(S3Codec):
 
         import csv
 
-        # Increase field sixe to be able to import WKTs
+        # Increase field size to be able to import WKTs
         csv.field_size_limit(2**20 * 100)  # 100 megs
 
         # Shortcuts
         ATTRIBUTE = cls.ATTRIBUTE
         FIELD = ATTRIBUTE.field
+        HASHTAG = ATTRIBUTE.hashtag
         TAG = cls.TAG
         COL = TAG.col
         SubElement = etree.SubElement
@@ -2498,9 +2516,13 @@ class S3XML(S3Codec):
         if resourcename is not None:
             root.set(ATTRIBUTE.name, resourcename)
 
-        def add_col(row, key, value):
+        def add_col(row, key, value, hashtags=None):
             col = SubElement(row, COL)
             col.set(FIELD, s3_unicode(key))
+            if hashtags:
+                hashtag = hashtags.get(key)
+                if hashtag and hashtag[1:]:
+                    col.set(HASHTAG, hashtag)
             if value:
                 text = s3_unicode(value).strip()
                 if text[:6].lower() not in ("null", "<null>"):
@@ -2537,6 +2559,9 @@ class S3XML(S3Codec):
                     else:
                         e = encoding
                         break
+
+        hashtags = dict(hashtags) if hashtags else {}
+
         try:
             import StringIO
             if not isinstance(source, StringIO.StringIO):
@@ -2545,14 +2570,22 @@ class S3XML(S3Codec):
                                     delimiter=delimiter,
                                     quotechar=quotechar)
             ROW = TAG.row
-            for r in reader:
+            for i, r in enumerate(reader):
+                if i == 0:
+                    # Auto-detect hashtags
+                    items = dict((k, s3_unicode(v.strip()))
+                                 for k, v in r.items() if k and v and v.strip())
+                    if all(v[0] == '#' for v in items.values()):
+                        hashtags.update(items)
+                        continue
                 row = SubElement(root, ROW)
                 for k in r:
-                    add_col(row, k, r[k])
+                    if k:
+                        add_col(row, k, r[k], hashtags=hashtags)
                 if extra_data:
                     for key in extra_data:
                         if key not in r:
-                            add_col(row, key, extra_data[key])
+                            add_col(row, key, extra_data[key], hashtags=hashtags)
         except csv.Error:
             e = sys.exc_info()[1]
             raise HTTP(400, body=cls.json_message(False, 400, e))
@@ -2577,7 +2610,7 @@ class S3XMLFormat(object):
         if not self.tree:
             current.log.error("%s parse error: %s" %
                               (stylesheet, current.xml.error))
-        
+
         self.select = None
         self.skip = None
 
@@ -2623,7 +2656,7 @@ class S3XMLFormat(object):
 
         select = find_match(self.select, tablename, None)
         skip = find_match(self.skip, tablename, set())
-        
+
         if skip:
             if select:
                 include = [fn for fn in select if fn not in skip]
@@ -2657,7 +2690,7 @@ class S3XMLFormat(object):
             fields = element.get("select", None)
             if fields is not None and fields != ALL:
                 fields = set([f.strip() for f in fields.split(",")])
-                
+
             exclude = element.get("exclude", None)
             if exclude is not None:
                 exclude = set([f.strip() for f in exclude.split(",")])
@@ -2668,7 +2701,7 @@ class S3XMLFormat(object):
                     select[tablename] = None if fields == ALL else fields
                 if exclude:
                     skip[tablename] = exclude
-                
+
         self.select = select
         self.skip = skip
         return

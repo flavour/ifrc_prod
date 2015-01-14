@@ -2,7 +2,7 @@
 
 """ Sahana Eden Assessments Model
 
-    @copyright: 2012-2014 (c) Sahana Software Foundation
+    @copyright: 2012-2015 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -78,7 +78,7 @@ class S3Assess24HModel(S3Model):
                             ),
                           s3_date(default = "now"),
                           self.gis_location_id(
-                            widget = S3LocationSelectorWidget2(show_map = False),
+                            widget = S3LocationSelector(show_map = False),
                             ),
                           Field("inhabitants", "integer",
                                 label = T("Approximate number of inhabitants"),
@@ -87,7 +87,10 @@ class S3Assess24HModel(S3Model):
                                 label = T("Approximate number of inhabitants"),
                                 ),
                           self.pr_person_id("contact_id",
+                            comment = None,
                             label = ("Name of contact person in the community"),
+                            requires = IS_ADD_PERSON_WIDGET2(),
+                            widget = S3AddPersonWidget2(),
                             ),
                           Field("injured", "integer",
                                 label = T("# Injured"),
@@ -178,7 +181,7 @@ class S3AssessBuildingModel(S3Model):
         on_off_opts = {
             1 : T("On"),
             2 : T("Off"),
-            } 
+            }
         ownership_opts = {
             1: T("Rent"),
             2: T("Own"),
@@ -819,7 +822,7 @@ class S3AssessBuildingModel(S3Model):
     @staticmethod
     def assess_building_rheader(r):
         """ Resource Header """
-        
+
         if r.representation != "html" or r.method == "import" or not r.record:
             # RHeaders only used in interactive views
             return None
@@ -991,8 +994,9 @@ class S3AssessBuildingModel(S3Model):
                           ),
                        ),
                     )
-        
+
         WORK_ORDER = current.T("Work Order")
+        from s3.s3export import S3Exporter
         exporter = S3Exporter().pdf
         return exporter(r,
                         method = "read",

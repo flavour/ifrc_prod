@@ -4,7 +4,7 @@
 
     @requires: U{B{I{gluon}} <http://web2py.com>}
 
-    @copyright: (c) 2010-2014 Sahana Software Foundation
+    @copyright: (c) 2010-2015 Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -55,7 +55,12 @@ except:
     from gluon.contrib.simplejson.ordered_dict import OrderedDict
 
 from gluon import *
-from gluon.dal import Expression, Field, Row
+try:
+    from gluon import Field
+    from gluon.dal.objects import Expression, Row
+except ImportError:
+    # old web2py
+    from gluon.dal import Expression, Field, Row
 from gluon.storage import Storage
 from gluon.languages import lazyT
 from gluon.tools import addrow
@@ -72,7 +77,7 @@ URLSCHEMA = re.compile("((?:(())(www\.([^/?#\s]*))|((http(s)?|ftp):)"
                        "(//([^/?#\s]*)))([^?#\s]*)(\?([^#\s]*))?(#([^\s]*))?)")
 
 RCVARS = "rcvars"
-                           
+
 # =============================================================================
 def s3_debug(message, value=None):
     """
@@ -119,7 +124,14 @@ def s3_store_last_record_id(tablename, record_id):
     """
 
     session = current.session
-    
+
+    # Web2py type "Reference" can't be pickled in session (no crash,
+    # but renders the server unresponsive) => always convert into long
+    try:
+        record_id = long(record_id)
+    except ValueError:
+        return False
+
     if RCVARS not in session:
         session[RCVARS] = Storage({tablename: record_id})
     else:
@@ -135,7 +147,7 @@ def s3_remove_last_record_id(tablename=None):
     """
 
     session = current.session
-    
+
     if tablename:
         if RCVARS in session and tablename in session[RCVARS]:
             del session[RCVARS][tablename]
@@ -143,7 +155,7 @@ def s3_remove_last_record_id(tablename=None):
         if RCVARS in session:
             del session[RCVARS]
     return True
-    
+
 # =============================================================================
 def s3_validate(table, field, value, record=None):
     """
@@ -252,7 +264,7 @@ def s3_represent_value(field,
             text = val = record[field.name]
     else:
         text = val = value
-        
+
     ftype = str(field.type)
     if ftype[:5] == "list:" and not isinstance(val, list):
         # Default list representation can't handle single values
@@ -345,7 +357,7 @@ def s3_set_default_filter(selector, value, tablename=None):
         filter_defaults = filter_defaults[level]
     filter_defaults[selector] = value
     return
-    
+
 # =============================================================================
 def s3_dev_toolbar():
     """
@@ -404,23 +416,34 @@ def s3_dev_toolbar():
     )
 
 # =============================================================================
+def s3_required_label(field_label):
+    """ Default HTML for labels of required form fields """
+
+    return TAG[""]("%s:" % field_label, SPAN(" *", _class="req"))
+
+# =============================================================================
 def s3_mark_required(fields,
-                     mark_required=[],
-                     label_html=(lambda field_label:
-                                 # @ToDo: DRY this setting with s3.locationselector.widget2.js
-                                 DIV("%s:" % field_label,
-                                     SPAN(" *", _class="req"))),
+                     mark_required=None,
+                     label_html=None,
                      map_names=None):
     """
         Add asterisk to field label if a field is required
 
         @param fields: list of fields (or a table)
         @param mark_required: list of field names which are always required
-
-        @return: dict of labels
-
-        @todo: complete parameter description?
+        @param label_html: function to render labels of requried fields
+        @param map_names: dict of alternative field names and labels
+                          {fname: (name, label)}, used for inline components
+        @return: tuple, (dict of form labels, has_required) with has_required
+                 indicating whether there are required fields in this form
     """
+
+    if not mark_required:
+        mark_required = ()
+
+    if label_html is None:
+        # @ToDo: DRY this setting with s3.locationselector.widget2.js
+        label_html = s3_required_label
 
     labels = dict()
 
@@ -521,6 +544,7 @@ def s3_truncate(text, length=48, nice=True):
         @param nice: do not truncate words
     """
 
+    text = s3_unicode(text)
     if len(text) > length:
         if nice:
             return "%s..." % text[:length].rsplit(" ", 1)[0][:45]
@@ -545,12 +569,14 @@ def s3_datatable_truncate(string, maxlength=40):
         @note: the JS click-event will be attached by S3.datatables.js
     """
 
+    string = s3_unicode(string)
     if string and len(string) > maxlength:
         _class = "dt-truncate"
         return TAG[""](
                 DIV(SPAN(_class="ui-icon ui-icon-zoomin",
-                            _style="float:right"),
-                    XML(string[:37] + "&hellip;"),
+                         _style="float:right",
+                         ),
+                    string[:maxlength-3] + "...",
                     _class=_class),
                 DIV(SPAN(_class="ui-icon ui-icon-zoomout",
                             _style="float:right"),
@@ -569,9 +595,9 @@ def s3_trunk8(selector=None, lines=None, less=None, more=None):
         @param selector: the jQuery selector (default: .s3-truncate)
         @param lines: maximum number of lines (default: 1)
     """
-    
+
     T = current.T
-    
+
     s3 = current.response.s3
     scripts = s3.scripts
     script = "/%s/static/scripts/trunk8.js" % current.request.application
@@ -716,6 +742,8 @@ def s3_comments_represent(text, show_link=True):
         Represent Comments Fields
     """
 
+    # Make sure text is multi-byte-aware before truncating it
+    text = s3_unicode(text)
     if len(text) < 80:
         return text
     elif not show_link:
@@ -743,7 +771,7 @@ def s3_url_represent(url):
 
     if not url:
         return ""
-    return A(url, _href=url, _target="blank")
+    return A(url, _href=url, _target="_blank")
 
 # =============================================================================
 def s3_URLise(text):
@@ -756,7 +784,7 @@ def s3_URLise(text):
     output = URLSCHEMA.sub(lambda m: '<a href="%s" target="_blank">%s</a>' %
                           (m.group(0), m.group(0)), text)
     return output
-    
+
 # =============================================================================
 def s3_avatar_represent(id, tablename="auth_user", gravatar=False, **attr):
     """
@@ -892,25 +920,29 @@ def s3_yes_no_represent(value):
 def s3_include_debug_css():
     """
         Generates html to include the css listed in
-            /private/templates/<template>/css.cfg
+            /modules/templates/<template>/css.cfg
     """
 
     request = current.request
     folder = request.folder
     appname = request.application
-    theme = current.deployment_settings.get_theme()
 
-    css_cfg = "%s/private/templates/%s/css.cfg" % (folder, theme)
+    settings = current.deployment_settings
+    theme = settings.get_theme()
+    location = settings.get_template_location()
+
+    css_cfg = "%s/%s/templates/%s/css.cfg" % (folder, location, theme)
     try:
         f = open(css_cfg, "r")
     except:
-        raise HTTP(500, "Theme configuration file missing: private/templates/%s/css.cfg" % theme)
+        raise HTTP(500, "Theme configuration file missing: %s/templates/%s/css.cfg" % (location, theme))
     files = f.readlines()
     files = files[:-1]
     include = ""
     for file in files:
-        include = '%s\n<link href="/%s/static/styles/%s" rel="stylesheet" type="text/css" />' \
-            % (include, appname, file[:-1])
+        if file[0] != "#":
+            include = '%s\n<link href="/%s/static/styles/%s" rel="stylesheet" type="text/css" />' \
+                % (include, appname, file[:-1])
     f.close()
 
     return XML(include)
@@ -934,6 +966,7 @@ def s3_include_debug_js():
 
     configDictCore = {
         ".": scripts_dir,
+        "ui": scripts_dir,
         "web2py": scripts_dir,
         "S3":     scripts_dir
     }
@@ -974,7 +1007,7 @@ def s3_include_ext():
         PATH = "http://cdn.sencha.com/ext/gpl/3.4.1.1"
     else:
         PATH = "/%s/static/scripts/ext" % appname
-        
+
     if s3.debug:
         # Provide debug versions of CSS / JS
         adapter = "%s/adapter/jquery/ext-jquery-adapter-debug.js" % PATH
@@ -1259,7 +1292,7 @@ def s3_orderby_fields(table, orderby, expr=False):
     db = current.db
     COMMA = db._adapter.COMMA
     INVERT = db._adapter.INVERT
-    
+
     if isinstance(orderby, str):
         items = orderby.split(",")
     elif type(orderby) is Expression:
@@ -1318,7 +1351,7 @@ def s3_get_extension(request=None):
 
     if request is None:
         request = current.request
-        
+
     extension = request.extension
     if request.function == "ticket" and request.controller == "admin":
         extension = "html"
@@ -1354,7 +1387,7 @@ def s3_set_extension(url, extension=None):
         #extension = ""
 
     u = urlparse.urlparse(url)
-    
+
     path = u.path
     if path:
         if "." in path:
@@ -1746,7 +1779,8 @@ class S3CustomController(object):
     def _view(cls, theme, name):
 
         view = os.path.join(current.request.folder,
-                            "private", "templates", theme, "views", name)
+                            current.deployment_settings.get_template_location(),
+                            "templates", theme, "views", name)
         try:
             # Pass view as file not str to work in compiled mode
             current.response.view = open(view, "rb")
@@ -1953,12 +1987,6 @@ class S3TypeConverter(object):
 
         if isinstance(b, basestring):
             return b
-        if isinstance(b, datetime.date):
-            raise TypeError # @todo: implement
-        if isinstance(b, datetime.datetime):
-            raise TypeError # @todo: implement
-        if isinstance(b, datetime.time):
-            raise TypeError # @todo: implement
         return str(b)
 
     # -------------------------------------------------------------------------

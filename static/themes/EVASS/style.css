@@ -1,4 +1,3 @@
-/* Auto-generated file, please modify the SCSS sources instead */
 /* Override widget.css */
 .top-bar.expanded {
   width: 100%;
@@ -16,7 +15,6 @@
   margin-top: 10px;
   padding: 8px 35px 8px 14px;
   position: relative;
-  min-width: 445px;
   width: auto;
   z-index: 999;
   border-radius: 4px;
@@ -28,7 +26,6 @@
 #datatable-filter-form,
 #summary-filter-form,
 #summary-sections,
-#pivottable,
 .thumbnail {
   border: 1px solid #CCC;
 }
@@ -57,6 +54,10 @@
 #content h2 {
   margin-top: 10px;
   padding-left: 10px;
+}
+#content h3 {
+  font-size: 1.1em;
+  padding-bottom: 5px;
 }
 
 /* General forms */
@@ -89,6 +90,20 @@ form .error {
   background: #c60f13;
   color: white;
 }
+form .date-clear-btn {
+  font-size: 0.75rem;
+  margin-left: 0.15rem !important;
+}
+form .action-lnk {
+  font-weight: normal;
+  font-size: 0.75rem;
+}
+form table.embeddedComponent {
+  border-collapse: separate;
+}
+form.auth_login #submit_record__row {
+  white-space: pre;
+}
 
 /* General Widgets */
 input[type="text"],
@@ -109,9 +124,32 @@ select {
   height: 1.75rem;
   padding: 0.25rem;
   margin: 0;
+  display: inline-block;
+  font-weight: normal;
+}
+
+input[type="text"],
+input[type="password"],
+input[type="date"],
+input[type="datetime"],
+input[type="datetime-local"],
+input[type="month"],
+input[type="week"],
+input[type="email"],
+input[type="number"],
+input[type="search"],
+input[type="tel"],
+input[type="time"],
+input[type="url"],
+select {
+  width: auto !important;
 }
 
 /* Form and Item containers */
+#last_update {
+  float: none;
+}
+
 .form-container,
 .item-container {
   width: auto;
@@ -122,27 +160,36 @@ select {
   background: #fefefe;
   padding: 5px 10px;
 }
+.form-container .controls,
+.item-container .controls {
+  display: inline-block;
+}
 
 .form-container form select,
 .form-container form input.string:not(.date),
 .form-container form textarea {
   margin: 0;
-  width: 100%;
 }
 .form-container form .ui-multiselect {
   max-width: 100%;
 }
+.form-container form:not(.filter-form):not(.auth_login):not(.auth_register) input[type="text"]:not(.double):not(.datetimepicker):not(.date):not(.dms-input) {
+  width: 500px !important;
+}
 
 .item-container .controls {
   background: #fafafa;
-  padding: 0.35em;
-  min-height: 1.7em;
+  padding: 0.35rem;
+  min-height: 1.7rem;
 }
 
 /* Filter forms */
 .filter-form table tr,
 .filter-form .ui-multiselect {
   max-width: 60%;
+}
+.filter-form .inline-tooltip {
+  padding-top: 0.2rem;
 }
 
 /* Login/Registration box */
@@ -153,20 +200,19 @@ select {
 }
 
 /* Help Popup */
-.tooltip,
-.tooltipbody,
-.stickytip,
-.ajaxtip {
-  display: block;
-  padding: 0;
-}
-
 .inline-tooltip {
-  padding-top: 1.6em;
+  display: inline-block;
+  vertical-align: top;
+  padding-left: 0.75rem;
 }
-
-.filter-form .inline-tooltip {
-  padding-top: 0.2em;
+.inline-tooltip .tooltip,
+.inline-tooltip .tooltipbody,
+.inline-tooltip .stickytip,
+.inline-tooltip .ajaxtip {
+  display: block;
+  margin-top: 10px;
+  padding: 0;
+  width: 60px;
 }
 
 /* Rheader */
@@ -186,6 +232,7 @@ div.tabs {
   padding: 0.5em 0;
   text-align: left;
   width: 100%;
+  line-height: 1em;
 }
 div.tabs span {
   float: left;
@@ -193,7 +240,7 @@ div.tabs span {
   padding: 0.15em 6px 0.25em 5px;
 }
 div.tabs span a {
-  color: white !important;
+  color: #ffffff !important;
   text-decoration: none !important;
   background: transparent !important;
 }
@@ -201,13 +248,13 @@ div.tabs span a:hover {
   background: transparent !important;
 }
 div.tabs span.tab_here {
-  background: white;
+  background: #ffffff;
   border-color: #2ba6cb;
   border-style: solid;
   border-width: 2px 2px 0 3px;
   border-bottom-width: 1px;
   border-bottom-style: solid;
-  border-bottom-color: white;
+  border-bottom-color: #ffffff;
   bottom: 0;
   display: inline;
   font-weight: bold;
@@ -241,11 +288,11 @@ div.tabs span.tab_other:hover {
 }
 div.tabs span.tab_last a,
 div.tabs span.tab_other a {
-  color: white !important;
+  color: #ffffff !important;
 }
 div.tabs span.tab_last a:hover,
 div.tabs span.tab_other a:hover {
-  color: white !important;
+  color: #ffffff !important;
 }
 
 /* Action buttons */
@@ -269,42 +316,42 @@ div.tabs span.tab_other a:hover {
 .delete-btn[disabled]:hover,
 .selected-action[disabled],
 .selected-action[disabled]:hover {
-  color: white;
-  background-color: silver;
+  color: #ffffff;
+  background-color: #c0c0c0;
 }
 
 /* Default action buttons */
 .action-btn,
 .selected-action {
   background-color: #2ba6cb;
-  color: white !important;
+  color: #ffffff !important;
 }
 .action-btn:hover,
 .selected-action:hover {
   background-color: #1f7994;
-  color: white !important;
+  color: #ffffff !important;
 }
 
 /* Alert-style action buttons (e.g. delete) */
 .delete-btn-ajax,
 .delete-btn {
   background-color: #c60f13;
-  color: white !important;
+  color: #ffffff !important;
 }
 .delete-btn-ajax:hover,
 .delete-btn:hover {
   background-color: #a20c10 !important;
-  color: white !important;
+  color: #ffffff !important;
 }
 
 /* Action buttons in datatables */
 .dataTable .action-btn,
 .dataTable .selected-action {
-  color: white;
+  color: #ffffff;
 }
 .dataTable .delete-btn,
 .dataTable .delete-btn-ajax {
-  color: white;
+  color: #ffffff;
 }
 .dataTable td.actions {
   white-space: nowrap;
@@ -327,11 +374,11 @@ div.tabs span.tab_other a:hover {
   display: inline-block;
   margin-left: 2px;
   margin-right: 2px;
-  color: white;
+  color: #ffffff;
   background: #dddddd;
 }
 #footer button.btn:hover {
-  color: white;
+  color: #ffffff;
   background: #a0a0a0;
 }
 
@@ -349,19 +396,47 @@ div.tabs span.tab_other a:hover {
 
 /* Top bar */
 .top-bar {
+  color: #ffffff;
   background-color: #0c0e0f;
+  z-index: 1000;
+}
+.top-bar .menu-toggle input {
+  margin-right: 5px;
 }
 
-.top-bar-section li:not(.has-form) a:not(.button) {
+.top-bar-section ul li:not(.has-form) a:not(.button) {
+  color: #ffffff;
   background-color: #0c0e0f;
 }
-.top-bar-section li:not(.has-form) a:not(.button):hover {
+.top-bar-section ul li:not(.has-form) a:not(.button):hover {
+  color: #ffffff;
   background-color: #bdb6b0;
 }
-.top-bar-section li.active:not(.has-form) a:not(.button) {
+.top-bar-section ul li.active:not(.has-form) a:not(.button) {
+  color: #ffffff;
   background-color: #73726f;
 }
-.top-bar-section li.active:not(.has-form) a:not(.button):hover {
+.top-bar-section ul li.active:not(.has-form) a:not(.button):hover {
+  color: #ffffff;
+  background-color: #bdb6b0;
+}
+.top-bar-section ul li.has-dropdown:hover > a {
+  background-color: #bdb6b0;
+}
+.top-bar-section ul.dropdown li:not(.has-form) a:not(.button) {
+  color: #ffffff;
+  background-color: #777879;
+}
+.top-bar-section ul.dropdown li:not(.has-form) a:not(.button):hover {
+  color: #ffffff;
+  background-color: #bdb6b0;
+}
+.top-bar-section ul.dropdown li.active:not(.has-form) a:not(.button) {
+  color: #ffffff;
+  background-color: #979899;
+}
+.top-bar-section ul.dropdown li.active:not(.has-form) a:not(.button):hover {
+  color: #ffffff;
   background-color: #bdb6b0;
 }
 .top-bar-section li.menu-home a {
@@ -376,23 +451,38 @@ div.tabs span.tab_other a:hover {
   margin-top: 10px;
 }
 
-.side-nav ul {
+.side-nav li {
+  line-height: 1.2;
   list-style-type: none;
   list-style-position: inside;
+  margin: 0;
+  padding: 0;
 }
-.side-nav li a:not(.button) {
-  color: #222222;
-  padding-left: 8px;
-  padding-right: 8px;
+.side-nav li:last-child {
+  margin-bottom: 4px;
 }
-.side-nav li a:not(.button):hover,
-.side-nav li a:not(.button):focus {
+.side-nav li > a:not(.button) {
+  padding: 3px;
   color: #222222;
-  background: #f1edec;
-  padding-left: 10px;
+  background-color: #bdb6b0;
+}
+.side-nav li:hover > a:not(.button) {
+  color: #222222;
+  background-color: #f1edec;
+}
+.side-nav li.heading {
+  text-transform: uppercase;
+  font-weight: bold;
+  border-top: 1px solid #ada6a0;
+}
+.side-nav li.heading > a:not(button) {
+  padding: 6px 3px 3px 6px;
+  color: #222222;
+  background-color: #bdb6b0;
 }
 .side-nav li.active > a:first-child:not(.button) {
-  color: white;
+  font-weight: bold;
+  color: #ffffff;
   background-color: #73726f;
 }
 .side-nav li.active > a:first-child:not(.button):hover {
@@ -400,38 +490,36 @@ div.tabs span.tab_other a:hover {
   background-color: #f1edec;
 }
 .side-nav li.divider {
-  border-top: 1px solid white;
+  border-top: 1px solid #ffffff;
   height: 0;
-  padding: 0;
   list-style: none;
-}
-.side-nav .heading {
-  text-transform: uppercase;
-  border-top: 1px solid #ada6a0;
-  margin-top: 5px;
 }
 
 /* Datatables */
+.dataTables_length {
+  float: left !important;
+}
 .dataTables_length label {
+  font-size: 0.75rem;
   white-space: nowrap;
   margin-right: 10em;
-  margin-bottom: 1em;
+  margin-bottom: 0.3em;
 }
-.dataTables_length label select {
+.dataTables_length select {
   height: auto;
   padding: 2px;
+  font-size: 0.75rem;
 }
 
-table.dataTable th, table.dataTable td {
+table.dataTable thead th, table.dataTable th, table.dataTable td {
   border: 1px solid #cccccc;
-  padding: 0.7em 0.7em 0.7em 0.5em;
+  padding: 0.2em 1.5em 0.2em 0.5em;
 }
 table.dataTable thead th, table.dataTable thead td {
-  background-color: white;
-  font-size: 1.0em;
+  background-color: #ffffff;
 }
 table.dataTable tbody tr.even {
-  background-color: white;
+  background-color: #ffffff;
 }
 table.dataTable tbody tr.even td.sorting_1 {
   background-color: #fafafa;
@@ -458,26 +546,27 @@ table.dataTable .selected-action {
   padding: 14px 0 28px;
 }
 
+.dataTables_filter {
+  text-align: left;
+  font-size: 0.75rem;
+  margin-right: 3rem;
+}
+
+.dt-export-options {
+  float: right;
+}
+.dt-export-options .list_formats {
+  padding-top: 0;
+  margin-left: 5px;
+}
+.dt-export-options .dt-export {
+  margin: 0 0.085rem;
+}
+
 /* Empty-sections */
-.empty,
-.pt-empty,
-.pt-no-data {
+.empty {
   font-style: italic;
   font-size: 0.8em;
-}
-
-/* Charts */
-.pt-chart-opts {
-  height: 1.0em;
-}
-
-.pt-chart-label {
-  font-size: 0.7em;
-}
-
-.pt-chart-title h4 {
-  font-size: 1.0em;
-  font-weight: normal;
 }
 
 /* jQuery UI widgets */
@@ -504,6 +593,11 @@ table.dataTable .selected-action {
 .ui-widget-content .ui-state-active,
 .ui-widget-header .ui-state-active {
   border-color: #ADA6A0;
+}
+
+#list-btn-add {
+  float: right;
+  margin-right: 1.0rem;
 }
 
 /* Summary tabs */
@@ -545,7 +639,7 @@ input.date.hasDatepicker {
 }
 
 .ui-datepicker-trigger {
-  background-color: rgba(0, 0, 0, 0);
+  background-color: transparent;
   background-image: url("../../img/bootstrap/calendar.gif");
   margin-left: 10px;
 }
@@ -566,7 +660,19 @@ input.date.hasDatepicker {
   margin-top: 0.5em;
 }
 
-/* Miscellaneous */
+/* ImageCropWidget */
+.imagecrop-btn {
+  font-size: 1em;
+  margin-left: 0.2em;
+  padding: 0.3em;
+}
+
+/* Iframe Map (Location Represent links) */
+#close-iframe-map {
+  padding: 7px;
+  margin-top: 5px;
+}
+
 /* Homepage hacks */
 #login_form,
 #register_form,
@@ -575,7 +681,8 @@ input.date.hasDatepicker {
 }
 
 .button-home {
-  width: 135px;
+  width: 205px;
+  height: 45px;
   padding-left: 1rem;
   padding-right: 1rem;
 }

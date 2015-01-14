@@ -2,7 +2,7 @@
 
 """ Resource Import Tools
 
-    @copyright: 2011-14 (c) Sahana Software Foundation
+    @copyright: 2011-15 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -1233,11 +1233,11 @@ class S3Importer(S3Method):
                In ajax this will be a json response
 
                In addition the following values will be made available:
-               totalRecords         Number of records in the filtered data set
-               totalDisplayRecords  Number of records to display
+               recordsTotal         Number of records in the filtered data set
+               recordsFiltered  Number of records to display
                start                Start point in the ordered data set
                limit                Number of records in the ordered set
-               NOTE: limit - totalDisplayRecords = total cached
+               NOTE: limit - recordsFiltered = total cached
         """
 
         from s3data import S3DataTable
@@ -1265,9 +1265,9 @@ class S3Importer(S3Method):
         # Start/Limit
         if representation == "aadata":
             get_vars = request.get_vars
-            start = get_vars.get("iDisplayStart", None)
-            limit = get_vars.get("iDisplayLength", None)
-            sEcho = int(get_vars.sEcho or 0)
+            start = get_vars.get("displayStart", None)
+            limit = get_vars.get("pageLength", None)
+            draw = int(get_vars.draw or 0)
         else: # catch all
             start = 0
             limit = s3.ROWSPERPAGE
@@ -1291,7 +1291,7 @@ class S3Importer(S3Method):
                                orderby=orderby,
                                left=left)
         rows = data["rows"]
-        
+
         displayrows = data["numrows"]
         if totalrows is None:
             totalrows = displayrows
@@ -1313,7 +1313,7 @@ class S3Importer(S3Method):
             output = dt.json(totalrows,
                              displayrows,
                              datatable_id,
-                             sEcho,
+                             draw,
                              dt_bulk_actions = [current.T("Import")])
         else:
             # Initial HTML response
@@ -1694,7 +1694,7 @@ class S3Importer(S3Method):
                             Field("completed_details", "text",
                                   readable=False,
                                   writable=False))
-                          
+
         return db[cls.UPLOAD_TABLE_NAME]
 
 # =============================================================================
@@ -1804,7 +1804,7 @@ class S3ImportItem(object):
         xml = current.xml
 
         ERROR = xml.ATTRIBUTE["error"]
-        
+
         self.element = element
         if table is None:
             tablename = element.get(xml.ATTRIBUTE["name"], None)
@@ -1902,7 +1902,7 @@ class S3ImportItem(object):
                     self.method = DELETE
             else:
                 self.method = UPDATE
-                
+
         else:
             if data[DELETED]:
                 if data[REPLACEDBY]:
@@ -2002,7 +2002,7 @@ class S3ImportItem(object):
         if self.method in (DELETE, MERGE):
             self.accepted = True if self.id else False
             return True
-                
+
         # Set dynamic defaults for new records
         if not self.id:
             self._dynamic_defaults(self.data)
@@ -2047,7 +2047,7 @@ class S3ImportItem(object):
 
         missing = [fname for fname in required_fields
                          if fname not in all_fields]
-            
+
         if missing:
             original = self.original
             if original:
@@ -2175,7 +2175,7 @@ class S3ImportItem(object):
                 element = parent.element
                 if not element.get(ATTRIBUTE.error, False):
                     element.set(ATTRIBUTE.error, str(parent.error))
-                    
+
             return ignore_errors
 
         elif self.method not in (MERGE, DELETE) and self.components:
@@ -2458,7 +2458,7 @@ class S3ImportItem(object):
                                                self.skip and "skippe" or \
                                                method))
             return True
-            
+
         else:
             raise RuntimeError("unknown import method: %s" % method)
 
@@ -3103,19 +3103,19 @@ class S3ImportJob():
         TAG = xml.TAG
         UID = xml.UID
         reference_list = []
-        
+
         root = None
         if tree is not None:
             if isinstance(tree, etree._Element):
                 root = tree
             else:
                 root = tree.getroot()
-                
+
         if lookup:
             references = [lookup]
         else:
             references = element.findall("reference")
-            
+
         for reference in references:
 
             if lookup:
@@ -3327,7 +3327,7 @@ class S3ImportJob():
         for item_id in import_list:
             item = items[item_id]
             error = None
-            
+
             if item.accepted is not False:
                 logged = False
                 success = item.commit(ignore_errors=ignore_errors)
@@ -3338,7 +3338,7 @@ class S3ImportJob():
 
             if not success:
                 failed = True
-                
+
             error = item.error
             if error:
                 current.log.error(error)
@@ -3349,7 +3349,7 @@ class S3ImportJob():
                         element.set(ATTRIBUTE.error, str(self.error))
                     if not logged:
                         self.error_tree.append(deepcopy(element))
-                    
+
             elif item.tablename == tablename:
                 count += 1
                 if mtime is None or item.mtime > mtime:
@@ -3361,10 +3361,10 @@ class S3ImportJob():
                         updated.append(item.id)
                     elif item.method in (METHOD.MERGE, METHOD.DELETE):
                         deleted.append(item.id)
-                        
+
         if failed:
             return False
-            
+
         self.count = count
         self.mtime = mtime
         self.created = created
@@ -3394,7 +3394,7 @@ class S3ImportJob():
                             Field("tablename"),
                             Field("timestmp", "datetime",
                                   default=datetime.utcnow()))
-                                  
+
         return db[cls.JOB_TABLE_NAME]
 
     # -------------------------------------------------------------------------
@@ -3417,7 +3417,7 @@ class S3ImportJob():
                             Field("ritems", "list:string"),
                             Field("citems", "list:string"),
                             Field("parent", length=128))
-                            
+
         return db[cls.ITEM_TABLE_NAME]
 
     # -------------------------------------------------------------------------
@@ -3630,9 +3630,16 @@ class S3BulkImporter(object):
                 (csvPath, csvFile) = os.path.split(csvFileName)
                 if csvPath != "":
                     path = os.path.join(request.folder,
-                                        "private",
+                                        "modules",
                                         "templates",
                                         csvPath)
+                    # @todo: deprecate this block once migration completed
+                    if not os.path.exists(path):
+                        # Non-standard location (legacy template)?
+                        path = os.path.join(current.request.folder,
+                                            "private",
+                                            "templates",
+                                            csvPath)
                 csv = os.path.join(path, csvFile)
 
             xslFileName = details[3].strip('" ')
@@ -3655,7 +3662,7 @@ class S3BulkImporter(object):
                         self.errorList.append(
                         "Failed to find a transform file %s, Giving up." % xslFileName)
                         return
-            
+
             if argCnt == 5:
                 extra_data = details[4]
             else:
@@ -3679,9 +3686,16 @@ class S3BulkImporter(object):
                 (csvPath, csvFile) = os.path.split(fileName)
                 if csvPath != "":
                     path = os.path.join(current.request.folder,
-                                        "private",
+                                        "modules",
                                         "templates",
                                         csvPath)
+                    # @todo: deprecate this block once migration completed
+                    if not os.path.exists(path):
+                        # Non-standard location (legacy template)?
+                        path = os.path.join(current.request.folder,
+                                            "private",
+                                            "templates",
+                                            csvPath)
                 csv = os.path.join(path, csvFile)
         extraArgs = None
         if len(details) >= 4:
@@ -3789,7 +3803,7 @@ class S3BulkImporter(object):
                 if errors:
                     self.errorList.extend(errors)
                 current.db.rollback()
-                
+
             auth.rollback = False
 
             # Restore the view
@@ -3873,6 +3887,8 @@ class S3BulkImporter(object):
                     aclValue = aclValue | acl.REVIEW
                 if permission == "APPROVE":
                     aclValue = aclValue | acl.APPROVE
+                if permission == "PUBLISH":
+                    aclValue = aclValue | acl.PUBLISH
                 if permission == "ALL":
                     aclValue = aclValue | acl.ALL
             return aclValue
@@ -3933,14 +3949,14 @@ class S3BulkImporter(object):
                             *acls[rulelist[0]])
 
     # -------------------------------------------------------------------------
-    def import_user(self, csv_filename):
+    def import_user(self, filename):
         """ Import Users from CSV """
 
         current.response.s3.import_prep = current.auth.s3_import_prep
         user_task = [1,
                      "auth",
                      "user",
-                     csv_filename,
+                     filename,
                      os.path.join(current.request.folder,
                                   "static",
                                   "formats",
@@ -3960,12 +3976,12 @@ class S3BulkImporter(object):
                      imagefield):
         """
             Import images, such as a logo or person image
-            
+
             filename     a CSV list of records and filenames
             tablename    the name of the table
             idfield      the field used to identify the record
             imagefield   the field to where the image will be added
-            
+
             Example:
             bi.import_image ("org_logos.csv", "org_organisation", "name", "logo")
             and the file org_logos.csv may look as follows
@@ -4077,41 +4093,54 @@ class S3BulkImporter(object):
                 current.log.error("Unable to create temp folder %s!" % tempPath)
                 return
 
-        # Set the current working directory
-        os.chdir(tempPath)
+        filename = url.split("/")[-1]
+        if extension == "zip":
+            filename = filename.replace(".zip", ".csv")
+        if os.path.exists(os.path.join(tempPath, filename)):
+            current.log.warning("Using cached copy of %s" % filename)
+        else:
+            # Download if we have no cached copy
+            # Set the current working directory
+            os.chdir(tempPath)
+            try:
+                _file = fetch(url)
+            except urllib2.URLError, exception:
+                current.log.error(exception)
+                # Revert back to the working directory as before.
+                os.chdir(cwd)
+                return
 
-        try:
-            _file = fetch(url)
-        except urllib2.URLError, exception:
-            current.log.error(exception)
+            fp = StringIO(_file)
+
+            if extension == "zip":
+                # Need to unzip
+                import zipfile
+                try:
+                    myfile = zipfile.ZipFile(fp)
+                except zipfile.BadZipfile, exception:
+                    # e.g. trying to download through a captive portal
+                    current.log.error(exception)
+                    # Revert back to the working directory as before.
+                    os.chdir(cwd)
+                    return
+                files = myfile.infolist()
+                for f in files:
+                    filename = f.filename
+                    extension = filename.split(".")[-1]
+                    if extension == "csv":
+                        _file = myfile.read(filename)
+                        _f = open(filename, "w")
+                        _f.write(_file)
+                        _f.close()
+                        break
+                myfile.close()
+            else:
+                f = open(filename, "w")
+                f.write(_file)
+                f.close()
+
             # Revert back to the working directory as before.
             os.chdir(cwd)
-            return
-
-        fp = StringIO(_file)
-        if extension == "zip":
-            # Need to unzip
-            import zipfile
-            myfile = zipfile.ZipFile(fp)
-            files = myfile.infolist()
-            for f in files:
-                filename = f.filename
-                extension = filename.split(".")[-1]
-                if extension == "csv":
-                    _file = myfile.read(filename)
-                    _f = open(filename, "w")
-                    _f.write(_file)
-                    _f.close()
-                    break
-            myfile.close()
-        else:
-            filename = url.split("/")[-1]
-            f = open(filename, "w")
-            f.write(_file)
-            f.close()
-
-        # Revert back to the working directory as before.
-        os.chdir(cwd)
 
         task = [1, prefix, resource,
                 os.path.join(tempPath, filename),
@@ -4125,6 +4154,30 @@ class S3BulkImporter(object):
                 None
                 ]
         self.execute_import_task(task)
+
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def import_script(filename):
+        """
+            Run a custom Import Script
+
+            @ToDo: Report Errors during Script run to console better
+        """
+
+        from gluon.cfs import getcfs
+        from gluon.compileapp import build_environment
+        from gluon.restricted import restricted
+
+        environment = build_environment(current.request, current.response, current.session)
+        environment["current"] = current
+        environment["auth"] = current.auth
+        environment["db"] = current.db
+        environment["gis"] = current.gis
+        environment["s3db"] = current.s3db
+        environment["settings"] = current.deployment_settings
+
+        code = getcfs(filename, filename, None)
+        restricted(code, environment, layer=filename)
 
     # -------------------------------------------------------------------------
     def perform_tasks(self, path):

@@ -2,7 +2,7 @@
 
 """ Sahana Eden Vehicle Model
 
-    @copyright: 2009-2014 (c) Sahana Software Foundation
+    @copyright: 2009-2015 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -40,13 +40,10 @@ class S3VehicleModel(S3Model):
         Vehicle Management Functionality
 
         http://eden.sahanafoundation.org/wiki/BluePrint/Vehicle
-
-        @ToDo: Merge into Transport module
     """
 
     names = ("vehicle_vehicle_type",
              "vehicle_vehicle",
-             "vehicle_gps",
              "vehicle_vehicle_id",
              )
 
@@ -55,10 +52,10 @@ class S3VehicleModel(S3Model):
         T = current.T
         db = current.db
 
-        asset_id = self.asset_asset_id
-
         crud_strings = current.response.s3.crud_strings
         define_table = self.define_table
+        float_represent = IS_FLOAT_AMOUNT.represent
+        int_represent = IS_INT_AMOUNT.represent
 
         # ---------------------------------------------------------------------
         # Vehicle Types
@@ -77,6 +74,48 @@ class S3VehicleModel(S3Model):
                      #      readable = hierarchical_vehicle_types,
                      #      writable = hierarchical_vehicle_types,
                      #      ),
+                     Field("vehicle_height", "double",
+                           label = T("Vehicle Height (m)"),
+                           represent = lambda v: \
+                                       float_represent(v, precision=2),
+                           ),
+                     Field("vehicle_weight", "double",
+                           comment = T("Gross Vehicle Weight Rating (GVWR)"),
+                           label = T("Vehicle Weight (kg)"),
+                           represent = lambda v: \
+                                       float_represent(v, precision=2),
+                           ),
+                     Field("weight", "double",
+                           label = T("Payload Weight (kg)"),
+                           represent = lambda v: \
+                                       float_represent(v, precision=2),
+                           comment = DIV(_class = "tooltip",
+                                         _title = "%s|%s" %
+                                                  (T("Payload Weight"),
+                                                   T("Gross Vehicle Weight Rating (GVWR) minus Curb Weight")
+                                                   )
+                                         ),
+                           ),
+                     Field("length", "double",
+                           label = T("Payload Length (m)"),
+                           represent = lambda v: \
+                                       float_represent(v, precision=2),
+                           ),
+                     Field("width", "double",
+                           label = T("Payload Width (m)"),
+                           represent = lambda v: \
+                                       float_represent(v, precision=2),
+                           ),
+                     Field("height", "double",
+                           label = T("Payload Height (m)"),
+                           represent = lambda v: \
+                                       float_represent(v, precision=2),
+                           ),
+                     Field("volume", "double",
+                           label = T("Payload Volume (m3)"),
+                           represent = lambda v: \
+                                       float_represent(v, precision=2),
+                           ),
                      s3_comments(),
                      *s3_meta_fields())
 
@@ -103,13 +142,14 @@ class S3VehicleModel(S3Model):
                                           ondelete = "RESTRICT",
                                           represent = type_represent,
                                           requires = IS_EMPTY_OR(
-                                                        IS_ONE_OF(db, "event_vehicle_type.id",
+                                                        IS_ONE_OF(db, "vehicle_vehicle_type.id",
                                                                   type_represent,
-                                                                  orderby="event_vehicle_type.code",
+                                                                  orderby="vehicle_vehicle_type.code",
                                                                   sort=True)),
                                           sortby = "code",
-                                          #widget = event_type_widget,
-                                          #comment = event_type_comment,
+                                          # Allow changing by whether hierarchical or not
+                                          #widget = vehicle_type_widget,
+                                          #comment = vehicle_type_comment,
                                           )
 
         # ---------------------------------------------------------------------
@@ -118,7 +158,7 @@ class S3VehicleModel(S3Model):
         #
         tablename = "vehicle_vehicle"
         define_table(tablename,
-                     asset_id(),
+                     self.asset_asset_id(),
                      vehicle_type_id(),
                      Field("name",
                            comment = T("e.g. License Plate"),
@@ -129,14 +169,12 @@ class S3VehicleModel(S3Model):
                            ),
                      Field("mileage", "integer",
                            label = T("Current Mileage"),
-                           represent = lambda v, row=None: \
-                            IS_INT_AMOUNT.represent(v),
+                           represent = lambda v: int_represent(v),
                            ),
                      Field("service_mileage", "integer",
                            comment = T("Mileage"),
                            label = T("Service Due"),
-                           represent = lambda v, row=None: \
-                            IS_INT_AMOUNT.represent(v),
+                           represent = lambda v: int_represent(v),
                            ),
                      s3_date("service_date",
                              label = T("Service Due"),
@@ -178,44 +216,6 @@ class S3VehicleModel(S3Model):
                        )
 
         # ---------------------------------------------------------------------
-        # GPS records
-        # - designed to be pulled in automatically, not entered manually
-        #
-        # @ToDo: Move these to gis.py - nothing here is vehicle-specific
-        #
-        tablename = "vehicle_gps"
-        define_table(tablename,
-                     asset_id(),
-                     Field("lat",
-                           label = T("Latitude"),
-                           requires = IS_LAT(),
-                           ),
-                     Field("lon",
-                           label = T("Longitude"),
-                           requires = IS_LON(),
-                           ),
-                     Field("direction",
-                           label = T("Direction"),
-                           ),
-                     Field("speed",
-                           label = T("Speed"),
-                           ),
-                     *s3_meta_fields())
-
-        # CRUD strings
-        crud_strings[tablename] = Storage(
-            label_create = T("Add GPS data"),
-            title_display = T("GPS data"),
-            title_list = T("GPS data"),
-            title_update = T("Edit GPS data"),
-            label_list_button = T("List GPS data"),
-            label_delete_button = T("Delete GPS data"),
-            msg_record_created = T("GPS data added"),
-            msg_record_modified = T("GPS data updated"),
-            msg_record_deleted = T("GPS data deleted"),
-            msg_list_empty = T("No GPS data currently registered"))
-
-        # ---------------------------------------------------------------------
         # Pass names back to global scope (s3.*)
         #
         return dict(vehicle_vehicle_id = vehicle_id,
@@ -232,33 +232,5 @@ class S3VehicleModel(S3Model):
 
         return dict(vehicle_vehicle_id = lambda **attr: dummy("vehicle_id"),
                     )
-
-    # -------------------------------------------------------------------------
-    @staticmethod
-    def vehicle_gps_onaccept(form):
-        """
-            Set the current location from the latest GPS record
-        """
-
-        form_vars = form.vars
-        lat = form_vars.lat
-        lon = form_vars.lon
-        if lat is not None and lon is not None:
-            # Lookup the Asset Code
-            db = current.db
-            table = db.asset_asset
-            vehicle = db(table.id == form_vars.id).select(table.number,
-                                                          limitby=(0, 1)
-                                                          ).first()
-            if vehicle:
-                name = vehicle.number
-            else:
-                name = "vehicle_%i" % form_vars.id
-            # Insert a record into the locations table
-            ltable = db.gis_location
-            location = ltable.insert(name=name, lat=lat, lon=lon)
-            # Set the Current Location of the Asset to this Location
-            # @ToDo: Currently we set the Base Location as Mapping doesn't support S3Track!
-            db(table.id == form_vars.id).update(location_id=location)
 
 # END =========================================================================

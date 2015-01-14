@@ -2,7 +2,7 @@
 
 """ S3 Resources
 
-    @copyright: 2009-2014 (c) Sahana Software Foundation
+    @copyright: 2009-2015 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -39,7 +39,7 @@ __all__ = ("S3AxisFilter",
 import datetime
 import sys
 
-from itertools import chain, groupby
+from itertools import chain
 
 try:
     from cStringIO import StringIO # Faster, where available
@@ -64,7 +64,12 @@ from gluon import current
 from gluon.html import A, TAG
 from gluon.http import HTTP
 from gluon.validators import IS_EMPTY_OR
-from gluon.dal import Row, Rows, Table, Field, Expression
+try:
+    from gluon.dal import Field
+    from gluon.dal.objects import Row, Rows, Table, Expression
+except ImportError:
+    # old web2py
+    from gluon.dal import Row, Rows, Table, Field, Expression
 from gluon.storage import Storage
 from gluon.tools import callback
 
@@ -87,6 +92,9 @@ osetattr = object.__setattr__
 ogetattr = object.__getattribute__
 
 MAXDEPTH = 10
+
+# Compact JSON encoding
+#SEPARATORS = (",", ":")
 
 # =============================================================================
 class S3Resource(object):
@@ -220,6 +228,8 @@ class S3Resource(object):
 
         self.fields = table.fields
         self._id = table._id
+
+        self.defaults = None
 
         # Hooks ---------------------------------------------------------------
 
@@ -365,7 +375,7 @@ class S3Resource(object):
         component.autocomplete = hook.autocomplete
         component.alias = alias
         component.multiple = hook.multiple
-        component.values = hook.values
+        component.defaults = hook.defaults
 
         if hook.filterby is not None:
             filterfor = hook.filterfor
@@ -380,7 +390,7 @@ class S3Resource(object):
             else:
                 component.filter = None
         else:
-            component.filter = None    
+            component.filter = None
 
         # Copy properties to the link
         if component.link is not None:
@@ -561,7 +571,7 @@ class S3Resource(object):
             return data.rows
         else:
             return data
-                                       
+
     # -------------------------------------------------------------------------
     def insert(self, **fields):
         """
@@ -605,9 +615,8 @@ class S3Resource(object):
 
             @return: number of records deleted
         """
-        
+
         s3db = current.s3db
-        
         # Reset error
         self.error = None
 
@@ -644,23 +653,30 @@ class S3Resource(object):
 
         db = current.db
         has_permission = current.auth.s3_has_permission
-        
+
         audit = current.audit
         prefix = self.prefix
         name = self.name
-        
+
         define_resource = s3db.resource
         delete_super = s3db.delete_super
-        
+
         DELETED = current.xml.DELETED
         INTEGRITY_ERROR = current.ERROR.INTEGRITY_ERROR
-        
+
         tablename = self.tablename
-        
+
         if current.deployment_settings.get_security_archive_not_delete() and \
            DELETED in table:
 
-            # Find all deletable rows
+            # Find all references
+            if not cascade:
+                # Must load all models to detect dependencies
+                s3db.load_all_models()
+            if db._lazy_tables:
+                # Must roll out all lazy tables to detect dependencies
+                for tn in db._LAZY_TABLES.keys():
+                    db[tn]
             references = table._referenced_by
             try:
                 rfields = [f for f in references if f.ondelete == "RESTRICT"]
@@ -693,7 +709,7 @@ class S3Resource(object):
                 # Check permission to delete this record
                 if not has_permission("delete", table, record_id=record_id):
                     continue
-                
+
                 error = self.error
                 self.error = None
 
@@ -742,6 +758,7 @@ class S3Resource(object):
                                                     unapproved=True)
                         rresource.delete(cascade=True)
                         if rresource.error:
+                            self.error = rresource.error
                             break
                     elif rfield.ondelete == "SET NULL":
                         try:
@@ -759,7 +776,7 @@ class S3Resource(object):
                 # Unlink all super-records
                 if not self.error and not delete_super(table, row):
                     self.error = INTEGRITY_ERROR
-                    
+
                 if self.error:
                     # Error in deletion cascade: roll back + skip row
                     if not cascade:
@@ -836,7 +853,7 @@ class S3Resource(object):
                 # Check permission to delete this row
                 if not has_permission("delete", table, record_id=record_id):
                     continue
-                
+
                 # @ToDo: ondelete_cascade?
 
                 # Delete super-entity
@@ -1163,11 +1180,11 @@ class S3Resource(object):
             row = current.db(query).select(table._id, limitby=(0, 1)).first()
             if not row:
                 empty = True
-                
+
         # Generate the data table
         rfields = data["rfields"]
         dt = S3DataTable(rfields, rows, orderby=orderby, empty=empty)
-        
+
         return dt, data["numrows"], data["ids"]
 
     # -------------------------------------------------------------------------
@@ -1336,7 +1353,7 @@ class S3Resource(object):
         qfields = ([table._id.name, UID])
         append = qfields.append
         for f in table.fields:
-            
+
             if tablename == "gis_location" and \
                ((f == "the_geom") or (f == "wkt" and current.auth.permission.format != "cap")):
                 # Filter out bulky Polygons
@@ -1385,12 +1402,12 @@ class S3Resource(object):
 
         ids = self._ids = []
         new_id = ids.append
-        
+
         self._uids = []
         new_uid = self._uids.append
         self._rows = []
         new_row = self._rows.append
-        
+
         if rows:
             pkey = table._id.name
             for row in rows:
@@ -1491,7 +1508,7 @@ class S3Resource(object):
             @param key: the record ID
             @param component: the name of the component
             @param link: the name of the link table
-            
+
             @return: a Row (if component is None) or a list of rows
         """
 
@@ -1529,7 +1546,11 @@ class S3Resource(object):
                 lids = [r[rkey] for r in c.link if master_id == r[lkey]]
                 rows = [record for record in rows if record[fkey] in lids]
             else:
-                rows = [record for record in rows if master_id == record[fkey]]
+                try:
+                    rows = [record for record in rows if master_id == record[fkey]]
+                except AttributeError:
+                    # Most likely need to tweak static/formats/geoson/export.xsl
+                    raise AttributeError("Component %s records are missing fkey %s" % (component, fkey))
         else:
             rows = []
         return rows
@@ -1679,6 +1700,8 @@ class S3Resource(object):
                    maxbounds=False,
                    filters=None,
                    pretty_print=False,
+                   location_data=None,
+                   map_data=None,
                    **args):
         """
             Export this resource as S3XML
@@ -1687,19 +1710,27 @@ class S3Resource(object):
             @param limit: maximum number of records to export (slicing)
             @param msince: export only records which have been modified
                             after this datetime
+            @param fields: data fields to include (default: all)
             @param dereference: include referenced resources
+            @param maxdepth:
             @param mcomponents: components of the master resource to
                                 include (list of tablenames), empty list
                                 for all
             @param rcomponents: components of referenced resources to
                                 include (list of tablenames), empty list
                                 for all
+            @param references: foreign keys to include (default: all)
             @param stylesheet: path to the XSLT stylesheet (if required)
             @param as_tree: return the ElementTree (do not convert into string)
             @param as_json: represent the XML tree as JSON
+            @param maxbounds: include lat/lon boundaries in the top
+                              level element (off by default)
             @param filters: additional URL filters (Sync), as dict
                             {tablename: {url_var: string}}
             @param pretty_print: insert newlines/indentation in the output
+            @param location_data: dictionary of location data which has been
+                                  looked-up in bulk ready for xml.gis_encode()
+            @param map_data: dictionary of options which can be read by the map
             @param args: dict of arguments to pass to the XSLT stylesheet
         """
 
@@ -1726,7 +1757,9 @@ class S3Resource(object):
                                 references=references,
                                 filters=filters,
                                 maxbounds=maxbounds,
-                                xmlformat=xmlformat)
+                                xmlformat=xmlformat,
+                                location_data=location_data,
+                                map_data=map_data)
         #if DEBUG:
             #end = datetime.datetime.now()
             #duration = end - _start
@@ -1787,7 +1820,10 @@ class S3Resource(object):
                     rcomponents=None,
                     filters=None,
                     maxbounds=False,
-                    xmlformat=None):
+                    xmlformat=None,
+                    location_data=None,
+                    map_data=None,
+                    ):
         """
             Export the resource as element tree
 
@@ -1797,6 +1833,7 @@ class S3Resource(object):
             @param fields: data fields to include (default: all)
             @param references: foreign keys to include (default: all)
             @param dereference: also export referenced records
+            @param maxdepth:
             @param mcomponents: components of the master resource to
                                 include (list of tablenames), empty list
                                 for all
@@ -1807,6 +1844,10 @@ class S3Resource(object):
                             {tablename: {url_var: string}}
             @param maxbounds: include lat/lon boundaries in the top
                               level element (off by default)
+            @param xmlformat:
+            @param location_data: dictionary of location data which has been
+                                  looked-up in bulk ready for xml.gis_encode()
+            @param map_data: dictionary of options which can be read by the map
         """
 
         xml = current.xml
@@ -1858,40 +1899,48 @@ class S3Resource(object):
         # Total number of results
         results = self.count()
 
-        format = current.auth.permission.format
-        if format == "geojson":
-            if results > current.deployment_settings.get_gis_max_features():
-                headers = {"Content-Type": "application/json"}
-                message = "Too Many Records"
-                status = 509
-                raise HTTP(status,
-                           body=xml.json_message(success=False,
-                                                 statuscode=status,
-                                                 message=message),
-                           web2py_error=message,
-                           **headers)
-            # Lookups per layer not per record
-            if tablename == "gis_layer_shapefile":
-                # GIS Shapefile Layer
-                location_data = current.gis.get_shapefile_geojson(self) or {}
-            elif tablename == "gis_theme_data":
-                # GIS Theme Layer
-                location_data = current.gis.get_theme_geojson(self) or {}
-            else:
-                # e.g. GIS Feature Layer
-                # e.g. Search results
+        if not location_data:
+            format = current.auth.permission.format
+            if format == "geojson":
+                if results > current.deployment_settings.get_gis_max_features():
+                    headers = {"Content-Type": "application/json"}
+                    message = "Too Many Records"
+                    status = 509
+                    raise HTTP(status,
+                               body=xml.json_message(success=False,
+                                                     statuscode=status,
+                                                     message=message),
+                               web2py_error=message,
+                               **headers)
+                # Lookups per layer not per record
+                if tablename == "gis_layer_shapefile":
+                    # GIS Shapefile Layer
+                    location_data = current.gis.get_shapefile_geojson(self) or {}
+                elif tablename == "gis_theme_data":
+                    # GIS Theme Layer
+                    location_data = current.gis.get_theme_geojson(self) or {}
+                else:
+                    # e.g. GIS Feature Layer
+                    # e.g. Search results
+                    location_data = current.gis.get_location_data(self) or {}
+            elif format in ("georss", "kml", "gpx"):
                 location_data = current.gis.get_location_data(self) or {}
-        elif format in ("georss", "kml", "gpx"):
-            location_data = current.gis.get_location_data(self) or {}
-        else:
-            # @ToDo: Bulk lookup of LatLons for S3XML LatLon-encode
-            location_data = {}
+            else:
+                # @ToDo: Bulk lookup of LatLons for S3XML.latlon()
+                location_data = {}
 
         # Build the tree
         #if DEBUG:
         #    _start = datetime.datetime.now()
 
         root = etree.Element(xml.TAG.root)
+
+        if map_data:
+            # Gets loaded before re-dumping, so no need to compact or avoid double-encoding
+            # NB Ensure we don't double-encode unicode!
+            #root.set("map", json.dumps(map_data, separators=SEPARATORS,
+            #                           ensure_ascii=False))
+            root.set("map", json.dumps(map_data))
 
         export_map = Storage()
         all_references = []
@@ -1931,7 +1980,7 @@ class S3Resource(object):
 
         if reference_map:
             all_references.extend(reference_map)
-            
+
         #if DEBUG:
         #    end = datetime.datetime.now()
         #    duration = end - _start
@@ -1974,7 +2023,7 @@ class S3Resource(object):
 
             # Collect all references from the referenced records
             reference_map = []
-            
+
             REF = xml.ATTRIBUTE.ref
             for tablename in load_map:
                 load_list = load_map[tablename]
@@ -2088,6 +2137,7 @@ class S3Resource(object):
             @param base_url: the base URL of the resource
             @param reference_map: the reference map of the request
             @param export_map: the export map of the request
+            @param lazy:
             @param components: list of components to include from referenced
                                resources (tablenames)
             @param filters: additional URL filters (Sync), as dict
@@ -2095,6 +2145,7 @@ class S3Resource(object):
             @param msince: the minimum update datetime for exported records
             @param master: True of this is the master resource
             @param location_data: the location_data for GIS encoding
+            @param xmlformat:
         """
 
         xml = current.xml
@@ -2120,7 +2171,7 @@ class S3Resource(object):
                                msince=msince,
                                master=master,
                                location_data=location_data)
-                               
+
         if element is not None:
             add = True
 
@@ -2129,10 +2180,10 @@ class S3Resource(object):
 
             resource_components = self.components.values()
             unfiltered = [c for c in resource_components if c.filter is None]
-            
+
             for component in resource_components:
                 ctablename = component.tablename
-                    
+
                 # Shall this component be included?
                 if components and ctablename not in components:
                     continue
@@ -2155,7 +2206,7 @@ class S3Resource(object):
 
                 # Before loading the component: add filters
                 if c._rows is None:
-                    
+
                     # MCI filter
                     ctable = c.table
                     if xml.filter_mci and xml.MCI in ctable.fields:
@@ -2483,7 +2534,7 @@ class S3Resource(object):
         else:
             # job ID given
             pass
-        
+
         response = current.response
         # Flag to let onvalidation/onaccept know this is coming from a Bulk Import
         response.s3.bulk = True
@@ -2814,7 +2865,7 @@ class S3Resource(object):
                         h = None
                     elif h.pkey.name != lookupfield.name:
                         # Also extract the node key for the hierarchy
-                        fields.append(k.pkey)
+                        fields.append(h.pkey)
 
                 # Get the latest record
                 # NB: this assumes that the lookupfield is auto-incremented
@@ -2836,10 +2887,12 @@ class S3Resource(object):
                         represent = s3_unicode(value)
                     if isinstance(represent, A):
                         represent = represent.components[0]
-                        
+
                     item = {"@value": value, "$": represent}
                     if h:
-                        item["@parent"] = str(h.parent(row[h.pkey]))
+                        parent = h.parent(row[h.pkey])
+                        if parent:
+                            item["@parent"] = str(parent)
                     result = [item]
                 else:
                     result = []
@@ -2914,12 +2967,12 @@ class S3Resource(object):
         for component in self.components.values():
             prefix = component.prefix
             name = component.name
-            sub = xml.get_struct(prefix, name,
-                                 alias=component.alias,
-                                 parent=main,
-                                 meta=meta,
-                                 options=options,
-                                 references=references)
+            xml.get_struct(prefix, name,
+                           alias = component.alias,
+                           parent = main,
+                           meta = meta,
+                           options = options,
+                           references = references)
 
         # Transformation
         tree = etree.ElementTree(root)
@@ -3031,7 +3084,7 @@ class S3Resource(object):
     # -------------------------------------------------------------------------
     @staticmethod
     def import_fields(table, data, mandatory=None):
-        
+
         fnames = set(s3_all_meta_field_names())
         fnames.add(table._id.name)
         if mandatory:
@@ -3155,7 +3208,7 @@ class S3Resource(object):
             # Replace default label
             if label is not None:
                 rfield.label = label
-                
+
             # Skip components
             if skip_components:
                 head = rfield.selector.split("$", 1)[0]
@@ -3280,7 +3333,7 @@ class S3Resource(object):
 
         if limit is None:
             return None
-            
+
         if start is None:
             start = 0
         if limit == 0:
@@ -3456,21 +3509,22 @@ class S3Resource(object):
 
         ltable = self.table
         ltn = ltable._tablename
-        s3db = current.s3db
-        onaccept = s3db.get_config(ltn, "create_onaccept",
-                   s3db.get_config(ltn, "onaccept", None))
 
         # Create the link if it does not already exist
         query = ((ltable[lkey] == _lkey) &
                  (ltable[rkey] == _rkey))
         row = current.db(query).select(ltable._id, limitby=(0, 1)).first()
         if not row:
-            form = Storage(vars=Storage({lkey:_lkey, rkey:_rkey}))
-            link_id = ltable.insert(**form.vars)
-            form.vars[ltable._id.name] = link_id
-            s3db.update_super(ltable, form)
+            s3db = current.s3db
+            onaccept = s3db.get_config(ltn, "create_onaccept")
+            if onaccept is None:
+                onaccept = s3db.get_config(ltn, "onaccept")
+            data = {lkey:_lkey, rkey:_rkey}
+            link_id = ltable.insert(**data)
+            data[ltable._id.name] = link_id
+            s3db.update_super(ltable, data)
             if link_id and onaccept:
-                callback(onaccept, form)
+                callback(onaccept, Storage(vars=Storage(data)))
         else:
             link_id = row[ltable._id.name]
         return link_id
@@ -3574,7 +3628,7 @@ class S3Resource(object):
                     else:
                         # Otherwise, we search through the field itself
                         flist.append(field)
-                        
+
             # Build search query
             # @todo: migrate this to S3ResourceQuery?
             opts = Storage()
@@ -3637,21 +3691,33 @@ class S3Resource(object):
                 numcols = int(get_vars[iSortingCols])
             except:
                 numcols = 0
+
             columns = []
+            pkey = str(self._id)
             for i in xrange(numcols):
                 try:
                     iSortCol = int(get_vars["iSortCol_%s" % i])
-                    # Map sortable-column index to the real list_fields
-                    # index: for every non-sortable column to the left
-                    # of sortable column subtract 1
-                    for j in xrange(iSortCol):
-                        if get_vars.get("bSortable_%s" % j, "true") == "false":
-                            iSortCol -= 1
-                    rfield = rfields[iSortCol + 1]
-                except:
-                    # iSortCol_x is either not present in vars or specifies
-                    # a non-existent column (i.e. iSortCol_x >= numcols) =>
-                    # ignore silently
+                except (AttributeError, KeyError):
+                    # iSortCol_x not present in get_vars => ignore
+                    columns.append(Storage(field=None))
+                    continue
+
+                # Map sortable-column index to the real list_fields
+                # index: for every non-id non-sortable column to the
+                # left of sortable column subtract 1
+                for j in xrange(iSortCol):
+                    if get_vars.get("bSortable_%s" % j, "true") == "false":
+                        try:
+                            if rfields[j].colname != pkey:
+                                iSortCol -= 1
+                        except KeyError:
+                            break
+
+                try:
+                    rfield = rfields[iSortCol]
+                except KeyError:
+                    # iSortCol specifies a non-existent column, i.e.
+                    # iSortCol_x>=numcols => ignore
                     columns.append(Storage(field=None))
                 else:
                     columns.append(rfield)
@@ -3676,7 +3742,7 @@ class S3Resource(object):
                 elif ftype[:9] == "reference" and \
                    hasattr(field, "sortby") and field.sortby:
                     # Foreign keys with sortby will be sorted by sortby
-                    
+
                     # Get the lookup table
                     tn = ftype[10:]
                     if parent is not None and \
@@ -3770,7 +3836,7 @@ class S3Resource(object):
                         if v:
                             vappend(v)
                     values = set(chain.from_iterable(values))
-                    
+
                     include, exclude = af.values(rfield)
                     fdict = {}
                     if include:
@@ -3780,9 +3846,9 @@ class S3Resource(object):
                                 fdict[v] = None
                     else:
                         fdict = dict((v, None) for v in values)
-                        
+
                     axisfilter[colname] = fdict
-                    
+
                 else:
                     axisfilter[colname] = dict((row[colname], None)
                                                for row in rows)
@@ -3839,7 +3905,7 @@ class S3Resource(object):
         if id_column is 0:
             fields.insert(0, pkey)
         return fields
-        
+
     # -------------------------------------------------------------------------
     @property
     def _table(self):
@@ -3888,7 +3954,7 @@ class S3AxisFilter(object):
             r = None
 
         op = qdict["op"]
-        
+
         if "tablename" in l:
             if l["tablename"] in tablenames:
                 self.tablename = l["tablename"]
@@ -4026,7 +4092,7 @@ class S3AxisFilter(object):
             li, le = self.l.values(rfield)
             return [], li
         return [], []
-        
+
 # =============================================================================
 class S3ResourceFilter(object):
     """ Class representing a resource filter """
@@ -4061,9 +4127,9 @@ class S3ResourceFilter(object):
         self.query = None
         self.rfltr = None
         self.vfltr = None
-        
+
         self.transformed = None
-        
+
         self.multiple = True
         self.distinct = False
 
@@ -4116,18 +4182,21 @@ class S3ResourceFilter(object):
             if vars:
                 resource.vars = Storage(vars)
 
-                # BBox
-                bbox = self.parse_bbox_query(resource, vars)
-                if bbox is not None:
-                    self.queries.append(bbox)
+                if not vars.get("track"):
+                    # Apply BBox Filter unless using S3Track to geolocate
+                    bbox, joins = self.parse_bbox_query(resource, vars)
+                    if bbox is not None:
+                        self.queries.append(bbox)
+                        if joins:
+                            self.ljoins.update(joins)
 
                 # Filters
                 add_filter = self.add_filter
-                
+
                 # Current concept:
                 # Interpret all URL filters in the context of master
                 queries = S3URLQuery.parse(resource, vars)
-                
+
                 # @todo: Alternative concept (inconsistent?):
                 # Interpret all URL filters in the context of filter_component:
                 #if filter_component and \
@@ -4150,7 +4219,7 @@ class S3ResourceFilter(object):
             pf = parent.rfilter
             if not pf:
                 pf = parent.build_query()
-                
+
             # Extended master query
             self.mquery = mquery & pf.get_query()
 
@@ -4196,7 +4265,7 @@ class S3ResourceFilter(object):
             filters = self.filters
             cfilters = self.cfilters
             self.distinct |= query._joins(self.resource)[1]
-            
+
         else:
             # DAL Query
             filters = self.queries
@@ -4218,7 +4287,7 @@ class S3ResourceFilter(object):
 
         if self.query is not None:
             return self.query
-            
+
         resource = self.resource
 
         query = reduce(lambda x, y: x & y, self.queries, self.mquery)
@@ -4263,12 +4332,12 @@ class S3ResourceFilter(object):
             @param left: get the left joins
             @param as_list: return a flat list rather than a nested dict
         """
-        
+
         if self.query is None:
             self.get_query()
 
         joins = dict(self.ljoins if left else self.ijoins)
-        
+
         resource = self.resource
         for q in self.filters:
             subjoins = q._joins(resource, left=left)[0]
@@ -4303,7 +4372,7 @@ class S3ResourceFilter(object):
 
         if self.query is None:
             self.get_query()
-            
+
         if self.vfltr:
             return self.vfltr.fields()
         else:
@@ -4326,82 +4395,143 @@ class S3ResourceFilter(object):
 
         POLYGON = "POLYGON((%s %s, %s %s, %s %s, %s %s, %s %s))"
 
-        bbox_query = None
-        if get_vars:
-            for k, v in get_vars.items():
-                if k[:4] == "bbox":
-                    table = resource.table
-                    tablename = resource.tablename
-                    fields = table.fields
+        query = None
+        joins = {}
 
-                    fname = None
-                    sname = None
+        if get_vars:
+
+            table = resource.table
+            tablename = resource.tablename
+            fields = table.fields
+
+            introspect = tablename not in tablenames
+            for k, v in get_vars.items():
+
+                if k[:4] == "bbox":
+
+                    if type(v) is list:
+                        v = v[-1]
+                    try:
+                        minLon, minLat, maxLon, maxLat = v.split(",")
+                    except ValueError:
+                        # Badly-formed bbox - ignore
+                        continue
+
+                    # Identify the location reference
+                    field = None
+                    rfield = None
+                    alias = False
+
                     if k.find(".") != -1:
+
+                        # Field specified in query
                         fname = k.split(".")[1]
                         if fname not in fields:
                             # Field not found - ignore
                             continue
-                    elif tablename not in tablenames:
-                        for f in fields:
-                            if not fname and str(table[f].type) == "reference gis_location":
-                                fname = f
-                                break
-                            if not sname and str(table[f].type) == "reference org_site":
-                                sname = f
-                    try:
-                        minLon, minLat, maxLon, maxLat = v.split(",")
-                    except:
-                        # Badly-formed bbox - ignore
-                        continue
-                    else:
-                        bbox_filter = None
-                        if tablename in ("gis_location", "gis_feature_query"):
-                            gtable = table
-                        elif tablename == "gis_layer_shapefile":
-                            gtable = resource.components.items()[0][1].table
-                        else:
-                            gtable = current.s3db.gis_location
-                            if current.deployment_settings.get_gis_spatialdb():
-                                # Use the Spatial Database
-                                minLon = float(minLon)
-                                maxLon = float(maxLon)
-                                minLat = float(minLat)
-                                maxLat = float(maxLat)
-                                bbox = POLYGON % (minLon, minLat,
-                                                  minLon, maxLat,
-                                                  maxLon, maxLat,
-                                                  maxLon, minLat,
-                                                  minLon, minLat)
-                                try:
-                                    # Spatial DAL & Database
-                                    bbox_filter = gtable.the_geom \
-                                                        .st_intersects(bbox)
-                                except:
-                                    # Old DAL or non-spatial database
-                                    pass
-                        if not bbox_filter:
-                            bbox_filter = (gtable.lon > float(minLon)) & \
-                                          (gtable.lon < float(maxLon)) & \
-                                          (gtable.lat > float(minLat)) & \
-                                          (gtable.lat < float(maxLat))
-                        if fname is not None:
-                            # Need a join
-                            join = (gtable.id == table[fname])
-                            bbox = (join & bbox_filter)
-                        elif sname is not None:
-                            # Need a double join
+                        field = table[fname]
+                        if query is not None or "bbox" in get_vars:
+                            # Need alias
+                            alias = True
+
+                    elif introspect:
+
+                        # Location context?
+                        context = resource.get_config("context")
+                        if context and "location" in context:
+                            try:
+                                rfield = resource.resolve_selector("(location)$lat")
+                            except (SyntaxError, AttributeError):
+                                rfield = None
+                            else:
+                                if not rfield.field or rfield.tname != "gis_location":
+                                    # Invalid location context
+                                    rfield = None
+
+                        # Fall back to location_id (or site_id as last resort)
+                        if rfield is None:
+                            fname = None
+                            for f in fields:
+                                ftype = str(table[f].type)
+                                if ftype[:22] == "reference gis_location":
+                                    fname = f
+                                    break
+                                elif not fname and \
+                                     ftype[:18] == "reference org_site":
+                                    fname = f
+                            field = table[fname] if fname else None
+
+                        if not rfield and not field:
+                            # No location reference could be identified => skip
+                            continue
+
+                    # Construct the join to gis_location
+                    gtable = current.s3db.gis_location
+                    if rfield:
+                        joins.update(rfield.left)
+
+                    elif field:
+                        fname = field.name
+                        gtable = current.s3db.gis_location
+                        if alias:
+                            gtable = gtable.with_alias("gis_%s_location" % fname)
+                        tname = str(gtable)
+                        ftype = str(field.type)
+                        if ftype == "reference gis_location":
+                            joins[tname] = [gtable.on(gtable.id == field)]
+                        elif ftype == "reference org_site":
                             stable = current.s3db.org_site
-                            join = (stable.site_id == table[sname]) & \
-                                   (gtable.id == stable.location_id)
-                            bbox = (join & bbox_filter)
-                        else:
-                            bbox = bbox_filter
-                    if bbox_query is None:
-                        bbox_query = bbox
+                            if alias:
+                                stable = stable.with_alias("org_%s_site" % fname)
+                            joins[tname] = [stable.on(stable.site_id == field),
+                                            gtable.on(gtable.id == stable.location_id)]
+                        elif introspect:
+                            # => not a location or site reference
+                            continue
+
+                    elif tablename in ("gis_location", "gis_feature_query"):
+                        gtable = table
+
+                    elif tablename == "gis_layer_shapefile":
+                        # @todo: this needs a join too, no?
+                        gtable = resource.components.items()[0][1].table
+
+                    # Construct the bbox filter
+                    bbox_filter = None
+                    if current.deployment_settings.get_gis_spatialdb():
+                        # Use the Spatial Database
+                        minLon = float(minLon)
+                        maxLon = float(maxLon)
+                        minLat = float(minLat)
+                        maxLat = float(maxLat)
+                        bbox = POLYGON % (minLon, minLat,
+                                          minLon, maxLat,
+                                          maxLon, maxLat,
+                                          maxLon, minLat,
+                                          minLon, minLat)
+                        try:
+                            # Spatial DAL & Database
+                            bbox_filter = gtable.the_geom \
+                                                .st_intersects(bbox)
+                        except:
+                            # Old DAL or non-spatial database
+                            pass
+
+                    if bbox_filter is None:
+                        # Standard Query
+                        bbox_filter = (gtable.lon > float(minLon)) & \
+                                      (gtable.lon < float(maxLon)) & \
+                                      (gtable.lat > float(minLat)) & \
+                                      (gtable.lat < float(maxLat))
+
+                    # Add bbox filter to query
+                    if query is None:
+                        query = bbox_filter
                     else:
                         # Merge with the previous BBOX
-                        bbox_query = bbox_query & bbox
-        return bbox_query
+                        query = query & bbox_filter
+
+        return query, joins
 
     # -------------------------------------------------------------------------
     def __call__(self, rows, start=None, limit=None):
@@ -4414,7 +4544,7 @@ class S3ResourceFilter(object):
         """
 
         vfltr = self.get_filter()
-        
+
         if rows is None or vfltr is None:
             return rows
         resource = self.resource
@@ -4467,7 +4597,7 @@ class S3ResourceFilter(object):
         if vfltr is None and not distinct:
 
             tablename = table._tablename
-            
+
             ijoins = S3Joins(tablename, self.get_joins(left=False))
             ljoins = S3Joins(tablename, self.get_joins(left=True))
             ljoins.add(left)
@@ -4533,7 +4663,7 @@ class S3ResourceFilter(object):
 
             @return: a Storage of URL GET variables
         """
-        
+
         resource = self.resource
         url_vars = Storage()
         for f in self.filters:
@@ -4594,7 +4724,7 @@ class S3ResourceData(object):
         # field authorization (each joined table is authorized
         # separately)
         self.aqueries = aqueries = {}
-        
+
         # Joins (inner/left)
         tablename = table._tablename
         self.ijoins = ijoins = S3Joins(tablename)
@@ -4602,7 +4732,7 @@ class S3ResourceData(object):
 
         # The query
         master_query = query = resource.get_query()
-        
+
         # Joins from filters
         # @note: in components, rfilter is None until after get_query!
         rfilter = resource.rfilter
@@ -4614,7 +4744,7 @@ class S3ResourceData(object):
         filter_tables.update(master_tables)
 
         resolve = resource.resolve_selectors
-        
+
         # Virtual fields and extra fields required by filter
         virtual_fields = rfilter.get_fields()
         vfields, vijoins, vljoins, d = resolve(virtual_fields, show=False)
@@ -4737,7 +4867,7 @@ class S3ResourceData(object):
                                        prefer=ljoins)
         master_ljoins = ljoins.as_list(tablenames=master_tables,
                                        aqueries=aqueries)
-                                       
+
         # Suspend (mandatory) virtual fields if so requested
         if not virtual:
             vf = table.virtualfields
@@ -4840,7 +4970,7 @@ class S3ResourceData(object):
                 else:
                     # results = {RecordID: {ColumnName: Value}}
                     colname = dfield.colname
-                    
+
                     fdata = field_data[colname]
                     frecords = fdata[1]
                     list_type = fdata[3]
@@ -4862,7 +4992,7 @@ class S3ResourceData(object):
     def init_field_data(self, rfields):
         """
             Initialize field data and effort estimates for representation
-            
+
             Field data: allow representation per unique value (rather than
                         record by record), together with bulk-represent this
                         can reduce the total lookup effort per field to a
@@ -4903,15 +5033,18 @@ class S3ResourceData(object):
         tablename = table._tablename
         pkey = str(table._id)
 
-        field_data = {pkey: ({}, {}, False, False, False)}
+        field_data = {pkey: ({}, {}, False, False, False, False)}
         effort = {pkey: 0}
         for dfield in rfields:
             colname = dfield.colname
             effort[colname] = 0
+            ftype = dfield.ftype[:4]
             field_data[colname] = ({}, {},
                                    dfield.tname != tablename,
-                                   dfield.ftype[:5] == "list:",
-                                   dfield.virtual)
+                                   ftype == "list",
+                                   dfield.virtual,
+                                   ftype == "json",
+                                   )
 
         self.field_data = field_data
         self.effort = effort
@@ -5158,7 +5291,7 @@ class S3ResourceData(object):
                 # Is the field in a joined table?
                 tname = rfield.tname
                 joined = tname == tablename or tname in joined_tables
-                
+
                 if as_rows or joined:
                     colname = rfield.colname
                     if rfield.show:
@@ -5187,19 +5320,19 @@ class S3ResourceData(object):
                      additionally required left joins are stored per
                      table in the inner dict as "_left"
         """
-        
+
         resource = self.resource
         table = resource.table
         tablename = table._tablename
 
         fields = {}
         for rfield in all_fields:
-            
+
             colname = rfield.colname
             if colname in master_fields or rfield.tname == tablename:
                 continue
             tname = rfield.tname
-            
+
             if tname not in fields:
                 sfields = fields[tname] = {}
                 left = rfield.left
@@ -5209,12 +5342,12 @@ class S3ResourceData(object):
                 sfields["_left"] = joins
             else:
                 sfields = fields[tname]
-                
+
             if colname not in sfields:
                 sfields[colname] = rfield.field
-                
+
         return fields
-        
+
     # -------------------------------------------------------------------------
     def joined_query(self, tablename, query, fields, records, represent=False):
         """
@@ -5313,11 +5446,12 @@ class S3ResourceData(object):
         getkey = get(pkey)
         getval = [get(c) for c in columns]
 
+        from itertools import groupby
         for k, g in groupby(rows, key=getkey):
             group = list(g)
             record = records.get(k, {})
             for idx, col in enumerate(columns):
-                fvalues, frecords, joined, list_type, virtual = field_data[col]
+                fvalues, frecords, joined, list_type, virtual, json_type = field_data[col]
                 values = record.get(col, {})
                 lazy = False
                 for row in group:
@@ -5341,6 +5475,13 @@ class S3ResourceData(object):
                                 values[v] = None
                             if represent and v not in fvalues:
                                 fvalues[v] = None
+                    elif json_type:
+                        # Returns unhashable types
+                        value = json.dumps(value)
+                        if value not in values:
+                            values[value] = None
+                        if represent and value not in fvalues:
+                            fvalues[value] = None
                     else:
                         if value not in values:
                             values[value] = None
@@ -5378,7 +5519,7 @@ class S3ResourceData(object):
         colname = rfield.colname
 
         field_data = self.field_data
-        fvalues, frecords, joined, list_type, virtual = field_data[colname]
+        fvalues, frecords, joined, list_type, virtual, json_type = field_data[colname]
 
         # Get the renderer
         renderer = rfield.represent
@@ -5387,11 +5528,11 @@ class S3ResourceData(object):
             renderer = lambda v: s3_unicode(v) if v is not None else none
 
         # Deactivate linkto if so requested
-        if not show_links and hasattr(renderer, "linkto"):
-            linkto = renderer.linkto
-            renderer.linkto = None
+        if not show_links and hasattr(renderer, "show_link"):
+            show_link = renderer.show_link
+            renderer.show_link = False
         else:
-            linkto = None
+            show_link = None
 
         per_row_lookup = list_type and \
                          self.effort[colname] < len(fvalues) * 30
@@ -5399,7 +5540,7 @@ class S3ResourceData(object):
         # Render all unique values
         if hasattr(renderer, "bulk") and not list_type:
             per_row_lookup = False
-            fvalues = renderer.bulk(fvalues.keys(), list_type = False)
+            fvalues = renderer.bulk(fvalues.keys(), list_type=False)
         elif not per_row_lookup:
             for value in fvalues:
                 try:
@@ -5468,11 +5609,11 @@ class S3ResourceData(object):
                     result["_row"][colname] = record.keys()
 
         # Restore linkto
-        if linkto is not None:
-            renderer.linkto = linkto
+        if show_link is not None:
+            renderer.show_link = show_link
 
         return results
-        
+
     # -------------------------------------------------------------------------
     def __getitem__(self, key):
         """

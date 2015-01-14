@@ -31,6 +31,15 @@ def index():
 def budget():
     """ RESTful CRUD controller """
 
+    def prep(r):
+        if r.method == "timeplot" and \
+           r.get_vars.get("component") == "allocation":
+            # Disregard unterminated allocations (those without start date)
+            query = (FS("allocation.start_date") != None)
+            r.resource.add_component_filter("allocation", query)
+        return True
+    s3.prep = prep
+
     return s3_rest_controller(rheader=s3db.budget_rheader)
 
 # =============================================================================
@@ -58,8 +67,8 @@ def item():
     """ REST controller for items """
 
     # @todo: link to supply items
-    
-    s3.formats.pdf = URL(f="item_export_pdf")
+
+    #s3.formats.pdf = URL(f="item_export_pdf")
 
     return s3_rest_controller()
 
@@ -67,8 +76,8 @@ def item():
 def kit():
     """ REST controller for kits """
 
-    s3.formats.pdf = URL(f="kit_export_pdf")
-    s3.formats.xls = URL(f="kit_export_xls")
+    #s3.formats.pdf = URL(f="kit_export_pdf")
+    #s3.formats.xls = URL(f="kit_export_xls")
 
     if len(request.args) == 2:
         s3db.configure("budget_kit",
@@ -176,7 +185,7 @@ def parameter():
             output["buttons"].pop("list_btn", None)
         return output
     s3.postp = postp
-    
+
     r = s3_request(args=[str(record_id)])
     return r()
 

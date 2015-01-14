@@ -3,7 +3,7 @@
     Sahana Eden Volunteers Management 
     (Extends modules/eden/hrm.py)
 
-    @copyright: 2012-14 (c) Sahana Software Foundation
+    @copyright: 2012-15 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -358,9 +358,9 @@ class S3VolunteerClusterModel(S3Model):
         # ---------------------------------------------------------------------
         # Volunteer Cluster Link Table
         cluster_type_filter = '''
-S3OptionsFilter({
- 'triggerName':'vol_cluster_type_id',
- 'targetName':'vol_cluster_id',
+$.filterOptionsS3({
+ 'trigger':'vol_cluster_type_id',
+ 'target':'vol_cluster_id',
  'lookupKey':'vol_cluster_type_id',
  'lookupPrefix':'vol',
  'lookupResource':'cluster',
@@ -671,6 +671,7 @@ def vol_service_record(r, **attr):
 
         return output
 
+    from s3.s3export import S3Exporter
     exporter = S3Exporter().pdf
     return exporter(r.resource,
                     request = r,

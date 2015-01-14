@@ -2,7 +2,7 @@
 
 """ Sahana Eden Content Management System Model
 
-    @copyright: 2012-2014 (c) Sahana Software Foundation
+    @copyright: 2012-2015 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -159,7 +159,7 @@ class S3ContentModel(S3Model):
 
         # ---------------------------------------------------------------------
         # Posts
-        # - single blocks of rich text which can be embedded into a page,
+        # - single blocks of [rich] text which can be embedded into a page,
         #   be viewed as full pages or as part of a Series
         #
 
@@ -184,6 +184,7 @@ class S3ContentModel(S3Model):
                            ),
                      Field("body", "text", notnull=True,
                            label = T("Body"),
+                           represent = body_represent,
                            widget = body_widget,
                            ),
                      # @ToDo: Move this to link table?
@@ -342,6 +343,7 @@ class S3ContentModel(S3Model):
         # Components
         add_components(tablename,
                        cms_comment = "post_id",
+                       cms_post_layer = "post_id",
                        cms_post_module = "post_id",
                        cms_post_user = {"name": "bookmark",
                                         "joinby": "post_id",
@@ -353,7 +355,7 @@ class S3ContentModel(S3Model):
                                   },
 
                        # For filter widget
-                       cms_post_tag = "post_id",
+                       cms_tag_post = "post_id",
 
                        cms_post_organisation = {"joinby": "post_id",
                                                 # @ToDo: deployment_setting
@@ -472,13 +474,25 @@ class S3ContentModel(S3Model):
             msg_record_deleted = T("Tag deleted"),
             msg_list_empty = T("No tags currently defined"))
 
+        # Reusable field
+        represent = S3Represent(lookup=tablename, translate=True)
+        tag_id = S3ReusableField("tag_id", "reference %s" % tablename,
+                                 label = T("Tag"),
+                                 ondelete = "CASCADE",
+                                 represent = represent,
+                                 requires = IS_EMPTY_OR(
+                                                IS_ONE_OF(db, "cms_tag.id",
+                                                          represent)),
+                                 sortby = "name",
+                                 )
+
         # ---------------------------------------------------------------------
         # Tags <> Posts link table
         #
         tablename = "cms_tag_post"
         define_table(tablename,
-                     post_id(empty=False),
-                     Field("tag_id", "reference cms_tag"),
+                     post_id(empty = False),
+                     tag_id(empty = False),
                      *s3_meta_fields())
 
         # CRUD Strings
@@ -1171,7 +1185,7 @@ def cms_customise_post_fields():
     field.label = ""
     field.represent = s3db.gis_LocationRepresent(sep=" | ")
     # Required
-    field.requires = IS_LOCATION_SELECTOR2()
+    field.requires = IS_LOCATION()
 
     list_fields = ["series_id",
                    "location_id",
@@ -1191,7 +1205,9 @@ def cms_customise_post_fields():
     if org_group_field:
         lappend(org_group_field)
 
-    lappend("document.file")
+    if settings.get_cms_show_attachments():
+        lappend("document.file")
+
     if settings.get_cms_show_links():
         lappend("document.url")
 

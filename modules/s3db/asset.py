@@ -2,7 +2,7 @@
 
 """ Sahana Eden Assets Model
 
-    @copyright: 2009-2014 (c) Sahana Software Foundation
+    @copyright: 2009-2015 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -28,11 +28,14 @@
 """
 
 __all__ = ("S3AssetModel",
+           "S3AssetHRModel",
            "S3AssetTeamModel",
+           "S3AssetTelephoneModel",
            #"asset_rheader",
            "asset_types",
            "asset_log_status",
            "asset_controller",
+           "asset_AssetRepresent",
            )
 
 try:
@@ -50,13 +53,13 @@ from ..s3 import *
 from s3layouts import S3AddResourceLink
 
 ASSET_TYPE_VEHICLE   = 1   # => Extra Tab(s) for Registration Documents, Fuel Efficiency
-ASSET_TYPE_RADIO     = 2   # => Extra Tab(s) for Radio Channels/Frequencies
+#ASSET_TYPE_RADIO     = 2   # => Extra Tab(s) for Radio Channels/Frequencies
 ASSET_TYPE_TELEPHONE = 3   # => Extra Tab(s) for Contact Details & Airtime Billing
 ASSET_TYPE_OTHER     = 4   # => No extra Tabs
 
 # To pass to global scope
 asset_types = {"VEHICLE"    : ASSET_TYPE_VEHICLE,
-               "RADIO"      : ASSET_TYPE_RADIO,
+               #"RADIO"      : ASSET_TYPE_RADIO,
                "TELEPHONE"  : ASSET_TYPE_TELEPHONE,
                "OTHER"      : ASSET_TYPE_OTHER,
                }
@@ -114,7 +117,10 @@ class S3AssetModel(S3Model):
 
         settings = current.deployment_settings
         org_site_label = settings.get_org_site_label()
-        vehicle = settings.has_module("vehicle")
+        #radios = settings.get_asset_radios()
+        telephones = settings.get_asset_telephones()
+        vehicles = settings.has_module("vehicle")
+        types = telephones or vehicles
 
         # Shortcuts
         add_components = self.add_components
@@ -126,11 +132,14 @@ class S3AssetModel(S3Model):
         #--------------------------------------------------------------------------
         # Assets
         #
-        asset_type_opts = {ASSET_TYPE_VEHICLE     : T("Vehicle"),
-                           #ASSET_TYPE_RADIO      : T("Radio"),
-                           #ASSET_TYPE_TELEPHONE  : T("Telephone"),
-                           ASSET_TYPE_OTHER       : T("Other"),
+        asset_type_opts = {ASSET_TYPE_OTHER : T("Other"),
                            }
+        #if radios:
+        #    asset_type_opts[ASSET_TYPE_RADIO] = T("Radio")
+        if telephones:
+            asset_type_opts[ASSET_TYPE_TELEPHONE] = T("Telephone")
+        if vehicles:
+            asset_type_opts[ASSET_TYPE_VEHICLE] = T("Vehicle")
 
         asset_condition_opts = {1: T("Good Condition"),
                                 2: T("Minor Damage"),
@@ -154,15 +163,15 @@ class S3AssetModel(S3Model):
                      Field("number",
                            label = T("Asset Number"),
                            ),
-                     # @ToDo: We could set this automatically based on Item Category
                      Field("type", "integer",
+                           # @ToDo: We could set this automatically based on Item Category
                            default = ASSET_TYPE_OTHER,
                            label = T("Type"),
                            represent = lambda opt: \
                                        asset_type_opts.get(opt, UNKNOWN_OPT),
                            requires = IS_IN_SET(asset_type_opts),
-                           readable = vehicle,
-                           writable = vehicle,
+                           readable = types,
+                           writable = types,
                            ),
                      item_id(represent = supply_item_represent,
                              requires = IS_ONE_OF(asset_items_set,
@@ -178,7 +187,7 @@ class S3AssetModel(S3Model):
                            label = T("Kit?"),
                            represent = lambda opt: \
                                        (opt and [T("Yes")] or [NONE])[0],
-                           # Enable in template if-required
+                           # @ToDo: deployment_setting
                            readable = False,
                            writable = False,
                            ),
@@ -188,13 +197,13 @@ class S3AssetModel(S3Model):
                                               ),
                                      required = True,
                                      script = '''
-S3OptionsFilter({
- 'triggerName':'organisation_id',
- 'targetName':'site_id',
+$.filterOptionsS3({
+ 'trigger':'organisation_id',
+ 'target':'site_id',
  'lookupResource':'site',
  'lookupPrefix':'org',
  'lookupField':'site_id',
- 'lookupURL':S3.Ap.concat('/org/sites_for_org/'),
+ 'lookupURL':S3.Ap.concat('/org/sites_for_org/')
 })''',
                                      ),
                      # This is a component, so needs to be a super_link
@@ -315,6 +324,20 @@ S3OptionsFilter({
         list_fields.extend(("cond",
                             "comments"))
 
+        if settings.get_org_branches():
+            org_filter = S3HierarchyFilter("organisation_id",
+                                           # Can be unhidden in customise_xx_resource if there is a need to use a default_filter
+                                           hidden = True,
+                                           leafonly = False,
+                                           )
+        else:
+            org_filter = S3OptionsFilter("organisation_id",
+                                         filter = True,
+                                         header = "",
+                                         # Can be unhidden in customise_xx_resource if there is a need to use a default_filter
+                                         hidden = True,
+                                         )
+
         filter_widgets = [
             S3TextFilter(text_fields,
                          label = T("Search"),
@@ -323,10 +346,7 @@ S3OptionsFilter({
                          ),
             S3OptionsFilter("item_id$item_category_id",
                             ),
-            S3OptionsFilter("organisation_id",
-                            represent = "%(name)s",
-                            hidden = True,
-                            ),
+            org_filter,
             S3LocationFilter("location_id",
                              levels = levels,
                              hidden = True,
@@ -367,7 +387,7 @@ S3OptionsFilter({
                                  "ajax_init": True}],
                     },
                    ]
-                   
+
         # Resource Configuration
         configure(tablename,
                   # Open Tabs after creation
@@ -376,9 +396,9 @@ S3OptionsFilter({
                   deduplicate = self.asset_duplicate,
                   filter_widgets = filter_widgets,
                   list_fields = list_fields,
-                  mark_required = ["organisation_id"],
+                  mark_required = ("organisation_id",),
                   onaccept = self.asset_onaccept,
-                  realm_components = ["log", "presence"],
+                  realm_components = ("log", "presence"),
                   report_options = report_options,
                   summary = summary,
                   super_entity = ("supply_item_entity", "sit_trackable"),
@@ -390,6 +410,14 @@ S3OptionsFilter({
                        asset_group = "asset_id",
                        asset_item = "asset_id",
                        asset_log = "asset_id",
+                       asset_human_resource = "asset_id",
+                       asset_telephone = "asset_id",
+                       asset_telephone_usage = "asset_id",
+                       hrm_human_resource = {"link": "asset_human_resource",
+                                             "joinby": "asset_id",
+                                             "key": "human_resource_id",
+                                             "actuate": "hide",
+                                             },
                        vehicle_gps = "asset_id",
                        vehicle_vehicle = {"joinby": "asset_id",
                                           "multiple": False,
@@ -419,21 +447,25 @@ S3OptionsFilter({
                            requires = IS_INT_IN_RANGE(1, 1000),
                            ),
                      Field("sn",
-                           label = T("Serial Number")),
+                           label = T("Serial Number"),
+                           ),
                      organisation_id("supply_org_id",
                                      label = T("Supplier/Donor"),
-                                     ondelete = "SET NULL"),
+                                     ondelete = "SET NULL",
+                                     ),
                      s3_date("purchase_date",
-                             label = T("Purchase Date")),
+                             label = T("Purchase Date"),
+                             ),
                      Field("purchase_price", "double",
                            #default=0.00,
                            represent=lambda v, row=None: \
-                                     IS_FLOAT_AMOUNT.represent(v, precision=2)),
+                                     IS_FLOAT_AMOUNT.represent(v, precision=2),
+                           ),
                      s3_currency("purchase_currency"),
                      # Base Location, which should always be a Site & set via Log
-                     location_id(readable=False,
-                                 writable=False),
-                     s3_comments(comment=None),
+                     location_id(readable = False,
+                                 writable = False),
+                     s3_comments(comment = None),
                      *s3_meta_fields())
 
         # =====================================================================
@@ -457,9 +489,9 @@ S3OptionsFilter({
                 site_types[key] = str(site_types[key])
             site_types = json.dumps(site_types)
             script = '''
-S3OptionsFilter({
- 'triggerName':'organisation_id',
- 'targetName':'site_id',
+$.filterOptionsS3({
+ 'trigger':'organisation_id',
+ 'target':'site_id',
  'lookupPrefix':'org',
  'lookupResource':'site',
  'lookupField':'site_id',
@@ -608,10 +640,7 @@ S3OptionsFilter({
             Deduplication of Assets
         """
 
-        if item.tablename != "asset_asset":
-            return
         table = item.table
-
         data = item.data
         number = data.get("number", None)
         query = (table.number == number)
@@ -624,11 +653,10 @@ S3OptionsFilter({
         if site_id:
             query &= (table.site_id == site_id)
 
-        _duplicate = current.db(query).select(table.id,
-                                              limitby=(0, 1)).first()
-        if _duplicate:
-            item.id = _duplicate.id
-            item.data.id = _duplicate.id
+        duplicate = current.db(query).select(table.id,
+                                             limitby=(0, 1)).first()
+        if duplicate:
+            item.id = duplicate.id
             item.method = item.METHOD.UPDATE
 
     # -------------------------------------------------------------------------
@@ -810,6 +838,36 @@ S3OptionsFilter({
         return
 
 # =============================================================================
+class S3AssetHRModel(S3Model):
+    """
+        Optionally link Assets to Human Resources
+        - useful for staffing a vehicle
+    """
+
+    names = ("asset_human_resource",)
+
+    def model(self):
+
+        #T = current.T
+
+        #--------------------------------------------------------------------------
+        # Assets <> Human Resources
+        #
+        tablename = "asset_human_resource"
+        self.define_table(tablename,
+                          self.asset_asset_id(empty = False),
+                          self.hrm_human_resource_id(empty = False,
+                                                     ondelete = "CASCADE",
+                                                     ),
+                          #s3_comments(),
+                          *s3_meta_fields())
+
+        # ---------------------------------------------------------------------
+        # Pass names back to global scope (s3.*)
+        #
+        return dict()
+
+# =============================================================================
 class S3AssetTeamModel(S3Model):
     """
         Optionally link Assets to Teams
@@ -819,7 +877,7 @@ class S3AssetTeamModel(S3Model):
 
     def model(self):
 
-        T = current.T
+        #T = current.T
 
         #--------------------------------------------------------------------------
         # Assets <> Groups
@@ -831,6 +889,69 @@ class S3AssetTeamModel(S3Model):
                                            empty = False,
                                            ),
                           #s3_comments(),
+                          *s3_meta_fields())
+
+        # ---------------------------------------------------------------------
+        # Pass names back to global scope (s3.*)
+        #
+        return dict()
+
+# =============================================================================
+class S3AssetTelephoneModel(S3Model):
+    """
+        Extend the Assset Module for Telephones:
+            Usage Costs
+    """
+
+    names = ("asset_telephone",
+             "asset_telephone_usage",
+             )
+
+    def model(self):
+
+        T = current.T
+
+        #--------------------------------------------------------------------------
+        # Asset Telephones
+        #
+        tablename = "asset_telephone"
+        self.define_table(tablename,
+                          self.asset_asset_id(empty = False),
+                          # @ToDo: Filter to Suppliers
+                          self.org_organisation_id(label = T("Airtime Provider")),
+                          # We'll need something more complex here as there may be a per-month cost with bundled units
+                          #Field("unit_cost", "double",
+                          #      label = T("Unit Cost"),
+                          #      ),
+                          s3_comments(),
+                          *s3_meta_fields())
+
+        #--------------------------------------------------------------------------
+        # Telephone Usage Costs
+        #
+        # @ToDo: Virtual Fields for Month/Year for Reporting
+        #
+        tablename = "asset_telephone_usage"
+        self.define_table(tablename,
+                          self.asset_asset_id(empty = False),
+                          s3_date(label = T("Start Date")),
+                          # @ToDo: Validation to ensure not before Start Date
+                          s3_date("end_date",
+                                  label = T("End Date"),
+                                  ),
+                          Field("units_used", "double", # 'usage' is a reserved word in MySQL
+                                label = T("Usage"),
+                                ),
+                          # mins, Mb (for BGANs)
+                          #Field("unit",
+                          #      label = T("Usage"),
+                          #      ),
+                          # @ToDo: Calculate this from asset_telephone fields
+                          #Field("cost", "double",
+                          #      label = T("Cost"),
+                          #      ),
+                          #s3_currency(),
+                          s3_comments(),
                           *s3_meta_fields())
 
         # ---------------------------------------------------------------------
@@ -994,19 +1115,25 @@ def asset_rheader(r):
 
             NONE = current.messages["NONE"]
 
-            if record.type == ASSET_TYPE_VEHICLE:
+            if record.type == ASSET_TYPE_TELEPHONE:
+                tabs = [(T("Asset Details"), None, {"native": True}),
+                        (T("Telephone Details"), "telephone"),
+                        (T("Usage"), "telephone_usage"),
+                        ]
+            #elif record.type == s3.asset.ASSET_TYPE_RADIO:
+            #    tabs.append((T("Radio Details"), "radio"))
+            elif record.type == ASSET_TYPE_VEHICLE:
+                STAFF = current.deployment_settings.get_hrm_staff_label()
                 tabs = [(T("Asset Details"), None, {"native": True}),
                         (T("Vehicle Details"), "vehicle"),
+                        (STAFF, "human_resource"),
+                        (T("Assign %(staff)s") % dict(staff=STAFF), "assign"),
                         (T("Check-In"), "check-in"),
                         (T("Check-Out"), "check-out"),
-                        (T("GPS Data"), "gps"),
+                        (T("GPS Data"), "presence"),
                         ]
             else:
                 tabs = [(T("Edit Details"), None)]
-            #elif record.type == s3.asset.ASSET_TYPE_RADIO:
-            #    tabs.append((T("Radio Details"), "radio"))
-            #elif record.type == s3.asset.ASSET_TYPE_TELEPHONE:
-            #    tabs.append((T("Telephone Details"), "phone"))
             tabs.append((T("Log"), "log"))
             tabs.append((T("Documents"), "document"))
 
@@ -1102,10 +1229,8 @@ def asset_rheader(r):
                                    ltable.site_id.represent(current_log.site_id),
                                    ),
                                 ),
-                          DIV(_style = "margin-top:5px;", # @ToDo: Move to CSS
-                              *asset_action_btns
-                              ),
                           rheader_tabs)
+            s3.rfooter = TAG[""](*asset_action_btns)
             return rheader
     return None
 
@@ -1239,6 +1364,7 @@ class asset_AssetRepresent(S3Represent):
 
         rows = db(query).select(table.id,
                                 table.number,
+                                table.type,
                                 itable.name,
                                 btable.name,
                                 left=btable.on(itable.brand_id == btable.id),
@@ -1267,5 +1393,26 @@ class asset_AssetRepresent(S3Represent):
         else:
             represent = "%s)" % represent
         return s3_unicode(represent)
+
+    # -------------------------------------------------------------------------
+    def link(self, k, v, row=None):
+        """
+            Represent a (key, value) as hypertext link.
+
+            @param k: the key (site_id)
+            @param v: the representation of the key
+            @param row: the row with this key
+        """
+
+        if row:
+            type = row.get("asset_asset.type", None)
+            if type == 1:
+                return A(v, _href=URL(c="vehicle", f="vehicle", args=[k],
+                                      # remove the .aaData extension in paginated views
+                                      extension=""
+                                      ))
+        k = s3_unicode(k)
+        return A(v, _href=self.linkto.replace("[id]", k) \
+                                     .replace("%5Bid%5D", k))
 
 # END =========================================================================

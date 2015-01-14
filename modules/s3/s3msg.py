@@ -9,7 +9,7 @@
     Messages get sent to the Outbox (& Log)
     From there, the Scheduler tasks collect them & send them
 
-    @copyright: 2009-2014 (c) Sahana Software Foundation
+    @copyright: 2009-2015 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -119,51 +119,59 @@ class S3Msg(object):
 
         MOBILE = current.deployment_settings.get_ui_label_mobile_phone()
         # Full range of contact options
-        self.CONTACT_OPTS = {
-                "EMAIL":       T("Email"),
-                "FACEBOOK":    T("Facebook"),
-                "FAX":         T("Fax"),
-                "HOME_PHONE":  T("Home phone"),
-                "RADIO":       T("Radio Callsign"),
-                "RSS":         T("RSS Feed"),
-                "SKYPE":       T("Skype"),
-                "SMS":         MOBILE,
-                "TWITTER":     T("Twitter"),
-                #"XMPP":       "XMPP",
-                #"WEB":        T("Website"),
-                "WORK_PHONE":  T("Work phone"),
-                "OTHER":       T("other")
-            }
+        self.CONTACT_OPTS = {"EMAIL":       T("Email"),
+                             "FACEBOOK":    T("Facebook"),
+                             "FAX":         T("Fax"),
+                             "HOME_PHONE":  T("Home phone"),
+                             "RADIO":       T("Radio Callsign"),
+                             "RSS":         T("RSS Feed"),
+                             "SKYPE":       T("Skype"),
+                             "SMS":         MOBILE,
+                             "TWITTER":     T("Twitter"),
+                             #"XMPP":       "XMPP",
+                             #"WEB":        T("Website"),
+                             "WORK_PHONE":  T("Work phone"),
+                             "IRC":         T("IRC handle"),
+                             "GITHUB":      T("Github Repo"),
+                             "LINKEDIN":    T("LinkedIn Profile"),
+                             "BLOG":        T("Blog"),
+                             "OTHER":       T("Other")
+                             }
 
         # Those contact options to which we can send notifications
         # NB Coded into hrm_map_popup & s3.msg.js
-        self.MSG_CONTACT_OPTS = {
-                "EMAIL":   T("Email"),
-                "SMS":     MOBILE,
-                "TWITTER": T("Twitter"),
-                #"XMPP":   "XMPP",
-            }
+        self.MSG_CONTACT_OPTS = {"EMAIL":   T("Email"),
+                                 "SMS":     MOBILE,
+                                 "TWITTER": T("Twitter"),
+                                 #"XMPP":   "XMPP",
+                                 }
 
         # SMS Gateways
-        self.GATEWAY_OPTS = {
-                "MODEM":   T("Modem"),
-                "SMTP":    T("SMTP"),
-                "TROPO":   T("Tropo"),
-                # Currently only available for Inbound
-                #"TWILIO":  T("Twilio"),
-                "WEB_API": T("Web API"),
-            }
+        self.GATEWAY_OPTS = {"MODEM":   T("Modem"),
+                             "SMTP":    T("SMTP"),
+                             "TROPO":   T("Tropo"),
+                             # Currently only available for Inbound
+                             #"TWILIO":  T("Twilio"),
+                             "WEB_API": T("Web API"),
+                             }
 
     # -------------------------------------------------------------------------
     @staticmethod
-    def sanitise_phone(phone):
+    def sanitise_phone(phone, channel_id=None):
         """
             Strip out unnecessary characters from the string:
             +()- & space
         """
 
         settings = current.deployment_settings
-        default_country_code = settings.get_L10n_default_country_code()
+        table = current.s3db.msg_sms_outbound_gateway
+
+        if channel_id:
+            row = current.db(table.channel_id == channel_id) \
+                         .select(limitby=(0, 1)).first()
+            default_country_code = row["msg_sms_outbound_gateway.default_country_code"]
+        else:
+            default_country_code = settings.get_L10n_default_country_code()
 
         clean = phone.translate(IDENTITYTRANS, NOTPHONECHARS)
 
@@ -178,6 +186,28 @@ class S3Msg(object):
                                   clean.lstrip("0"))
 
         return clean
+
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def decode_email(header):
+        """
+            Decode an RFC2047-encoded email header (e.g.
+            "Dominic =?ISO-8859-1?Q?K=F6nig?=") and return it as unicode.
+
+            @param header: the header
+        """
+
+        # Deal with missing word separation (thanks Ingmar Hupp)
+        import re
+        header = re.sub(r"(=\?.*\?=)(?!$)", r"\1 ", header)
+
+        # Decode header
+        from email.header import decode_header
+        decoded = decode_header(header)
+
+        # Build string
+        return " ".join([s3_unicode(part[0], part[1] or "ASCII")
+                         for part in decoded])
 
     # =========================================================================
     # Inbound Messages
@@ -597,37 +627,38 @@ class S3Msg(object):
         if not rows:
             return
 
-        htable = s3db.hrm_human_resource
-        otable = db.org_organisation
-        ptable = db.pr_person
+        htable = s3db.table("hrm_human_resource")
+        otable = s3db.org_organisation
+        ptable = s3db.pr_person
         gtable = s3db.pr_group
         mtable = db.pr_group_membership
 
         # Left joins for multi-recipient lookups
-        gleft = [mtable.on((mtable.group_id == gtable.id) &
-                           (mtable.person_id != None) &
+        gleft = [mtable.on((mtable.group_id == gtable.id) & \
+                           (mtable.person_id != None) & \
                            (mtable.deleted != True)),
-                 ptable.on((ptable.id == mtable.person_id) &
+                 ptable.on((ptable.id == mtable.person_id) & \
                            (ptable.deleted != True))
                  ]
 
-        oleft = [htable.on((htable.organisation_id == otable.id) &
-                           (htable.person_id != None) &
-                           (htable.deleted != True)),
-                 ptable.on((ptable.id == htable.person_id) &
-                           (ptable.deleted != True))
-                 ]
-
-        atable = s3db.table("deploy_alert", None)
-        if atable:
-            ltable = db.deploy_alert_recipient
-            aleft = [ltable.on(ltable.alert_id == atable.id),
-                     htable.on((htable.id == ltable.human_resource_id) &
-                               (htable.person_id != None) &
+        if htable:
+            oleft = [htable.on((htable.organisation_id == otable.id) & \
+                               (htable.person_id != None) & \
                                (htable.deleted != True)),
-                     ptable.on((ptable.id == htable.person_id) &
-                               (ptable.deleted != True))
+                     ptable.on((ptable.id == htable.person_id) & \
+                               (ptable.deleted != True)),
                      ]
+
+            atable = s3db.table("deploy_alert")
+            if atable:
+                ltable = db.deploy_alert_recipient
+                aleft = [ltable.on(ltable.alert_id == atable.id),
+                         htable.on((htable.id == ltable.human_resource_id) & \
+                                   (htable.person_id != None) & \
+                                   (htable.deleted != True)),
+                         ptable.on((ptable.id == htable.person_id) & \
+                                   (ptable.deleted != True))
+                         ]
 
         # chainrun: used to fire process_outbox again,
         # when messages are sent to groups or organisations
@@ -691,10 +722,10 @@ class S3Msg(object):
                     chainrun = True
                 status = True
 
-            elif entity_type == "deploy_alert":
-                # Re-queue the message for each HR in the group
-                aquery = (atable.pe_id == pe_id)
-                recipients = db(aquery).select(ptable.pe_id, left=aleft)
+            elif htable and entity_type == "org_organisation":
+                # Re-queue the message for each HR in the organisation
+                oquery = (otable.pe_id == pe_id)
+                recipients = db(oquery).select(ptable.pe_id, left=oleft)
                 pe_ids = set(r.pe_id for r in recipients)
                 pe_ids.discard(None)
                 if pe_ids:
@@ -706,10 +737,10 @@ class S3Msg(object):
                     chainrun = True
                 status = True
 
-            elif entity_type == "org_organisation":
-                # Re-queue the message for each HR in the organisation
-                oquery = (otable.pe_id == pe_id)
-                recipients = db(oquery).select(ptable.pe_id, left=oleft)
+            elif atable and entity_type == "deploy_alert":
+                # Re-queue the message for each HR in the group
+                aquery = (atable.pe_id == pe_id)
+                recipients = db(aquery).select(ptable.pe_id, left=aleft)
                 pe_ids = set(r.pe_id for r in recipients)
                 pe_ids.discard(None)
                 if pe_ids:
@@ -932,6 +963,7 @@ class S3Msg(object):
             sms_api = db(table.channel_id == channel_id).select(limitby=(0, 1)
                                                                 ).first()
         else:
+            # @ToDo: Check for Organisation-specific Gateway
             sms_api = db(table.enabled == True).select(limitby=(0, 1)).first()
         if not sms_api:
             return False
@@ -942,13 +974,13 @@ class S3Msg(object):
         for p in parts:
             post_data[p.split("=")[0]] = p.split("=")[1]
 
-        mobile = self.sanitise_phone(mobile)
+        mobile = self.sanitise_phone(mobile, channel_id)
 
         # To send non-ASCII characters in UTF-8 encoding, we'd need
         # to hex-encode the text and activate unicode=1, but this
         # would limit messages to 70 characters, and many mobile
         # phones can't display unicode anyway.
-        
+
         # To be however able to send messages with at least special
         # European characters like á or ø,  we convert the UTF-8 to
         # the default ISO-8859-1 (latin-1) here:
@@ -1010,7 +1042,7 @@ class S3Msg(object):
             - needs to have the cron/sms_handler_modem.py script running
         """
 
-        mobile = self.sanitise_phone(mobile)
+        mobile = self.sanitise_phone(mobile, channel_id)
 
         # Add '+' before country code
         mobile = "+%s" % mobile
@@ -1043,7 +1075,7 @@ class S3Msg(object):
         if not settings:
             return False
 
-        mobile = self.sanitise_phone(mobile)
+        mobile = self.sanitise_phone(mobile, channel_id)
 
         to = "%s@%s" % (mobile,
                         settings.address)
@@ -1089,7 +1121,7 @@ class S3Msg(object):
             return
 
         if network == "SMS":
-            recipient = self.sanitise_phone(recipient)
+            recipient = self.sanitise_phone(recipient, channel_id)
 
         try:
             s3db.msg_tropo_scratch.insert(row_id = row_id,
@@ -1800,7 +1832,7 @@ class S3Msg(object):
         if etag:
             data["etag"] = etag
         db(query).update(**data)
-        
+
         from time import mktime, struct_time
         gis = current.gis
         geocode_r = gis.geocode_r
@@ -1912,7 +1944,7 @@ class S3Msg(object):
                 if parser:
                     pinsert(message_id = exists.message_id,
                             channel_id = channel_id)
-                
+
             else:
                 _id = minsert(channel_id = channel_id,
                               title = entry.title,
@@ -2516,7 +2548,7 @@ class S3Compose(S3CRUD):
             else:
                 # @ToDo A new widget (tree?) required to handle multiple persons and groups
                 pe_field.widget = S3PentityAutocompleteWidget()
-                
+
             pe_field.comment = DIV(_class="tooltip",
                                    _title="%s|%s" % \
                 (T("Recipients"),

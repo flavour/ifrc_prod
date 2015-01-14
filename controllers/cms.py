@@ -152,10 +152,16 @@ def post():
                     table.location_id.readable = table.location_id.writable = False
                     table.date.readable = table.date.writable = False
                     table.expired.readable = table.expired.writable = False
+                    # We always want the Rich Text widget here
+                    table.body.widget = s3base.s3_richtext_widget
                     resource = get_vars.get("resource", None)
                     if resource in ("contact", "index"):
-                        # We're creating/updating text for a Contact page
-                        table.name.default = "Contact Page"
+                        if resource == "contact":
+                            # We're creating/updating text for a Contact page
+                            table.name.default = "Contact Page"
+                        else:
+                            # We're creating/updating text for the Home page
+                            table.name.default = "Home Page"
                         #table.title.readable = table.title.writable = False
                         table.replies.readable = table.replies.writable = False
                         url = URL(c=_module, f=resource)
@@ -317,8 +323,8 @@ def newsfeed():
     stable = db.cms_series
     title_list = T("Latest Information")
 
-    # Hide Posts linked to Modules & Expired Posts
-    s3.filter = (FS("post_module.module") == None) & (FS("expired") != True)
+    # Hide Posts linked to Modules and Maps & Expired Posts
+    s3.filter = (FS("post_module.module") == None) & (FS("post_layer.layer_id") == None) & (FS("expired") != True)
 
     # Ensure that filtered views translate into options which update the Widget
     if "~.series_id$name" in get_vars:
@@ -566,14 +572,16 @@ def newsfeed():
                                              ))
             if contact_field == "person_id":
                 cappend("person_id")
-            # @ToDo: deployment_setting for attachments
-            cappend(S3SQLInlineComponent("document",
-                                         name = "file",
-                                         label = T("Files"),
-                                         fields = [("", "file"),
-                                                   #"comments",
-                                                   ],
-                                         ))
+
+            if settings.get_cms_show_attachments():
+                cappend(S3SQLInlineComponent("document",
+                                             name = "file",
+                                             label = T("Files"),
+                                             fields = [("", "file"),
+                                                       #"comments",
+                                                       ],
+                                             ))
+
             if settings.get_cms_show_links():
                 cappend(S3SQLInlineComponent("document",
                                              name = "url",
@@ -598,6 +606,7 @@ def newsfeed():
                            )
 
         elif r.representation == "xls":
+            table.body.represent = None
             table.created_by.represent = s3base.s3_auth_user_represent_name
             #table.created_on.represent = datetime_represent
             utable = auth.settings.table_user
@@ -883,7 +892,8 @@ def posts():
         row = LI(DIV(avatar,
                      DIV(DIV(header,
                              _class="comment-header"),
-                         DIV(XML(post.body)),
+                         DIV(XML(post.body),
+                             _class="comment-body"),
                          _class="comment-text"),
                          DIV(DIV(post.created_on,
                                  _class="comment-date"),

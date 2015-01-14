@@ -2,7 +2,7 @@
 
 """ Sahana Eden Disaster Victim Registration Model
 
-    @copyright: 2012-14 (c) Sahana Software Foundation
+    @copyright: 2012-15 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -27,7 +27,7 @@
     OTHER DEALINGS IN THE SOFTWARE.
 """
 
-__all__ = ["S3DVRModel"]
+__all__ = ("S3DVRModel",)
 
 from gluon import *
 from gluon.storage import Storage
@@ -41,8 +41,7 @@ class S3DVRModel(S3Model):
             &/or Distributions of Relief Items
     """
 
-    names = ["dvr_case",
-             ]
+    names = ("dvr_case",)
 
     def model(self):
 

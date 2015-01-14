@@ -10,8 +10,14 @@ import datetime
 from lxml import etree
 from gluon import *
 from gluon.storage import Storage
-from gluon.dal import Row
 from s3 import *
+
+try:
+    import pyparsing
+except ImportError:
+    PYPARSING = False
+else:
+    PYPARSING = True
 
 # =============================================================================
 class FieldSelectorResolutionTests(unittest.TestCase):
@@ -337,7 +343,7 @@ class ResourceFilterJoinTests(unittest.TestCase):
                     ((org_organisation.name == "test") & \
                      (project_project.name == "test")))
         self.assertEqual(str(query), str(expected))
-        
+
     # -------------------------------------------------------------------------
     @unittest.skipIf(not current.deployment_settings.has_module("project"), "project module disabled")
     def testGetQueryMixedQueryTypeVirtual(self):
@@ -662,10 +668,10 @@ class ResourceFilterQueryTests(unittest.TestCase):
         self.assertEqual(str(query), str(expected))
 
         join = rfilter.get_joins(left=False, as_list=False)
-        
+
         expected = project_project.on(
                     project_activity.project_id == project_project.id)
-                    
+
         tablenames = join.keys()
         self.assertEqual(len(tablenames), 1)
         self.assertTrue("project_project" in tablenames)
@@ -725,7 +731,7 @@ class ResourceFilterQueryTests(unittest.TestCase):
         self.assertEqual(len(left["pr_person"]), 1)
         self.assertEqual(str(left["pr_person"][0]), str(expected))
 
-        
+
     # -------------------------------------------------------------------------
     def testAnyOf(self):
         """ Test filter construction with containment methods (contains vs anyof) """
@@ -735,16 +741,61 @@ class ResourceFilterQueryTests(unittest.TestCase):
 
         q = FS("skill_id").contains([1, 2])
         query = q.query(resource)
-        expected = ((req_req_skill.skill_id.lower().like("%|1|%")) &
-                    (req_req_skill.skill_id.lower().like("%|2|%")))
+        expected = (req_req_skill.skill_id.contains([1, 2], all=True))
         self.assertEqual(str(query), str(expected))
 
         q = FS("skill_id").anyof([1, 2])
         query = q.query(resource)
-        expected = ((req_req_skill.skill_id.lower().like("%|1|%")) |
-                    (req_req_skill.skill_id.lower().like("%|2|%")))
+        expected = (req_req_skill.skill_id.contains([1, 2], all=False))
         self.assertEqual(str(query), str(expected))
 
+    # -------------------------------------------------------------------------
+    def testDateTimeComparison(self):
+        """ 
+            Test virtual field string value comparison against
+            date/time value
+        """
+
+        assertTrue = self.assertTrue
+        assertFalse = self.assertFalse
+        
+        resource = current.s3db.resource("org_organisation")
+        row = Storage()
+        
+        # Test matching date
+        query = FS("test") == datetime.datetime(2014,10,5).date()
+
+        row.test = "2014-10-05"
+        assertTrue(query(resource, row))
+        row.test = "2013-12-02"
+        assertFalse(query(resource, row))
+        row.test = ""
+        assertFalse(query(resource, row))
+        
+        # Test matching datetime
+        query = FS("test") == datetime.datetime(2014,10,5,10,0,0)
+
+        row.test = "2014-10-05 10:00:00"
+        assertTrue(query(resource, row))
+        row.test = "2014-10-05 11:00:00"
+        assertFalse(query(resource, row))
+        row.test = "2013-12-02"
+        assertFalse(query(resource, row))
+        row.test = ""
+        assertFalse(query(resource, row))
+
+        # Test matching time
+        query = FS("test") == datetime.time(10,0,0)
+        
+        row.test = "10:00:00"
+        assertTrue(query(resource, row))
+        row.test = "11:00:00"
+        assertFalse(query(resource, row))
+        row.test = "2013-12-02"
+        assertFalse(query(resource, row))
+        row.test = ""
+        assertFalse(query(resource, row))
+        
     # -------------------------------------------------------------------------
     def tearDown(self):
 
@@ -1335,7 +1386,7 @@ class ResourceFieldTests(unittest.TestCase):
         self.assertEqual(str(f.left["project_task"][1]), str(expected_r))
 
         expected = (((project_task_project.project_id == project_project.id) &
-                     (project_task_project.deleted != True)) & 
+                     (project_task_project.deleted != True)) &
                     (project_task_project.task_id == project_task.id))
 
         self.assertEqual(str(f.join["project_task"]), str(expected))
@@ -1598,7 +1649,7 @@ class ResourceDataAccessTests(unittest.TestCase):
         current.auth.override = False
 
 # =============================================================================
-class URLQueryParserTests(unittest.TestCase):
+class URLQueryTests(unittest.TestCase):
 
     # -------------------------------------------------------------------------
     def setUp(self):
@@ -1646,6 +1697,7 @@ class URLQueryParserTests(unittest.TestCase):
         parse = S3URLQuery.parse_value
 
         items = [
+            ("Liquiçá,Other", ["Liquiçá", "Other"]),
             ("123", "123"),
             ("1,2,3", ["1", "2", "3"]),
             ('"1,2",3', ["1,2", "3"]),
@@ -1833,30 +1885,146 @@ class URLQueryParserTests(unittest.TestCase):
         self.assertEqual(str(query), str(expected))
 
     # -------------------------------------------------------------------------
-    def testBBOXFilter(self):
-        """ Test URL query with BBOX filter """
+    def testBBOXFilterDirectLink(self):
+        """ Test URL query with BBOX filter, location_id """
 
         s3db = current.s3db
+
+        assertEqual = self.assertEqual
+        assertNotEqual = self.assertNotEqual
+        assertTrue = self.assertTrue
 
         org_office = s3db.org_office
         gis_location = s3db.gis_location
 
-        url_query = {"bbox": "119.80485082193,12.860457717185,122.27677462907,15.107136411359"}
+        # Remove any location context
+        context = s3db.get_config("org_office", "context")
+        s3db.configure("org_office", context={})
 
-        resource = s3db.resource("org_office", vars=url_query)
-        rfilter = resource.rfilter
+        try:
+            url_query = {"bbox": "119.80,12.86,122.27,15.10"}
 
-        # Check the query
-        query = rfilter.get_query()
-        expected = (((org_office.deleted != True) &
-                     (org_office.id > 0)) &
-                    ((org_office.location_id == gis_location.id) &
-                     ((((gis_location.lon > 119.80485082193) &
-                        (gis_location.lon < 122.27677462907)) &
-                       (gis_location.lat > 12.860457717185)) &
-                      (gis_location.lat < 15.107136411359))))
+            resource = s3db.resource("org_office", vars=url_query)
+            rfilter = resource.rfilter
 
-        self.assertEqual(str(query), str(expected))
+            # Parse the bbox
+            bbox, joins = rfilter.parse_bbox_query(resource, url_query)
+
+            expected_bbox = None
+            if current.deployment_settings.get_gis_spatialdb():
+                polygon = "POLYGON((119.8 12.86, 119.8 15.1, 122.27 15.1, 122.27 12.86, 119.8 12.86))"
+                try:
+                    expected_bbox = gis_location.the_geom.st_intersects(polygon)
+                except:
+                    # Not supported
+                    pass
+
+            if expected_bbox is None:
+                expected_bbox = ((((gis_location.lon > 119.8) & \
+                                (gis_location.lon < 122.27)) & \
+                                (gis_location.lat > 12.86)) & \
+                                (gis_location.lat < 15.1))
+
+            assertEqual(bbox, expected_bbox)
+
+            # Check the joins
+            assertTrue(isinstance(joins, dict))
+            assertEqual(len(joins), 1)
+
+            subjoins = joins.get("gis_location")
+            assertNotEqual(subjoins, None)
+            assertEqual(len(subjoins), 1)
+            expected_join = gis_location.on(org_office.location_id == gis_location.id)
+            assertEqual(str(subjoins[0]), str(expected_join))
+
+            # Check the query
+            query = rfilter.get_query()
+            expected = (((org_office.deleted != True) & (org_office.id > 0)) & expected_bbox)
+            assertEqual(str(query), str(expected))
+
+        finally:
+            # Restore context configuration
+            resource.configure(context=context)
+
+    # -------------------------------------------------------------------------
+    def testBBOXFilterLocationContext(self):
+        """ Test URL query with BBOX filter, location context """
+
+        s3db = current.s3db
+
+        assertEqual = self.assertEqual
+        assertNotEqual = self.assertNotEqual
+        assertTrue = self.assertTrue
+
+        org_office = s3db.org_office
+        gis_location = s3db.gis_location
+        org_organisation = s3db.org_organisation
+        org_organisation_location = s3db.org_organisation_location
+
+        # Define a location context
+        context = s3db.get_config("org_office", "context")
+        s3db.configure("org_office",
+                       context={"location": "organisation_id$organisation_location.location_id"})
+
+        try:
+            url_query = {"bbox": "119.80,12.86,122.27,15.10"}
+
+            resource = s3db.resource("org_office", vars=url_query)
+            rfilter = resource.rfilter
+
+            # Parse the bbox
+            bbox, joins = rfilter.parse_bbox_query(resource, url_query)
+
+            expected_bbox = None
+            if current.deployment_settings.get_gis_spatialdb():
+                polygon = "POLYGON((119.8 12.86, 119.8 15.1, 122.27 15.1, 122.27 12.86, 119.8 12.86))"
+                try:
+                    expected_bbox = gis_location.the_geom.st_intersects(polygon)
+                except:
+                    # Not supported
+                    pass
+
+            if expected_bbox is None:
+                expected_bbox = ((((gis_location.lon > 119.8) & \
+                                (gis_location.lon < 122.27)) & \
+                                (gis_location.lat > 12.86)) & \
+                                (gis_location.lat < 15.1))
+
+            assertEqual(bbox, expected_bbox)
+
+            # Check the joins
+            assertTrue(isinstance(joins, dict))
+            assertEqual(len(joins), 3)
+
+            subjoins = joins.get("gis_location")
+            assertNotEqual(subjoins, None)
+            assertEqual(len(subjoins), 1)
+            expected_join = gis_location.on(org_organisation_location.location_id == gis_location.id)
+            assertEqual(str(subjoins[0]), str(expected_join))
+
+            subjoins = joins.get("org_organisation")
+            assertNotEqual(subjoins, None)
+            assertEqual(len(subjoins), 1)
+            expected_join = org_organisation.on(org_office.organisation_id == org_organisation.id)
+            assertEqual(str(subjoins[0]), str(expected_join))
+
+            subjoins = joins.get("org_organisation_location")
+            assertNotEqual(subjoins, None)
+            assertEqual(len(subjoins), 1)
+            expected_join = org_organisation_location.on(
+                                (org_organisation_location.organisation_id == org_organisation.id) &
+                                (org_organisation_location.deleted != True)
+                            )
+            assertEqual(str(subjoins[0]), str(expected_join))
+
+            # Check the query
+            query = rfilter.get_query()
+            expected = (((org_office.deleted != True) & (org_office.id > 0)) & expected_bbox)
+            assertEqual(str(query), str(expected))
+
+        finally:
+            # Restore context configuration
+            resource.configure(context=context)
 
     # -------------------------------------------------------------------------
     def tearDown(self):
@@ -1899,6 +2067,419 @@ class JoinResolutionTests(unittest.TestCase):
         self.assertEqual(str(left[1]), str(ptable_join))
 
 # =============================================================================
+class URLQueryParserTests(unittest.TestCase):
+    """ URL Query Parser Tests """
+
+    # -------------------------------------------------------------------------
+    def testConstruction(self):
+        """ Test parser instantiation """
+
+        p = S3URLQueryParser()
+
+        if PYPARSING:
+            self.assertNotEqual(p.parser, None)
+        else:
+            self.assertEqual(p.parser, None,
+                             msg = "Unexpected Parser Instance")
+
+    # -------------------------------------------------------------------------
+    def testParser(self):
+        """ Test parser response and error logging """
+
+        # Turn on logging (otherwise no point in recording)
+        settings = current.deployment_settings
+        debug = settings.base.debug
+        settings.base.debug = True
+        from s3log import S3Log
+        del current.log
+        S3Log.setup()
+
+        try:
+            p = S3URLQueryParser()
+
+            log_recorder = current.log.recorder()
+
+            # Test with valid expression
+            expr = "~.test eq 1"
+            q = p.parse(expr)
+            log_messages = log_recorder.read()
+
+            self.assertTrue(isinstance(q, dict))
+            if PYPARSING:
+                self.assertTrue(None in q)
+                self.assertNotIn("Invalid URL Filter Expression", log_messages)
+            else:
+                self.assertEqual(q, {})
+
+            # Test with invalid expression
+            # => should succeed, but not return any query
+            expr = "invalidexpression"
+
+            log_recorder.clear()
+            q = p.parse(expr)
+            log_messages = log_recorder.read()
+
+            self.assertEqual(q, {})
+            if PYPARSING:
+                self.assertIn("Invalid URL Filter Expression", log_messages)
+
+            # Test with empty expression
+            # => should succeed, but not return any query
+            expr = ""
+
+            log_recorder.clear()
+            q = p.parse(expr)
+            log_messages = log_recorder.read()
+
+            self.assertEqual(q, {})
+            if PYPARSING:
+                self.assertNotIn("Invalid URL Filter Expression", log_messages)
+
+            # Test without expression
+            # => should succeed, but not return any query
+            expr = None
+
+            log_recorder.clear()
+            q = p.parse(expr)
+            log_messages = log_recorder.stop()
+
+            self.assertEqual(q, {})
+            if PYPARSING:
+                self.assertNotIn("Invalid URL Filter Expression", log_messages)
+
+        finally:
+            settings.base.debug = debug
+            del current.log
+            S3Log.setup()
+
+    # -------------------------------------------------------------------------
+    def testAlias(self):
+        """ Test alias extraction """
+
+        p = S3URLQueryParser()
+        assertEqual = self.assertEqual
+
+        selectors = (("~.example$sub", None),
+                     ("other.example", "other"),
+                     ("another", None),
+                     (".no prefix", None),
+                     ("test.~.~", "test"),
+                     )
+
+        for selector, expected in selectors:
+            alias = p._alias(FS(selector))
+            assertEqual(alias, expected,
+                        msg = "Expected '%s' for '%s', but got '%s'" %
+                              (expected, selector, alias))
+
+        assertEqual(p._alias(None), None)
+
+    # -------------------------------------------------------------------------
+    def testQuery(self):
+        """ Test query construction """
+
+        p = S3URLQueryParser()
+        assertTrue = self.assertTrue
+        assertEqual = self.assertEqual
+        assertIn = self.assertIn
+
+        examples = (
+            (("example", "eq", "1"), True, None, "1"),
+            (("test.example", "contains", "ab,cd,ef"), True, "test", ["ab","cd","ef"]),
+            ((None, "gt", "1"), False, None, None),
+            (("~.example", "like", "Ex*mple"), True, None, "ex%mple"),
+        )
+
+        for example, success, alias, pvalue in examples:
+
+            selector, op, value = example
+            if selector is None:
+                qdict = p._query(op, None, value)
+            else:
+                qdict = p._query(op, FS(selector), value)
+
+            if success:
+                assertTrue(isinstance(qdict, dict))
+                assertEqual(len(qdict), 1)
+                assertIn(alias, qdict)
+                query = qdict[alias]
+                assertTrue(isinstance(query, S3ResourceQuery))
+                assertTrue(isinstance(query.left, S3FieldSelector))
+                assertEqual(query.left.name, selector)
+                assertEqual(query.op, op)
+                assertEqual(query.right, pvalue)
+            else:
+                assertEqual(qdict, {})
+
+    # -------------------------------------------------------------------------
+    def testNot(self):
+        """ Test negation of query dicts """
+
+        p = S3URLQueryParser()
+
+        assertEqual = self.assertEqual
+        assertTrue = self.assertTrue
+        assertIn = self.assertIn
+
+        # Single query, simple
+        q = S3FieldSelector("example.test") == 1
+        qdict = {"example": q}
+
+        result = p._not(qdict)
+        assertTrue(isinstance(result, dict))
+        assertEqual(len(result), 1)
+        assertIn("example", result)
+        query = result["example"]
+        assertEqual(query.op, query.NOT)
+        assertEqual(query.left, q)
+
+        # Single query, OR (inhomogeneous)
+        q1 = S3FieldSelector("~.field") != "a"
+        q2 = S3FieldSelector("example.test") > 1
+        qdict = {None: q1 | q2}
+
+        result = p._not(qdict)
+        assertTrue(isinstance(result, dict))
+        assertEqual(len(result), 2)
+        assertIn(None, result)
+        query = result[None]
+        assertEqual(query.op, query.NOT)
+        assertEqual(query.left, q1)
+        assertIn("example", result)
+        query = result["example"]
+        assertEqual(query.op, query.NOT)
+        assertEqual(query.left, q2)
+
+        # Single query, OR (homogeneous)
+        q1 = S3FieldSelector("example.other").like("a*")
+        q2 = S3FieldSelector("example.test") > 1
+        qdict = {"example": q1 | q2}
+
+        result = p._not(qdict)
+        assertTrue(isinstance(result, dict))
+        assertEqual(len(result), 1)
+        assertIn("example", result)
+        query = result["example"]
+        assertEqual(query.op, query.NOT)
+        query = query.left
+        assertEqual(query.op, query.OR)
+        assertEqual(query.left, q1)
+        assertEqual(query.right, q2)
+
+        # Single query, AND
+        q1 = S3FieldSelector("~.other").like("x*")
+        q2 = S3FieldSelector("~.test") < 1
+        qdict = {None: q1 & q2}
+
+        result = p._not(qdict)
+        assertTrue(isinstance(result, dict))
+        assertEqual(len(result), 1)
+        assertIn(None, result)
+        query = result[None]
+        assertEqual(query.op, query.NOT)
+        query = query.left
+        assertEqual(query.op, query.AND)
+        assertEqual(query.left, q1)
+        assertEqual(query.right, q2)
+
+        # Single query, NOT
+        q = S3FieldSelector("test.other").like("x*")
+        qdict = {"test": ~q}
+
+        result = p._not(qdict)
+        assertTrue(isinstance(result, dict))
+        assertEqual(len(result), 1)
+        assertIn("test", result)
+        query = result["test"]
+        assertEqual(query, q)
+
+        # Multiple Queries, AND
+        q1 = S3FieldSelector("test.other").like("y*")
+        q2 = S3FieldSelector("~.test") != 1
+        qdict = {"test": q1, None: q2}
+
+        result = p._not(qdict)
+        assertTrue(isinstance(result, dict))
+        assertEqual(len(result), 1)
+        assertIn(None, result)
+        query = result[None]
+        assertEqual(query.op, query.NOT)
+        query = query.left
+        assertEqual(query.op, query.AND)
+        assertEqual(query.left, q1)
+        assertEqual(query.right, q2)
+
+    # -------------------------------------------------------------------------
+    def testAnd(self):
+        """ Test conjunction of query dicts """
+
+        p = S3URLQueryParser()
+
+        assertEqual = self.assertEqual
+        assertTrue = self.assertTrue
+        assertIn = self.assertIn
+
+        q1 = S3FieldSelector("~.test1") == "A"
+        q2 = S3FieldSelector("x.test2") == "B"
+        q3 = S3FieldSelector("x.test3") == "C"
+        q4 = S3FieldSelector("y.test4") == "D"
+
+        qdict1 = {None: q1, "x": q2}
+        qdict2 = {"x": q3, "y": q4}
+
+        result = p._and(qdict1, qdict2)
+
+        assertTrue(isinstance(result, dict))
+        assertEqual(len(result), 3)
+        assertIn(None, result)
+        assertEqual(result[None], q1)
+        assertIn("x", result)
+        query = result["x"]
+        assertEqual(query.op, query.AND)
+        operands = (query.left, query.right)
+        assertIn(q2, operands)
+        assertIn(q3, operands)
+        assertIn("y", result)
+        assertEqual(result["y"], q4)
+
+    # -------------------------------------------------------------------------
+    def testOr(self):
+        """ Test disjunction of query dicts """
+
+        p = S3URLQueryParser()
+
+        assertEqual = self.assertEqual
+        assertTrue = self.assertTrue
+        assertIn = self.assertIn
+
+        q1 = S3FieldSelector("~.test1") == "A"
+        q2 = S3FieldSelector("x.test2") == "B"
+        q3 = S3FieldSelector("x.test3") == "C"
+        q4 = S3FieldSelector("y.test4") == "D"
+
+        # Test single+single (homogeneous)
+        qdict1 = {"x": q2}
+        qdict2 = {"x": q3}
+        result = p._or(qdict1, qdict2)
+        assertTrue(isinstance(result, dict))
+        assertEqual(len(result), 1)
+        assertIn("x", result)
+        query = result["x"]
+        assertEqual(query.op, query.OR)
+        operands = (query.left, query.right)
+        assertIn(q2, operands)
+        assertIn(q3, operands)
+
+        # Test single+single (inhomogeneous)
+        qdict1 = {"x": q2}
+        qdict2 = {"y": q4}
+        result = p._or(qdict1, qdict2)
+        assertTrue(isinstance(result, dict))
+        assertEqual(len(result), 1)
+        assertIn(None, result)
+        query = result[None]
+        assertEqual(query.op, query.OR)
+        operands = (query.left, query.right)
+        assertIn(q2, operands)
+        assertIn(q4, operands)
+
+        # Test single+multiple
+        qdict1 = {"x": q2}
+        qdict2 = {"x": q3, "y": q4}
+        result = p._or(qdict1, qdict2)
+        assertTrue(isinstance(result, dict))
+        assertEqual(len(result), 1)
+        assertIn(None, result)
+        query = result[None]
+        assertEqual(query.op, query.OR)
+        assertIn(q2, (query.left, query.right))
+        query = query.right if query.left == q2 else query.right
+        assertEqual(query.op, query.AND)
+        operands = (query.left, query.right)
+        assertIn(q3, operands)
+        assertIn(q4, operands)
+
+        # Test single+empty
+        qdict1 = {}
+        qdict2 = {"x": q3}
+        result = p._or(qdict1, qdict2)
+        assertTrue(isinstance(result, dict))
+        assertEqual(len(result), 1)
+        assertIn("x", result)
+        query = result["x"]
+        assertEqual(query, q3)
+
+    # -------------------------------------------------------------------------
+    @unittest.skipIf(not PYPARSING, "PyParsing not available")
+    def testParsing(self):
+        """ Test expression parsing (not comprehensive) """
+
+        p = S3URLQueryParser()
+
+        assertEqual = self.assertEqual
+        assertTrue = self.assertTrue
+
+        examples = (
+            ("pr_person",
+             'first_name eq "Test"',
+             {None: '(pr_person.first_name == "Test")',
+              },
+             ),
+            ("pr_person",
+             '~.id belongs 1,2,3',
+             {None: "(pr_person.id in ['1', '2', '3'])",
+              },
+             ),
+            ("pr_person",
+             'last_name like "User*" or lower(contact.value) like "*example.com"',
+             {None: '((pr_person.last_name like "user%") or (pr_contact.value.lower() like "%example.com"))',
+              },
+             ),
+            ("pr_person",
+             'last_name like "User*" and not(contact.value like "*example.com" or first_name like "Norm*")',
+             {None: '((pr_person.last_name like "user%") and (not (pr_person.first_name like "norm%")))',
+              "contact": '(not (pr_contact.value like "%example.com"))',
+              },
+             ),
+            ("pr_person",
+             '',
+             {},
+             ),
+            ("org_organisation",
+             None,
+             {},
+             ),
+            ("org_office",
+             'not a valid expression',
+             {},
+             ),
+        )
+
+        s3db = current.s3db
+        for i, example in enumerate(examples):
+
+            resource_name, expression, expected = example
+
+            result = p.parse(expression)
+            assertTrue(isinstance(result, dict),
+                       msg = "Example %s failed: no dict returned")
+            ealiases = set(expected.keys())
+            raliases = set(result.keys())
+            assertEqual(ealiases ^ raliases, set(),
+                        msg = "Example %s failed: mismatching aliases %s!=%s" %
+                              (i, str(list(ealiases)), str(list(raliases))),
+                        )
+
+            resource = s3db.resource(resource_name)
+            for k, v in expected.items():
+                actual = result[k].represent(resource)
+                assertEqual(v, actual,
+                            msg = "Example %s inconsistent result: "
+                                  "expected '%s' for alias '%s' but found '%s'" %
+                                  (i, v, k, actual),
+                            )
+
+# =============================================================================
 def run_suite(*test_classes):
     """ Run the test suite """
 
@@ -1921,11 +2502,12 @@ if __name__ == "__main__":
         ResourceContextFilterTests,
         JoinResolutionTests,
 
+        URLQueryTests,
         URLQueryParserTests,
 
         URLQuerySerializerTests,
         URLFilterSerializerTests,
-        
+
         ResourceFieldTests,
         ResourceDataAccessTests,
     )

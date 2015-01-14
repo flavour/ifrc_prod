@@ -46,9 +46,17 @@ def shelter_service():
     output = s3_rest_controller()
     return output
 
+# -----------------------------------------------------------------------------
+def shelter_unit():
+    """ REST controller to retrieve options for shelter unit selection """
+
+    # JSON only
+    s3.prep = lambda r: r.representation == "json"
+
+    return s3_rest_controller()
+
 # =============================================================================
 def shelter():
-
     """
         RESTful CRUD controller
     """
@@ -57,11 +65,6 @@ def shelter():
 
     # Filter to just Open shelters (status=2)
     s3base.s3_set_default_filter("~.status", [2, None], tablename="cr_shelter")
-
-    s3db.configure("cr_shelter",
-                   # Go to People check-in for this shelter after creation
-                   create_next = URL(c="cr", f="shelter",
-                                     args=["[id]", "shelter_registration"]))
 
     # Pre-processor
     def prep(r):
@@ -99,6 +102,14 @@ def shelter():
                         db.assess_rat.staff_id.default = staff_id.id
 
                 elif r.component.name == "shelter_registration":
+                    if settings.get_cr_shelter_housing_unit_management():
+                        # Filter housing units to units of this shelter
+                        field = s3db.cr_shelter_registration.shelter_unit_id
+                        dbset = db(s3db.cr_shelter_unit.shelter_id == r.id)
+                        field.requires = IS_NULL_OR(IS_ONE_OF(dbset, "cr_shelter_unit.id",
+                                                              field.represent,
+                                                              sort=True,
+                                                              ))
                     s3.crud_strings.cr_shelter_registration = Storage(
                         label_create = T("Register Person"),
                         title_display = T("Registration Details"),
@@ -110,24 +121,6 @@ def shelter():
                         msg_record_deleted = T("Registration entry deleted"),
                         msg_list_empty = T("No people currently registered in this shelter")
                     )
-
-                    # Show a non blocking warning in case the people in the shelter are more than its capacity
-                    if not r.method:
-                        record = db(table.id == r.id).select(table.capacity_day,
-                                                             table.population_day,
-                                                             table.capacity_night,
-                                                             table.population_night,
-                                                             limitby=(0, 1)
-                                                             ).first()
-                        cap_day = record.capacity_day
-                        pop_day = record.population_day
-                        if (cap_day is not None) and (pop_day > cap_day):
-                            response.warning = T("Warning: this shelter is full for daytime")
-
-                        cap_night = record.capacity_night
-                        pop_night = record.population_night
-                        if (cap_night is not None) and (pop_night > cap_night):
-                            response.warning = T("Warning: this shelter is full for the night")
 
                 elif r.component.name == "shelter_allocation":
                     s3.crud_strings.cr_shelter_allocation = Storage(
@@ -155,9 +148,14 @@ def shelter():
 
 # =============================================================================
 def incoming():
-    """ Incoming Shipments """
+    """
+        Incoming Shipments for Sites
 
-    return inv_incoming()
+        Used from Requests rheader when looking at Transport Status
+    """
+
+    # @ToDo: Create this function!
+    return s3db.inv_incoming()
 
 # -----------------------------------------------------------------------------
 def req_match():

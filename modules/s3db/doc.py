@@ -2,7 +2,7 @@
 
 """ Sahana Eden Document Library
 
-    @copyright: 2011-2014 (c) Sahana Software Foundation
+    @copyright: 2011-2015 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -53,7 +53,6 @@ class S3DocumentLibrary(S3Model):
         T = current.T
         db = current.db
         s3 = current.response.s3
-        settings = current.deployment_settings
 
         person_comment = self.pr_person_comment
         person_id = self.pr_person_id
@@ -65,18 +64,11 @@ class S3DocumentLibrary(S3Model):
         UNKNOWN_OPT = messages.UNKNOWN_OPT
 
         # Shortcuts
-        add_components = self.add_components
         configure = self.configure
         crud_strings = s3.crud_strings
         define_table = self.define_table
         folder = current.request.folder
-        super_key = self.super_key
         super_link = self.super_link
-
-        if settings.get_org_autocomplete():
-            org_widget = S3OrganisationAutocompleteWidget(default_from_profile=True)
-        else:
-            org_widget = None
 
         # ---------------------------------------------------------------------
         # Document-referencing entities
@@ -86,10 +78,13 @@ class S3DocumentLibrary(S3Model):
                                cr_shelter=T("Shelter"),
                                deploy_mission=T("Mission"),
                                doc_sitrep=T("Situation Report"),
+                               event_incident=T("Incident"),
+                               event_incident_report=T("Incident Report"),
                                hms_hospital=T("Hospital"),
                                hrm_human_resource=T("Human Resource"),
                                inv_adj=T("Stock Adjustment"),
                                inv_warehouse=T("Warehouse"),
+                               # @ToDo: Deprecate
                                irs_ireport=T("Incident Report"),
                                pr_group=T("Team"),
                                project_project=T("Project"),
@@ -99,6 +94,7 @@ class S3DocumentLibrary(S3Model):
                                org_office=T("Office"),
                                org_facility=T("Facility"),
                                org_group=T("Organization Group"),
+                               # @ToDo: Deprecate
                                stats_people=T("People"),
                                vulnerability_document=T("Vulnerability Document"),
                                vulnerability_risk=T("Risk"),
@@ -110,10 +106,10 @@ class S3DocumentLibrary(S3Model):
 
         # Components
         doc_id = "doc_id"
-        add_components(tablename,
-                       doc_document = doc_id,
-                       doc_image = doc_id,
-                       )
+        self.add_components(tablename,
+                            doc_document = doc_id,
+                            doc_image = doc_id,
+                            )
 
         # ---------------------------------------------------------------------
         # Documents
@@ -123,20 +119,19 @@ class S3DocumentLibrary(S3Model):
                      # Instance
                      self.stats_source_superlink,
                      # Component not instance
-                     super_link("doc_id", "doc_entity"),
+                     super_link(doc_id, "doc_entity"),
                      # @ToDo: Remove since Site Instances are doc entities?
                      super_link("site_id", "org_site"),
                      Field("file", "upload",
+                           autodelete = True,
+                           represent = self.doc_file_represent,
                            # upload folder needs to be visible to the download() function as well as the upload
                            uploadfolder = os.path.join(folder,
                                                        "uploads"),
-                           autodelete = True,
-                           represent = lambda file, tn=tablename: \
-                                       self.doc_file_represent(file, tn),
                            ),
                      Field("mime_type",
-                           readable=False,
-                           writable=False,
+                           readable = False,
+                           writable = False,
                            ),
                      Field("name", length=128,
                            # Allow Name to be added onvalidation
@@ -145,9 +140,9 @@ class S3DocumentLibrary(S3Model):
                            ),
                      Field("url",
                            label = T("URL"),
-                           requires = IS_EMPTY_OR(IS_URL()),
                            represent = lambda url: \
-                           url and A(url, _href=url) or NONE
+                            url and A(url, _href=url) or NONE,
+                           requires = IS_EMPTY_OR(IS_URL()),
                            ),
                      Field("has_been_indexed", "boolean",
                            default = False,
@@ -156,25 +151,23 @@ class S3DocumentLibrary(S3Model):
                            ),
                      person_id(
                         # Enable when-required
+                        label = T("Author"),
                         readable = False,
                         writable = False,
-                        label=T("Author"),
-                        comment=person_comment(T("Author"),
-                                                T("The Author of this Document (optional)"))
-                     ),
-                     organisation_id(
-                        # Enable when-required
-                        readable = False,
-                        writable = False,
-                        widget = org_widget,
-                     ),
-                     s3_date(label = T("Date Published")),
+                        comment = person_comment(T("Author"),
+                                                 T("The Author of this Document (optional)"))
+                        ),
+                     organisation_id(# Enable when-required
+                                     readable = False,
+                                     writable = False,
+                                     ),
+                     s3_date(label = T("Date Published"),
+                             ),
                      # @ToDo: Move location to link table
-                     location_id(
-                        # Enable when-required
-                        readable = False,
-                        writable = False,
-                     ),
+                     location_id(# Enable when-required
+                                 readable = False,
+                                 writable = False,
+                                 ),
                      s3_comments(),
                      Field("checksum",
                            readable = False,
@@ -199,7 +192,7 @@ class S3DocumentLibrary(S3Model):
         # Search Method
 
         # Resource Configuration
-        if settings.get_base_solr_url():
+        if current.deployment_settings.get_base_solr_url():
             onaccept = self.document_onaccept
             ondelete = self.document_ondelete
         else:
@@ -224,6 +217,7 @@ class S3DocumentLibrary(S3Model):
                                           fields = ["name", "file", "url"],
                                           labels = "%(name)s",
                                           show_link = True)
+
         document_id = S3ReusableField("document_id", "reference %s" % tablename,
                                       label = T("Document"),
                                       ondelete = "CASCADE",
@@ -240,49 +234,58 @@ class S3DocumentLibrary(S3Model):
         #        e.g. a Map popup (like the profile picture)
         #        readable/writable=False except in the cases where-needed
         #
-        doc_image_type_opts = {
-            1:T("Photograph"),
-            2:T("Map"),
-            3:T("Document Scan"),
-            99:T("other")
-        }
+        doc_image_type_opts = {1:  T("Photograph"),
+                               2:  T("Map"),
+                               3:  T("Document Scan"),
+                               99: T("other")
+                               }
 
         tablename = "doc_image"
         define_table(tablename,
                      # Component not instance
-                     super_link("doc_id", "doc_entity"),
+                     super_link(doc_id, "doc_entity"),
                      super_link("pe_id", "pr_pentity"), # @ToDo: Remove & make Persons doc entities instead?
                      super_link("site_id", "org_site"), # @ToDo: Remove since Site Instances are doc entities?
-                     Field("file", "upload", autodelete=True,
-                           requires = IS_EMPTY_OR(
-                                        IS_IMAGE(extensions=(s3.IMAGE_EXTENSIONS))
-                                      ),
+                     Field("file", "upload",
+                           autodelete = True,
                            represent = doc_image_represent,
+                           requires = IS_EMPTY_OR(
+                                        IS_IMAGE(extensions=(s3.IMAGE_EXTENSIONS)),
+                                        # Distingish from prepop
+                                        null = "",
+                                      ),
                            # upload folder needs to be visible to the download() function as well as the upload
                            uploadfolder = os.path.join(folder,
                                                        "uploads",
                                                        "images"),
-                           widget=S3ImageCropWidget((300, 300))),
+                           widget = S3ImageCropWidget((600, 600)),
+                           ),
                      Field("mime_type",
-                           readable=False,
-                           writable=False,
+                           readable = False,
+                           writable = False,
                            ),
                      Field("name", length=128,
+                           label = T("Name"),
                            # Allow Name to be added onvalidation
                            requires = IS_EMPTY_OR(IS_LENGTH(128)),
-                           label=T("Name")),
-                     Field("url", label=T("URL"),
-                           requires = IS_EMPTY_OR(IS_URL())),
+                           ),
+                     Field("url",
+                           label = T("URL"),
+                           requires = IS_EMPTY_OR(IS_URL()),
+                           ),
                      Field("type", "integer",
-                           requires = IS_IN_SET(doc_image_type_opts,
-                                                zero=None),
                            default = 1,
                            label = T("Image Type"),
                            represent = lambda opt: \
-                           doc_image_type_opts.get(opt, UNKNOWN_OPT)),
-                     person_id(label=T("Author")),
-                     organisation_id(widget = org_widget),
-                     s3_date(label = T("Date Taken")),
+                            doc_image_type_opts.get(opt, UNKNOWN_OPT),
+                           requires = IS_IN_SET(doc_image_type_opts,
+                                                zero=None),
+                           ),
+                     person_id(label = T("Author"),
+                               ),
+                     organisation_id(),
+                     s3_date(label = T("Date Taken"),
+                             ),
                      # @ToDo: Move location to link table
                      location_id(),
                      s3_comments(),
@@ -305,8 +308,6 @@ class S3DocumentLibrary(S3Model):
             msg_record_deleted = T("Photo deleted"),
             msg_list_empty = T("No Photos found"))
 
-        # Search Method
-
         # Resource Configuration
         configure(tablename,
                   deduplicate = self.document_duplicate,
@@ -317,7 +318,8 @@ class S3DocumentLibrary(S3Model):
         # ---------------------------------------------------------------------
         # Pass model-global names to response.s3
         #
-        return dict(doc_document_id=document_id)
+        return dict(doc_document_id = document_id,
+                    )
 
     # -------------------------------------------------------------------------
     def defaults(self):
@@ -325,18 +327,19 @@ class S3DocumentLibrary(S3Model):
         
         document_id = S3ReusableField("document_id", "integer",
                                       readable=False, writable=False)
-        return dict(doc_document_id=document_id)
+
+        return dict(doc_document_id = document_id,
+                    )
 
     # -------------------------------------------------------------------------
     @staticmethod
-    def doc_file_represent(file, tablename):
+    def doc_file_represent(file):
         """ File representation """
 
-        table = current.db[tablename]
         if file:
             try:
                 # Read the filename from the file
-                filename = table.file.retrieve(file)[0]
+                filename = current.db.doc_document.file.retrieve(file)[0]
             except IOError:
                 return current.T("File not found")
             else:
@@ -350,17 +353,14 @@ class S3DocumentLibrary(S3Model):
     def document_duplicate(item):
         """ Import item de-duplication """
 
-        if item.tablename not in ("doc_document", "doc_image"):
-            return
-
         data = item.data
         query = None
-        file = data.get("file", None)
+        file = data.get("file")
         if file:
             table = item.table
             query = (table.file == file)
         else:
-            url = data.get("url", None)
+            url = data.get("url")
             if url:
                 table = item.table
                 query = (table.url == url)
@@ -380,11 +380,18 @@ class S3DocumentLibrary(S3Model):
     def document_onvalidation(form, document=True):
         """ Form validation for both, documents and images """
 
-        vars = form.vars
-        doc = vars.file
-        if (not document) and (not doc):
-            encoded_file = vars.get("imagecrop-data", None)
+        form_vars = form.vars
+        doc = form_vars.file
+
+        if doc is None:
+            # If this is a prepop, then file not in form
+            # Interactive forms with empty doc has this as "" not None
+            return
+
+        if not document:
+            encoded_file = form_vars.get("imagecrop-data", None)
             if encoded_file:
+                # S3ImageCropWidget
                 import base64
                 import uuid
                 metadata, encoded_file = encoded_file.split(",")
@@ -393,39 +400,11 @@ class S3DocumentLibrary(S3Model):
                 f.filename = uuid.uuid4().hex + filename
                 import cStringIO
                 f.file = cStringIO.StringIO(base64.decodestring(encoded_file))
-                form.vars.file = f
-        
-        if doc is None:
-            # This is a prepop, so file not in form
-            return
+                doc = form_vars.file = f
+                if not form_vars.name:
+                    form_vars.name = filename
 
-        if document:
-            tablename = "doc_document"
-        else:
-            tablename = "doc_image"
-
-        db = current.db
-        table = db[tablename]
-
-        url = vars.url
-        if hasattr(doc, "file"):
-            name = vars.name
-            if not name:
-                # Use the filename
-                vars.name = doc.filename
-        else:
-            id = current.request.post_vars.id
-            if id:
-                record = db(table.id == id).select(table.file,
-                                                   limitby=(0, 1)).first()
-                if record:
-                    doc = record.file
-                    name = vars.name
-                    if not name:
-                        # Use the filename
-                        vars.name = table.file.retrieve(doc)[0]
-
-        if not hasattr(doc, "file") and not doc and not url:
+        if not hasattr(doc, "file") and not doc and not form_vars.url:
             if document:
                 msg = current.T("Either file upload or document URL required.")
             else:
@@ -433,18 +412,42 @@ class S3DocumentLibrary(S3Model):
             form.errors.file = msg
             form.errors.url = msg
 
+
+        if hasattr(doc, "file"):
+            name = form_vars.name
+            if not name:
+                # Use the filename
+                form_vars.name = doc.filename
+        else:
+            id = current.request.post_vars.id
+            if id:
+                if document:
+                    tablename = "doc_document"
+                else:
+                    tablename = "doc_image"
+
+                db = current.db
+                table = db[tablename]
+                record = db(table.id == id).select(table.file,
+                                                   limitby=(0, 1)).first()
+                if record:
+                    name = form_vars.name
+                    if not name:
+                        # Use the filename
+                        form_vars.name = table.file.retrieve(record.file)[0]
+
         # Do a checksum on the file to see if it's a duplicate
         #import cgi
         #if isinstance(doc, cgi.FieldStorage) and doc.filename:
         #    f = doc.file
-        #    vars.checksum = doc_checksum(f.read())
+        #    form_vars.checksum = doc_checksum(f.read())
         #    f.seek(0)
-        #    if not vars.name:
-        #        vars.name = doc.filename
+        #    if not form_vars.name:
+        #        form_vars.name = doc.filename
 
-        #if vars.checksum is not None:
+        #if form_vars.checksum is not None:
         #    # Duplicate allowed if original version is deleted
-        #    query = ((table.checksum == vars.checksum) & \
+        #    query = ((table.checksum == form_vars.checksum) & \
         #             (table.deleted == False))
         #    result = db(query).select(table.name,
         #                              limitby=(0, 1)).first()
@@ -453,11 +456,12 @@ class S3DocumentLibrary(S3Model):
         #        form.errors["file"] = "%s %s" % \
         #                              (T("This file already exists on the server as"), doc_name)
 
-        return
-
     # -------------------------------------------------------------------------
     @staticmethod
-    def document_onaccept(form):        
+    def document_onaccept(form):
+        """
+            Build a full-text index
+        """
         
         form_vars = form.vars
         doc = form_vars.file
@@ -472,15 +476,15 @@ class S3DocumentLibrary(S3Model):
         current.s3task.async("document_create_index",
                              args = [document])
 
-        return
-
     # -------------------------------------------------------------------------
     @staticmethod
-    def document_ondelete(row):        
+    def document_ondelete(row):
+        """
+            Remove the full-text index
+        """
         
         db = current.db
         table = db.doc_document
-
         record = db(table.id == row.id).select(table.file,
                                                limitby=(0, 1)).first()
 
@@ -489,9 +493,7 @@ class S3DocumentLibrary(S3Model):
                                    ))
         
         current.s3task.async("document_delete_index",
-                             args = [document])   
-
-        return
+                             args = [document])
 
 # =============================================================================
 def doc_image_represent(filename):
@@ -692,7 +694,7 @@ class S3DocSitRepModel(S3Model):
                                 ),
                           self.org_organisation_id(),
                           self.gis_location_id(
-                            widget = S3LocationSelectorWidget2(show_map = False),
+                            widget = S3LocationSelector(show_map = False),
                             ),
                           s3_date(default = "now",
                                   ),

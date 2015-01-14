@@ -2,7 +2,7 @@
 
 """ S3 Encoder/Decoder Base Class
 
-    @copyright: 2011-14 (c) Sahana Software Foundation
+    @copyright: 2011-15 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -159,7 +159,7 @@ class S3Codec(object):
         # Default seconds/microseconds=zero
         DEFAULT = datetime.datetime.utcnow().replace(second=0,
                                                      microsecond=0)
-                                                     
+
         dt = dateutil.parser.parse(dtstr, default=DEFAULT)
         if dt.tzinfo is None:
             try:

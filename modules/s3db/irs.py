@@ -2,7 +2,7 @@
 
 """ Sahana Eden Incident Reporting Model
 
-    @copyright: 2009-2014 (c) Sahana Software Foundation
+    @copyright: 2009-2015 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -27,10 +27,10 @@
     OTHER DEALINGS IN THE SOFTWARE.
 """
 
-__all__ = ["S3IRSModel",
+__all__ = ("S3IRSModel",
            "S3IRSResponseModel",
            "irs_rheader"
-           ]
+           )
 
 try:
     import json # try stdlib (Python 2.6)
@@ -52,11 +52,11 @@ SEPARATORS = (",", ":")
 # =============================================================================
 class S3IRSModel(S3Model):
 
-    names = ["irs_icategory",
+    names = ("irs_icategory",
              "irs_ireport",
              "irs_ireport_person",
              "irs_ireport_id"
-             ]
+             )
 
     def model(self):
 
@@ -994,10 +994,10 @@ class S3IRSResponseModel(S3Model):
         @ToDo: Replace with Deployment module
     """
 
-    names = ["irs_ireport_human_resource",
+    names = ("irs_ireport_human_resource",
              "irs_ireport_vehicle",
              "irs_ireport_vehicle_human_resource"
-             ]
+             )
 
     def model(self):
 

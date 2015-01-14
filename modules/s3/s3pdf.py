@@ -15,7 +15,7 @@
     process being removed at a later stage.
     ######################################################################
 
-    @copyright: 2011-14 (c) Sahana Software Foundation
+    @copyright: 2011-15 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -2093,7 +2093,7 @@ class S3PDF(S3Method):
         """
 
         r = self.r
-        
+
         s3xml_etree = self.resource.export_struct(options=True,
                                                   references=True,
                                                   stylesheet=None,

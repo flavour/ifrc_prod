@@ -20,8 +20,10 @@ import s3db.cap
 import s3db.climate
 import s3db.cms
 import s3db.cr
+import s3db.dc
 import s3db.delphi
 import s3db.deploy
+import s3db.disease
 import s3db.doc
 import s3db.dvi
 import s3db.dvr
@@ -46,6 +48,7 @@ import s3db.req
 import s3db.s3
 import s3db.scenario
 import s3db.security
+import s3db.setup
 import s3db.stats
 import s3db.supply
 import s3db.support

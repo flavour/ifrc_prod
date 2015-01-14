@@ -234,7 +234,7 @@ S3.addModals = function() {
         });
         // Prevent browser from following link
         return false;
-    })
+    });
 };
 S3.popup_loaded = function(id) {
     // Resize the iframe to fit the Dialog
@@ -275,7 +275,35 @@ S3.redraw = function() {
     for (var i=0; i < len; i++) {
         S3[redraw_fns[i]]();
     }
-}
+};
+
+// jQueryUI Icon Menus
+// - http://jqueryui.com/selectmenu/#custom_render
+// - used by S3SelectWidget()
+$.widget('custom.iconselectmenu', $.ui.selectmenu, {
+    _renderItem: function(ul, item) {
+        var li = $('<li>', {text: item.label} );
+ 
+        if (item.disabled) {
+            li.addClass('ui-state-disabled');
+        }
+ 
+        var element = item.element;
+        var _class = item.element.attr('data-class');
+        if (_class) {
+            _class = 'ui-icon ' + _class;
+        } else {
+            _class = 'ui-icon';
+        }
+        $('<span>', {
+            'style': element.attr('data-style'),
+            'class': _class
+        })
+          .appendTo(li);
+ 
+        return li.appendTo(ul);
+    }
+});
 
 // Geolocation
 // - called from Auth.login()
@@ -553,24 +581,97 @@ S3.fieldError = function(selector, error) {
     // @ToDo: Are we using a Bootstrap or normal Theme?
     // Display the Error
     $(selector).after('<div class="error" style="display: block;">' + error + '</div>');
-}
+};
 
+S3.unmask = function(table, field) {
+    // Toggle between * and readable characters
+    var caller = table + '_' + field + '_' + 'unmask';
+    var target = table + '_' + field;
+    var state = $('#' + caller).text();
+    if (state == i18n.password_view) {
+        // Unmask the password
+        state = i18n.password_mask;
+        $('#' + target).attr('type', 'text');
+        $('#' + caller).text(state);
+    }
+    else {
+        // Mask the password
+        state = i18n.password_view;
+        $('#' + target).attr('type', 'password');
+        $('#' + caller).text(state);
+    }
+};
 // ============================================================================
-var s3_viewMap = function(feature_id) {
+var s3_viewMap = function(feature_id, iframe_height, popup) {
     // Display a Feature on a BaseMap within an iframe
-    var url = S3.Ap.concat('/gis/display_feature/') + feature_id;
-    var oldhtml = $('#map').html();
-    var iframe = "<iframe width='640' height='480' src='" + url + "'></iframe>";
-    var closelink = $('<a href=\"#\">' + i18n.close_map + '</a>');
+    var url = S3.Ap.concat('/gis/display_feature/') + feature_id,
+        $map = $('#map'),
+        $iframe_map = $('#iframe-map'),
+        curl = document.location.pathname.split("/"),
+        controller = curl[2],
+        func = curl[3];
 
-    // @ToDo: Also make the represent link act as a close
-    closelink.bind('click', function(evt) {
-        $('#map').html(oldhtml);
-        evt.preventDefault();
-    });
-
-    $('#map').html(iframe);
-    $('#map').append($("<div style='margin-bottom:10px' />").append(closelink));
+    url += '?controller=' + controller + '&function=' + func;
+    if (curl.length>4) {
+        // Record id
+        if ($.isNumeric(curl[4])) {
+            url += '&rid=' + curl[4];
+        }
+    }
+    
+    if ($map.length==0 || popup=='True') {
+        url += '&popup=1';
+        S3.openPopup(url, true);
+    }
+    else {
+        var toggleButton = function() {
+            // Hide/Show the 'Close Map' button
+            var closeMap = $('#close-iframe-map');
+            if ($iframe_map.is(':visible')) {
+                closeMap.css({
+                    'display': ''
+                });
+            }
+            else {  
+                closeMap.css({
+                    'display': 'none'
+                });
+            }
+        };
+        var closeMap = function() {
+            // Hide the Map
+            $('#iframe-map').slideUp('medium');
+            $('#close-iframe-map').css({
+                'display': 'none'
+            });
+        };
+        
+        if ($iframe_map.length==0) {
+            // 1st iframe to be loaded in 'map'
+            var iframe = $("<iframe id='iframe-map' data-feature='" + feature_id + "' style='border-style:none' width='100%' height='" + iframe_height + "' src='" + url + "' />"),
+                closelink = $("<a class='button tiny' id='close-iframe-map'>" + i18n.close_map + "</a>");
+                
+            closelink.bind('click', closeMap);
+            // Display Map
+            $map.slideDown('medium');
+            $map.append(iframe);
+            $map.append($('<div style="margin-bottom:10px" />').append(closelink));
+        }   
+        else {
+            fid = $iframe_map.attr('data-feature');
+            if (fid==feature_id) {
+                // Same feature request. Display Map
+                $iframe_map.slideToggle('medium', toggleButton);
+            }
+            else {
+                $iframe_map.attr({
+                    'src': url,
+                    'data-feature': feature_id
+                });
+                $iframe_map.slideDown('medium', toggleButton);
+            }
+        }
+    }
 };
 var s3_viewMapMulti = function(module, resource, instance, jresource) {
     // Display a set of Features on a BaseMap within an iframe
@@ -599,155 +700,357 @@ S3.openPopup = function(url, center) {
         S3.popupWin = window.open(url, 'popupWin', params);
     } else S3.popupWin.focus();
 };
-var s3_showMap = function(feature_id) {
-    // Display a Feature on a BaseMap within an iframe
-    var url = S3.Ap.concat('/gis/display_feature/') + feature_id;
-	// new Ext.Window({
-		// autoWidth: true,
-		// floating: true,
-		// items: [{
-			// xtype: 'component',
-			// autoEl: {
-				// tag: 'iframe',
-				// width: 650,
-				// height: 490,
-				// src: url
-			// }
-		// }]
-	// }).show();
-    S3.openPopup(url, true);
-};
 
 // ============================================================================
 /**
- * Filter a select field based on a "filter field", eg:
- * - Competency Ratings filtered by Skill Type
- * - Item Packs filtered by Item
- * - Rooms filtered by Site
- * - Themes filtered by Sector
- **/
+ * Filter options of a drop-down field (=target) by the selection made
+ * in another field (=trigger), e.g.:
+ *   - Task Form: Activity options filtered by Project selection
+ *
+ * @todo: fix updateAddResourceLink
+ * @todo: move into separate file and load only when needed?
+ * @todo: S3SQLInlineComponentCheckboxes not supported (but to be
+ *        deprecated itself anyway, so just remove the case?)
+ */
 
-var S3OptionsFilter = function(settings) {
+(function() {
+
     /**
-     * Settings:
-     *          triggerName: the trigger field name (not the HTML element name)
-     *          targetName: the target field name (not the HTML element name)
+     * Get a CSS selector for trigger/target fields
      *
-     *          lookupPrefix: the lookup controller prefix
-     *          lookupResource: the lookup resource (=function to call)
-     *          lookupKey: the lookup key field name (default=triggerName)
-     *          lookupField: the field to look up (default="id")
-     *
-     *          lookupURL: the lookup URL (optional)
-     *          getWidgetHTML: the lookup URL returns the options widget as HTML
-     *
-     *          optional: target field value is optional (i.e. can be '', default=false)
-     *          showEmptyField: show the empty options list (default=true)
-     *          msgNoRecords: internationalized message for "no records"
-     *          targetWidget: the target widget (if different from target field)
-     *          fncPrep: function to pre-process the target options
-     *          fncRepresent: function to represent the target options
+     * @param {string|object} setting - the setting for trigger/target, value of the
+     *                                  name-attribute in regular form fields, or an
+     *                                  object describing a field in an inline component
+     *                                  (see below for the latter)
+     * @param {string} setting.prefix - the inline form prefix (default: 'default')
+     * @param {string} setting.alias - the component alias for the inline form (e.g. task_project)
+     * @param {string} setting.name - the field name
+     * @param {string} setting.inlineType - the inline form type, 'link' (for S3SQLInlineLink),
+     *                                      or 'sub' (for other S3SQLInlineComponent types)
+     * @param {string} setting.inlineRows - the inline form has multiple rows, default: true,
+     *                                      should be set to false for e.g.
+     *                                      S3SQLInlineComponentMultiSelectWidget
      */
+    var getSelector = function(setting) {
 
-    var triggerName = settings.triggerName;
-    var targetName = settings.targetName;
-
-    // Selector for regular form fields: prefix_field
-    var triggerSelector = '[name="' + triggerName + '"]';
-    // Selector for inline-form fields: prefix_alias_field
-    triggerSelector += ',[name*="_i_' + triggerName + '_edit_"]';
-
-    // Find the trigger field
-    var triggerField = $(triggerSelector);
-    if (triggerField.length === 0) {
-        // Trigger field not present
-        return;
-    }
-
-    // Flag to show whether this is the first run
-    var first = true;
-
-    // Function to call when trigger field is changed
-    var triggerFieldChange = function(event) {
-
-        if (first) {
-            var $triggerField = triggerField;
+        var selector;
+        if (typeof setting == 'string') {
+            // Simple field name
+            selector = '[name="' + setting + '"]';
         } else {
-            // Select the specific triggerField (inline form can contain multiple)
-            var $triggerField = $(this);
-        }
-        var triggerFieldName = $triggerField.attr('name');
-
-        // Find the target field
-        if (triggerFieldName == triggerName) {
-            // Regular form field
-            var targetField = $('[name="' + targetName + '"]');
-            if (targetField.length === 0) {
-                return;
+            // Inline form
+            var prefix = setting.prefix ? setting.prefix : 'default';
+            if (setting.alias) {
+                prefix += setting.alias;
             }
-            var targetSelector = targetField.attr('name');
+            var type = setting.inlineType || 'sub',
+                rows = setting.inlineRows || true;
+            if (type == 'sub') {
+                var name = setting.name;
+                if (rows) {
+                    selector = '[name^="' + prefix + '"][name*="_i_' + name + '_edit_"]';
+                } else {
+                    selector = '[name="' + prefix + '-' + name + '"]';
+                }
+            } else if (type == 'link') {
+                selector = '[name="link_' + prefix + '"]';
+            }
+        }
+        return selector;
+    };
+
+
+    /**
+     * Add a throbber while loading the widget options
+     *
+     * @param {object} widget - the target widget
+     * @param {string} resourceName - the target resource name
+     */
+    var addThrobber = function(widget, resourceName) {
+
+        var throbber = widget.siblings('.' + resourceName + '-throbber');
+        if (!throbber.length) {
+            widget.after('<div class="' + resourceName + '-throbber throbber"/>');
+        }
+    };
+
+    /**
+     * Remove a previously inserted throbber
+     *
+     * @param {string} resourceName - the target resource name
+     */
+    var removeThrobber = function(widget, resourceName) {
+
+        var throbber = widget.siblings('.' + resourceName + '-throbber');
+        if (throbber.length) {
+            throbber.remove();
+        }
+    };
+
+    /**
+     * Update the AddResourceLink for the lookup resource with the lookup value
+     *
+     * @todo: rename resource => resourceName or lookupResource
+     * @todo: docstring
+     */
+    var updateAddResourceLink = function(resource, key, value) {
+
+        var addResourceLink = $('#' + resource + '_add');
+        if (addResourceLink.length) {
+            var href = addResourceLink.attr('href');
+            if (href.indexOf(key) == -1) {
+                // Add to URL
+                // @todo: make safe for URLs without query part
+                href += '&' + key + '=' + value;
+            } else {
+                // Update URL
+                // @todo: make safe for URLs with multiple query expressions
+                var re = new RegExp(key + '=.*', 'g');
+                href = href.replace(re, key + '=' + value);
+            }
+            addResourceLink.attr('href', href).show();
+        }
+    };
+
+    /**
+     * Render the options from the JSON data
+     *
+     * @param {array} data - the JSON data
+     * @param {object} settings - the settings
+     */
+    var renderOptions = function(data, settings) {
+
+        var options = [],
+            defaultValue = 0;
+
+        if (data.length === 0) {
+            // No options available
+            var showEmptyField = settings.showEmptyField;
+            if (showEmptyField || showEmptyField === undefined) {
+                var msgNoRecords = settings.msgNoRecords || '-';
+                options.push('<option value="">' + msgNoRecords + '</option>');
+            }
         } else {
-            // Inline field
-            var names = triggerFieldName.split('_');
-            var prefix = names[0];
-            var rowindex = names.pop();
-            var targetField = $('[name*="' + prefix + '_"][name*="_i_' + targetName + '_edit_' + rowindex + '"]');
-            if (targetField.length === 0) {
-                return;
+
+            // Pre-process the data
+            var fncPrep = settings.fncPrep,
+                prepResult = null;
+            if (fncPrep) {
+                try {
+                    prepResult = fncPrep(data);
+                } catch (e) {}
             }
-            var targetSelector = targetField.attr('name');
-        }
 
-        // Cancel previous Ajax request
-        try {
-            S3.JSONRequest[targetField.attr('id')].abort();
-        } catch(err) {}
+            // Render the options
+            var lookupField = settings.lookupField || 'id',
+                fncRepresent = settings.fncRepresent,
+                record,
+                value,
+                name;
 
-        // Get the lookup value from the trigger field
-        var lookupValue = '';
-        if ($triggerField.attr('type') == 'checkbox') {
-            checkboxesWidget = $triggerField.closest('.checkboxes-widget-s3');
-            if (checkboxesWidget) {
-                $triggerField = checkboxesWidget;
+            for (var i = 0; i < data.length; i++) {
+                record = data[i];
+                value = record[lookupField];
+                if (i === 0) {
+                    defaultValue = value;
+                }
+                name = fncRepresent ? fncRepresent(record, prepResult) : record.name;
+                // Does the option have an onhover-tooltip?
+                if (record._tooltip) {
+                    title = ' title="' + record._tooltip + '"';
+                } else {
+                    title = ''
+                }
+                options.push('<option' + title + ' value="' + value + '">' + name + '</option>');
+            }
+            if (settings.optional) {
+                // Add (and default to) empty option
+                defaultValue = 0;
+                options.unshift('<option value=""></option>');
             }
         }
-        if ($triggerField.length == 1 && !$triggerField.hasClass('checkboxes-widget-s3')) {
-            // SELECT
-            lookupValue = $triggerField.val();
-        } else if ($triggerField.length > 1) {
-            // Checkboxes
-            lookupValue = new Array();
-            $triggerField.filter('input:checked').each(function() {
-                lookupValue.push($(this).val());
-            });
-        } else if ($triggerField.hasClass('checkboxes-widget-s3')) {
-            lookupValue = new Array();
-            $triggerField.find('input:checked').each(function() {
-                lookupValue.push($(this).val());
-            });
-        }
+        return {options: options.join(''), defaultValue: defaultValue};
+    };
 
-        // Disable the target field if no value selected
-        if (lookupValue === '' || lookupValue === undefined) {
-            targetField.prop('disabled', true);
+    /**
+     * Update the options of the target field from JSON data
+     *
+     * @param {jQuery} widget - the widget
+     * @param {object} data - the data as rendered by renderOptions
+     * @param {bool} empty - no options available (don't bother retaining
+     *                       the current value)
+     */
+    var updateOptions = function(widget, data, empty) {
+
+        // Catch unsupported widget type
+        if (widget.hasClass('checkboxes-widget-s3')) {
+            s3_debug('filterOptionsS3 error: checkboxes-widget-s3 not supported, updateOptions aborted');
             return;
         }
 
+        var options = data.options,
+            newValue = data.defaultValue,
+            hasCurrentValue = false;
+
         // Get the current value of the target field
-        var currentValue = '';
-        if (targetField.length == 1) {
-            // SELECT
-            currentValue = targetField.val();
-            if (!currentValue) {
-                // Options list not populated yet?
-                currentValue = targetField.attr('value'); // jQuery Migrate doesn't like this
+        if (!empty) {
+            var currentValue = '';
+            if (widget.hasClass('checkboxes-widget-s3')) {
+                // Checkboxes-widget-s3 target, not currently supported
+                //currentValue = new Array();
+                //widget.find('input:checked').each(function() {
+                //   currentValue.push($(this).val());
+                //});
+                return;
+            } else {
+                // SELECT-based target (Select, MultiSelect, GroupedOpts)
+                currentValue = widget.val();
+                if (!currentValue) {
+                    // Options list not populated yet?
+                    currentValue = widget.prop('value');
+                }
+                if (currentValue && $(options).filter('option[value=' + currentValue + ']').length) {
+                    hasCurrentValue = true;
+                }
             }
-        } else if (targetField.length > 1) {
-            // Checkboxes
-            currentValue = new Array();
-            targetField.filter('input:checked').each(function() {
-                currentValue.push($(this).val());
-            });
+            if (hasCurrentValue) {
+                // Retain selected value
+                newValue = currentValue;
+            }
+        }
+
+        // Convert IS_ONE_OF_EMPTY <input> into a <select>
+        // (Better use IS_ONE_OF_EMPTY_SELECT where possible)
+        if (widget.prop('tagName') == 'INPUT') {
+            var select = $('<select/>').addClass(widget.attr('class'))
+                                       .attr('id', widget.attr('id'))
+                                       .attr('name', widget.attr('name'))
+                                       .data('visible', widget.data('visible'))
+                                       .hide();
+            widget.replaceWith(select);
+            widget = select;
+        }
+
+        // Update the target field options
+        widget.html(options)
+              .val(newValue)
+              .change()
+              .prop('disabled', options === '');
+
+        // Refresh groupedopts or multiselect
+        if (widget.hasClass('groupedopts-widget')) {
+            widget.groupedopts('refresh');
+        } else if (widget.hasClass('multiselect-widget')) {
+            widget.multiselect('refresh');
+        }
+        return widget;
+    };
+
+    /**
+     * Replace the widget HTML with the data returned by Ajax request
+     *
+     * @param {jQuery} widget: the widget
+     * @param {string} data: the HTML data
+     */
+    var replaceWidgetHTML = function(widget, data) {
+
+        if (data !== '') {
+
+            // Do we have a groupedopts or multiselect widget?
+            var is_groupedopts = false,
+                is_multiselect = false;
+            if (widget.hasClass('groupedopts-widget')) {
+                is_groupedopts = true;
+            } else if (widget.hasClass('multiselect-widget')) {
+                is_multiselect = true;
+            }
+
+            // Store selected value before replacing the widget HTML
+            if (is_groupedopts || is_multiselect) {
+                var widgetValue = null;
+                if (widget.prop('tagName').toLowerCase() == 'select') {
+                    widgetValue = widget.val();
+                }
+            }
+
+            // Replace the widget with the HTML returned
+            widget.html(data)
+                  .change()
+                  .prop('disabled', false);
+
+            // Restore selected values if the options are still available
+            if (is_groupedopts || is_multiselect) {
+                if (widgetValue) {
+                    var new_value = [];
+                    for (var i=0, len=widgetValue.length, val; i<len; i++) {
+                        val = widgetValue[i];
+                        if (widget.find('option[value=' + val + ']').length) {
+                            new_value.push(val);
+                        }
+                    }
+                    widget.val(new_value).change();
+                }
+                // Refresh groupedopts/multiselect
+                if (is_groupedopts) {
+                    widget.groupedopts('refresh');
+                } else {
+                    widget.multiselect('refresh');
+                }
+            }
+        } else {
+            // Disable the widget
+            widget.prop('disabled', true);
+        }
+        return widget;
+    };
+
+    /**
+     * Update all targets in scope
+     *
+     * @param {jQuery} target - the target(s)
+     * @param {string} lookupKey - the key to filter the records in the lookup table by,
+     *                             usually the name of the field represented by the target
+     * @param {string} value - the selected value in the trigger field (=the filter value)
+     * @param {object} settings - the settings
+     * @param {bool} userChange - this options update is triggered by a user action
+     */
+    var updateTarget = function(target, lookupKey, value, settings, userChange) {
+
+        var multiple = false;
+        if (target.length > 1) {
+            if (target.first().attr('type') == 'checkbox') {
+                var checkboxesWidget = target.first().closest('.checkboxes-widget-s3');
+                if (checkboxesWidget) {
+                    // Not currently supported => skip
+                    s3_debug('filterOptionsS3 error: checkboxes-widget-s3 not supported, skipping');
+                    return;
+                    //target = checkboxesWidget;
+                }
+            } else {
+                // Multiple rows inside an inline form
+                multiple = true;
+            }
+        }
+
+        if (multiple && settings.getWidgetHTML) {
+            s3_debug('filterOptionsS3 warning: getWidgetHTML=true not suitable for multiple target widgets (e.g. inline rows)');
+            target = target.first();
+            multiple = false;
+        }
+        var requestTarget = multiple ? target.first() : target;
+
+        // Abort previous request (if any)
+        var previousRequest = requestTarget.data('update-request');
+        if (previousRequest) {
+            try {
+                previousRequest.abort();
+            } catch(err) {}
+        }
+
+        // Disable the target field if no value selected in trigger field
+        if (value === '' || value === undefined) {
+            target.prop('disabled', true);
+            return;
         }
 
         // Construct the URL for the Ajax request
@@ -755,32 +1058,16 @@ var S3OptionsFilter = function(settings) {
         var url;
         if (settings.lookupURL) {
             url = settings.lookupURL;
-            if (lookupValue) {
-                url = url.concat(lookupValue);
+            if (value) {
+                url = url.concat(value);
             }
         } else {
             var lookupPrefix = settings.lookupPrefix;
             url = S3.Ap.concat('/', lookupPrefix, '/', lookupResource, '.json');
             // Append lookup key to the URL
             var q;
-            if (lookupValue) {
-                var lookupKey;
-                if (typeof settings.lookupKey == 'undefined') {
-                    // Same field name in both tables
-                    lookupKey = settings.triggerName;
-                } else {
-                    lookupKey = settings.lookupKey;
-                }
-                q = lookupResource + '.' + lookupKey + '=' + lookupValue;
-                if (url.indexOf('?') != -1) {
-                    url = url.concat('&' + q);
-                } else {
-                    url = url.concat('?' + q);
-                }
-            }
-            // Append the current value to the URL (what for?)
-            if (currentValue) {
-                q = 'value=' + currentValue;
+            if (value) {
+                q = lookupResource + '.' + lookupKey + '=' + value;
                 if (url.indexOf('?') != -1) {
                     url = url.concat('&' + q);
                 } else {
@@ -788,199 +1075,339 @@ var S3OptionsFilter = function(settings) {
                 }
             }
         }
-
-        // Find the target widget and replace it by a throbber
-        var targetWidget = settings.targetWidget || targetSelector;
-        var widget = $('[name = "' + targetWidget + '"]');
-        widget.hide();
-
-        // Do we have a groupedopts or multiselect widget?
-        var is_groupedopts = false,
-            is_multiselect = false;
-        if (widget.hasClass('groupedopts-widget')) {
-            is_groupedopts = true;
-            widget.groupedopts('hide');
-        } else if (widget.hasClass('multiselect-widget')) {
-            is_multiselect = true;
+        var tooltip = settings.tooltip;
+        if (tooltip) {
+            tooltip = 'tooltip=' + tooltip;
+            if (url.indexOf('?') != -1) {
+                url = url.concat('&' + tooltip);
+            } else {
+                url = url.concat('?' + tooltip);
+            }
         }
 
-        // Store selected values before Ajax-refresh
-        var widget_value = null;
-        if (widget.prop('tagName').toLowerCase() == 'select') {
-            widget_value = widget.val();
-        }
-
-        // Show throbber while loading
-        if ($('#' + lookupResource + '_throbber').length === 0 ) {
-            widget.after('<div id="' + lookupResource + '_throbber" class="throbber"/>');
-        }
-
-
+        var request = null;
         if (!settings.getWidgetHTML) {
-            // URL returns the widget options as JSON
-            S3.JSONRequest[targetField.attr('id')] = $.ajaxS3({
+
+            // Hide all visible targets and show throbber (remember visibility)
+            target.each(function() {
+                var widget = $(this),
+                    visible = true;
+                if (widget.hasClass('groupedopts-widget')) {
+                    visible = widget.groupedopts('visible');
+                } else {
+                    visible = widget.is(':visible');
+                }
+                if (visible) {
+                    widget.data('visible', true);
+                    if (widget.hasClass('groupedopts-widget')) {
+                        widget.groupedopts('hide');
+                    } else {
+                        widget.hide();
+                    }
+                    addThrobber(widget, lookupResource);
+                } else {
+                    widget.data('visible', false);
+                }
+            });
+
+            // Send update request
+            request = $.ajaxS3({
                 url: url,
                 dataType: 'json',
-                // gets moved to .done() inside .ajaxS3
                 success: function(data) {
-                    // Read relevant options
-                    if (settings.showEmptyField === 'undefined') {
-                        var showEmptyField = true;
-                    } else {
-                        var showEmptyField = settings.showEmptyField;   
-                    }
-                    var fncPrep = settings.fncPrep || function(data) { return null; };
-                    var fncRepresent = settings.fncRepresent || function(record) { return record.name; };
-                    var lookupField = settings.lookupField || 'id';
-                    var newValue;
-                    var options = '';
-                    var prepResult;
 
-                    // Render options list
-                    if (data.length === 0) {
-                        // No options available
-                        if (showEmptyField) {
-                            newValue = 0;
-                            var msgNoRecords = settings.msgNoRecords || '-';
-                            options = '<option value="">' + msgNoRecords + '</options>';
-                        }
-                    } else {
-                        // Render the options
-                        // Pre-process the data
-                        try {
-                            prepResult = fncPrep(data);
-                        } catch (e) {
-                            prepResult = null;
-                        }
-                        options = '';
-                        for (var i = 0; i < data.length; i++) {
-                            if (i === 0) {
-                                newValue = data[i][lookupField];
+                    // Render the options
+                    var options = renderOptions(data, settings),
+                        empty = data.length === 0 ? true : false;
+
+                    // Apply to all targets
+                    target.each(function() {
+
+                        var widget = $(this);
+
+                        // Update the widget
+                        widget = updateOptions(widget, options, empty);
+
+                        // Show the widget if it was visible before
+                        if (widget.data('visible')) {
+                            if (widget.hasClass('groupedopts-widget')) {
+                                if (!empty) {
+                                    widget.groupedopts('show');
+                                }
+                            } else {
+                                widget.show();
                             }
-                            options += '<option value="' + data[i][lookupField] + '">';
-                            options += fncRepresent(data[i], prepResult);
-                            options += '</option>';
                         }
-                        if (settings.optional) {
-                            newValue = 0;
-                            options = '<option value=""></option>' + options;
-                        }
-                        if (currentValue) {
-                            newValue = currentValue;
-                        }
-                    }
 
-                    // Convert IS_ONE_OF_EMPTY INPUT to a SELECT (better to do this server-side where-possible)
-                    var html = targetField.parent().html();
-                    if (html.slice(1, 6) == 'input') {
-                        html = html.replace('<input', '<select');
-                        targetField.parent().html(html);
-
-                        // Re-apply event handlers (tooltips & modals)
-                        S3.redraw();
-
-                        // reselect since changed
-                        targetField = $('[name = "' + targetSelector + '"]');
-                    }
-                    if (options !== '') {
-                        targetField.html(options)
-                                   // Set the current field value
-                                   .val(newValue)
-                                   .change()
-                                   .prop('disabled', false)
-                                   .show();
-                    } else {
-                        // No options available => disable the target field
-                        targetField.prop('disabled', true)
-                                   .show();
-                    }
+                        // Remove throbber
+                        removeThrobber(widget, lookupResource);
+                    });
 
                     // Modify URL for Add-link and show the Add-link
-                    var targetFieldAdd = $('#' + lookupResource + '_add');
-                    if (targetFieldAdd.length !== 0) {
-                        var href = targetFieldAdd.attr('href');
-                        if (href.indexOf(triggerName) == -1) {
-                            // Add to URL
-                            href += '&' + triggerName + '=' + $triggerField.val();
-                        } else {
-                            // Update URL
-                            var re = new RegExp(triggerName + '=.*', 'g');
-                            href = href.replace(re, triggerName + '=' + $triggerField.val());
-                        }
-                        targetFieldAdd.attr('href', href)
-                                      .show();
-                    }
+                    updateAddResourceLink(lookupResource, lookupKey, value);
 
-                    // Remove the throbber
-                    $('#' + lookupResource + '_throbber').remove();
-                    if (first) {
-                        // Don't include this change in the deliberate changes
+                    // Clear navigate-away-confirm if not a user change
+                    if (!userChange) {
                         S3ClearNavigateAwayConfirm();
-                        first = false;
                     }
                 }
             });
+
         } else {
-            // URL returns the widget as HTML
-            S3.JSONRequest[targetField.attr('id')] = $.ajaxS3({
+
+            // Find the target widget
+            var targetName = settings.targetWidget || target.attr('name');
+            var widget = $('[name = "' + targetName + '"]'),
+                visible = true,
+                show_widget = false;
+
+            // Hide the widget if it is visible, add throbber
+            if (widget.hasClass('groupedopts-widget')) {
+                visible = widget.groupedopts('visible');
+            } else {
+                visible = widget.is(':visible');
+            }
+            if (visible) {
+                show_widget = true;
+                widget.data('visible', true);
+                if (widget.hasClass('groupedopts-widget')) {
+                    widget.groupedopts('hide');
+                } else {
+                    widget.hide();
+                }
+                addThrobber(widget, lookupResource);
+            }
+
+            // Send update request
+            request = $.ajaxS3({
                 url: url,
                 dataType: 'html',
-                // gets moved to .done() inside .ajaxS3
                 success: function(data) {
-                    if (data !== '') {
-                        // Replace the target field with the HTML returned
-                        widget.html(data)
-                              .change()
-                              .prop('disabled', false);
 
-                        if (is_groupedopts || is_multiselect) {
-                            // groupedopts or multiselect => refresh widget
-                            if (widget_value) {
-                                // Restore selected values if the options are still
-                                // available
-                                var new_value = [];
-                                for (var i=0, len=widget_value.length, val; i<len; i++) {
-                                    val = widget_value[i];
-                                    if (widget.find('option[value=' + val + ']').length) {
-                                        new_value.push(val);
-                                    }
-                                }
-                                widget.val(new_value).change();
-                            }
-                            if (is_groupedopts) {
-                                widget.groupedopts('refresh');
-                            } else {
-                                widget.multiselect('refresh');
+                    // Replace the widget HTML
+                    widget = replaceWidgetHTML(widget, data, settings);
+
+                    // Show the widget if it was visible before, remove throbber
+                    if (show_widget) {
+                        if (widget.hasClass('groupedopts-widget')) {
+                            if (!empty) {
+                                widget.groupedopts('show');
                             }
                         } else {
                             widget.show();
                         }
-                    } else {
-                        // Disable the target field
-                        widget.prop('disabled', true);
                     }
-                    // Remove Throbber
-                    $('#' + lookupResource + '_throbber').remove();
-                    if (first) {
-                        // Don't include this change in the deliberate changes
+                    removeThrobber(widget, lookupResource);
+
+                    // Modify URL for Add-link and show the Add-link
+                    updateAddResourceLink(lookupResource, lookupKey, value);
+
+                    // Clear navigate-away-confirm if not a user change
+                    if (!userChange) {
                         S3ClearNavigateAwayConfirm();
-                        first = false;
-                    }
-                    // Restore event handlers (@todo: deprecate)
-                    if (S3.inline_checkbox_events) {
-                        S3.inline_checkbox_events();
                     }
                 }
             });
         }
+        requestTarget.data('update-request', request);
     };
 
-    // Call function when trigger field changed
-    triggerField.change(triggerFieldChange);
+    /**
+     * Helper method to extract the trigger information, returns an
+     * array with the actual trigger widget
+     *
+     * @param {jQuery} trigger - the trigger field(s)
+     * @returns {array} [triggerField, triggerValue]
+     */
+    var getTriggerData = function(trigger) {
 
-    // If the field value is empty - disable - but keep initial value
-    triggerFieldChange();
-};
+        var triggerField = trigger,
+            triggerValue = '';
+        if (triggerField.attr('type') == 'checkbox') {
+            checkboxesWidget = triggerField.closest('.checkboxes-widget-s3');
+            if (checkboxesWidget) {
+                triggerField = checkboxesWidget;
+            }
+        }
+        if (triggerField.length == 1 && !triggerField.hasClass('checkboxes-widget-s3')) {
+            triggerValue = triggerField.val();
+        } else if (triggerField.hasClass('checkboxes-widget-s3')) {
+            triggerValue = new Array();
+            triggerField.find('input:checked').each(function() {
+                triggerValue.push($(this).val());
+            });
+        }
+        return [triggerField, triggerValue];
+    };
+
+    /**
+     * Main entry point, configures the event handlers
+     *
+     * @param {object} settings - the settings
+     * @param {string|object} settings.trigger - the trigger (see getSelector)
+     * @param {string|object} settings.target - the target (see getSelector)
+     * @param {string} settings.scope - the event scope ('row' for current inline row,
+     *                                  'form' for the master form)
+     * @param {string} settings.event - the trigger event name
+     *                                  (default: triggerUpdate.[trigger field name])
+     * @param {string} settings.lookupKey - the field name to look up (default: trigger
+     *                                      field name)
+     * @param {string} settings.lookupField - the name of the field referenced by lookupKey,
+     *                                        default: 'id'
+     * @param {string} settings.lookupPrefix - the prefix (controller name) for the lookup
+     *                                         URL, required
+     * @param {string} settings.lookupResource - the resource name (function name) for the
+     *                                           lookup URL, required
+     * @param {string} settings.lookupURL - override lookup URL
+     * @param {function} settings.fncPrep - preprocessing function for the JSON data (optional)
+     * @param {function} settings.fncRepresent - representation function for the JSON data,
+     *                                           optional, using record.name by default
+     * @param {bool} settings.getWidgetHTML - lookup returns HTML (to replace the widget)
+     *                                        rather than JSON data (to update it options)
+     * @param {string} settings.targetWidget - alternative name-attribute for the target widget,
+     *                                         overrides the selector generated from target-setting,
+     *                                         not recommended
+     * @param {bool} settings.showEmptyField - show an option for None if no options are
+     *                                         available
+     * @param {string} settings.msgNoRecords - show this text for the None-option
+     * @param {bool} settings.optional - add a None-option (without text) even when options
+     *                                   are available (so the user can select None)
+     * @param {string} settings.tooltip - additional tooltip field to request from back-end,
+     *                                    either a field selector or an expression "f(k,v)"
+     *                                    where f is a function name that can be looked up
+     *                                    from s3db, and k,v are field selectors for the row,
+     *                                    f will be called with a list of tuples (k,v) for each
+     *                                    row and is expected to return a dict {k:tooltip}
+     */
+    $.filterOptionsS3 = function(settings) {
+
+        var trigger = settings.trigger, triggerName;
+
+
+        if (settings.event) {
+            triggerName = settings.event;
+        } else if (typeof trigger == 'string') {
+            triggerName = trigger;
+        } else {
+            triggerName = trigger.name;
+        }
+
+        var lookupKey = settings.lookupKey || triggerName,
+            triggerSelector = getSelector(settings.trigger),
+            targetSelector = getSelector(settings.target),
+            triggerField,
+            triggerForm,
+            targetField,
+            targetForm;
+
+        if (!triggerSelector) {
+            return;
+        } else {
+            triggerField = $(triggerSelector);
+            if (!triggerField.length) {
+                return;
+            }
+            triggerForm = triggerField.closest('form');
+        }
+
+        if (!targetSelector) {
+            return;
+        } else {
+            targetField = $(targetSelector);
+            if (!targetField.length) {
+                return;
+            }
+            targetForm = targetField.closest('form');
+        }
+
+        // Initial event-less update of the target(s)
+        $(triggerSelector).last().each(function() {
+            var trigger = $(this),
+                $scope;
+            if (settings.scope == 'row') {
+                $scope = trigger.closest('.edit-row.inline-form,.add-row.inline-form');
+            } else {
+                $scope = triggerForm;
+            }
+            var triggerData = getTriggerData(trigger),
+                target = $scope.find(targetSelector);
+            updateTarget(target, lookupKey, triggerData[1], settings, false);
+        });
+
+        // Change-event for the trigger fires trigger-event for the target
+        // form, delegated to triggerForm so it happens also for dynamically
+        // inserted triggers (e.g. inline forms)
+        var changeEventName = 'change.s3options',
+            triggerEventName = 'triggerUpdate.' + triggerName;
+        triggerForm.undelegate(triggerSelector, changeEventName)
+                   .delegate(triggerSelector, changeEventName, function() {
+            var triggerData = getTriggerData($(this));
+            targetForm.trigger(triggerEventName, triggerData);
+        });
+
+        // Trigger-event for the target form updates all targets within scope
+        targetForm.on(triggerEventName, function(e, triggerField, triggerValue) {
+            // Determine the scope
+            var $scope;
+            if (settings.scope == 'row') {
+                $scope = triggerField.closest('.edit-row.inline-form,.add-row.inline-form');
+            } else {
+                $scope = triggerForm;
+            }
+            // Update all targets within scope
+            var target = $scope.find(targetSelector);
+            updateTarget(target, lookupKey, triggerValue, settings, true);
+        });
+    };
+})(jQuery);
+
+// ============================================================================
+/**
+ * Link any action buttons/link with the s3-cancel class to the referrer
+ * (if on the same server and application), or to a default URL (if given),
+ * or hide them if neither referrer nor default URL are available.
+ */
+(function() {
+
+    /**
+     * Strip query and hash from a URL
+     *
+     * @param {string} url - the URL
+     */
+    var stripQuery = function(url) {
+        var newurl = url.split('?')[0].split('#')[0];
+        return newurl;
+    }
+
+    /**
+     * Main entry point
+     *
+     * @param {string} defaultURL - the default URL
+     */
+    $.cancelButtonS3 = function(defaultURL) {
+        var cancelButtons = $('.s3-cancel');
+        if (!cancelButtons.length) {
+            return;
+        }
+        var referrer = document.referrer;
+        if (referrer && stripQuery(referrer) != stripQuery(document.URL)) {
+            var anchor = document.createElement('a');
+            anchor.href = referrer;
+            if (anchor.host == window.location.host &&
+                anchor.pathname.lastIndexOf(S3.Ap, 0) === 0) {
+                cancelButtons.attr('href', referrer);
+            } else if (defaultURL) {
+                cancelButtons.attr('href', defaultURL);
+            } else {
+                cancelButtons.hide();
+            }
+        } else if (defaultURL) {
+            cancelButtons.attr('href', defaultURL);
+        } else {
+            cancelButtons.hide();
+        }
+    };
+})(jQuery);
 
 // ============================================================================
 /**
@@ -1033,6 +1460,66 @@ S3.slider = function(fieldname, min, max, step, value) {
     // Enable the field before form is submitted
     real_input.closest('form').submit(function() {
         real_input.prop('disabled', false);
+        // Normal Submit
+        return true;
+    });
+};
+
+/**
+ * Add a Range Slider to a field - used by S3SliderFilter
+ */
+S3.range_slider = function(fieldname, min, max, step, values) {
+    var real_input1 = $('#' + fieldname + '_1');
+    var real_input2 = $('#' + fieldname + '_2');
+    var selector = '#' + fieldname + '_slider';
+    $(selector).slider({
+        range: true,
+        min: min,
+        max: max,
+        step: step,
+        values: values,
+        slide: function (event, ui) {
+            // Set the value of the real inputs
+            real_input1.val(ui.values[0]);
+            real_input2.val(ui.values[1]);
+        },
+        change: function(event, ui) {
+            if (value == null) {
+                // Set a default value
+                // - halfway between min & max
+                value = (min + max) / 2;
+                // - rounded to nearest step
+                var modulo = value % step;
+                if (modulo != 0) {
+                    if (modulo < (step / 2)) {
+                        // round down
+                        value = value - modulo;
+                    } else {
+                        // round up
+                        value = value + modulo;
+                    }
+                }
+                $(selector).slider('option', 'values', values);
+                // Show the control
+                $(selector + ' .ui-slider-handle').show();
+                // Show the value
+                // Hide the help text
+                real_input.show().next().remove();
+            }
+        }
+    });
+    if (values == []) {
+        // Don't show a value until Slider is touched
+        $(selector + ' .ui-slider-handle').hide();
+        // Show help text
+        real_input1.hide();
+        real_input2.hide()
+                   .after('<p>' + i18n.slider_help + '</p>');
+    }
+    // Enable the fields before form is submitted
+    real_input1.closest('form').submit(function() {
+        real_input1.prop('disabled', false);
+        real_input2.prop('disabled', false);
         // Normal Submit
         return true;
     });
@@ -1257,7 +1744,7 @@ S3.reloadWithQueryStringVars = function(queryStringVars) {
             if (S3.FocusOnFirstField != false) {
                 // Focus On First Field
                 $('input:text:visible:first').focus();
-            };
+            }
         }
 
         // Accept comma as thousands separator
@@ -1271,9 +1758,21 @@ S3.reloadWithQueryStringVars = function(queryStringVars) {
                                    .replace(/[^0-9\-\.,]|[\-](?=.)|[\.](?=[0-9]*[\.])/g, '')
                                    .reverse();
         });
+
         // Auto-capitalize first names
         $('input[name="first_name"]').focusout(function() {
             this.value = this.value.charAt(0).toLocaleUpperCase() + this.value.substring(1);
+        });
+
+        // ListCreate Views
+        $('#show-add-btn').click(function() {
+            // Hide the Button
+            $('#show-add-btn').hide(10, function() {
+                // Show the Form
+                $('#list-add').slideDown('medium');
+                // Resize any jQueryUI SelectMenu buttons
+                $('.select-widget').selectmenu('refresh');
+            });
         });
 
         // Resizable textareas
@@ -1339,7 +1838,7 @@ S3.reloadWithQueryStringVars = function(queryStringVars) {
 
         // Event Handlers for the page
         S3.redraw();
-        
+
         // Popovers (Bootstrap themes only)
         if (typeof($.fn.popover) != 'undefined') {
             // Applies to elements created after $(document).ready
@@ -1374,6 +1873,37 @@ S3.reloadWithQueryStringVars = function(queryStringVars) {
             $('#socialmedia_share').append("<div class='socialmedia_element'><div id='fb-root'></div><script>(function(d, s, id) { var js, fjs = d.getElementsByTagName(s)[0]; if (d.getElementById(id)) return; js = d.createElement(s); js.id = id; js.src = '//connect.facebook.net/en_US/all.js#xfbml=1'; fjs.parentNode.insertBefore(js, fjs); }(document, 'script', 'facebook-jssdk'));</script> <div class='fb-like' data-send='false' data-layout='button_count' data-show-faces='true' data-href='" + currenturl + "'></div></div>");
         }
 
+        // Form toggle (e.g. S3Profile update-form)
+        $('.form-toggle').click(function() {
+            var self = $(this),
+                hidden = $(this).data('hidden');
+            hidden = hidden && hidden != 'False';
+            self.data('hidden', hidden ? false : true)
+                .siblings().slideToggle('medium', function() {
+                    self.children('span').each(function() {
+                        $(this).text(hidden ? $(this).data('off') : $(this).data('on'))
+                               .siblings().toggle();
+                    });
+                });
+        });
+
+        // Options Menu Toggle on mobile
+        $('#menu-options-toggle').on('click', function(e) {
+            e.stopPropagation();
+            var $this = $(this);
+            var status = $this.data('status'),
+                menu = $('#menu-options');
+            if (status == 'off') {
+                menu.hide().removeClass('hide-for-small').slideDown(400, function() {
+                    $this.data('status', 'on').text($this.data('on'));
+                });
+            } else {
+                menu.slideUp(400, function() {
+                    menu.addClass('hide-for-small').show();
+                    $this.data('status', 'off').text($this.data('off'));
+                });
+            }
+        });
     });
 
 }());

@@ -4,7 +4,7 @@
 
     @requires: U{B{I{gluon}} <http://web2py.com>}
 
-    @copyright: 2009-2014 (c) Sahana Software Foundation
+    @copyright: 2009-2015 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -40,7 +40,12 @@ from gluon import *
 #from gluon.dal import Field
 #from gluon.html import *
 #from gluon.validators import *
-from gluon.dal import Query, SQLCustomType
+try:
+    from gluon.dal import SQLCustomType
+    from gluon.dal.objects import Query
+except ImportError:
+    # old web2py
+    from gluon.dal import Query, SQLCustomType
 from gluon.storage import Storage
 from gluon.languages import lazyT
 
@@ -223,7 +228,7 @@ class S3Represent(object):
         @group Internal Methods: _setup,
                                  _lookup
     """
-    
+
     def __init__(self,
                  lookup=None,
                  key=None,
@@ -284,7 +289,7 @@ class S3Represent(object):
         self.lazy_show_link = False
 
         self.rows = {}
-        
+
         # Attributes to simulate being a function for sqlhtml's represent()
         # Make sure we indicate only 1 position argument
         self.func_code = Storage(co_argcount = 1)
@@ -348,10 +353,10 @@ class S3Represent(object):
             output = current.T(v)
         else:
             output = v
-            
+
         if prefix and self.hierarchy:
             return self.htemplate % (prefix, output)
-                
+
         return output
 
     # -------------------------------------------------------------------------
@@ -651,8 +656,10 @@ class S3Represent(object):
             if h.config:
                 def lookup_parent(node_id):
                     parent = h.parent(node_id)
-                    if parent and parent not in theset:
-                        lookup[parent] = True
+                    if parent and \
+                       parent not in theset and \
+                       parent not in lookup:
+                        lookup[parent] = False
                         lookup_parent(parent)
                     return
                 for node_id in lookup.keys():
@@ -702,13 +709,16 @@ class S3Represent(object):
             if h:
                 represent_path = self._represent_path
                 for k, row in rows.items():
-                    lookup.pop(k, None)
-                    items[keys.get(k, k)] = represent_path(k, row, rows=rows, hierarchy=h)
+                    if lookup.pop(k, None):
+                        items[keys.get(k, k)] = represent_path(k,
+                                                               row,
+                                                               rows=rows,
+                                                               hierarchy=h)
             else:
                 for k, row in rows.items():
                     lookup.pop(k, None)
                     items[keys.get(k, k)] = theset[k] = represent_row(row)
-                    
+
         if lookup:
             for k in lookup:
                 items[keys.get(k, k)] = self.default
@@ -731,12 +741,12 @@ class S3Represent(object):
 
         if value in theset:
             return theset[value]
-            
+
         represent_row = self.represent_row
 
         prefix = None
         parent = hierarchy.parent(value)
-        
+
         if parent:
             if parent in theset:
                 prefix = theset[parent]
@@ -1179,6 +1189,10 @@ def s3_date(name="date", **attr):
             default == "now" (in addition to usual meanings)
             past = x months
             future = x months
+            start_field = "selector" for start field
+            default_interval = x months from start date
+
+        start_field and default_interval should be given together
 
         @ToDo: Different default field name in case we need to start supporting
                Oracle, where 'date' is a reserved word
@@ -1189,11 +1203,24 @@ def s3_date(name="date", **attr):
         del attr["past"]
     else:
         past = None
+
     if "future" in attr:
         future = attr["future"]
         del attr["future"]
     else:
         future = None
+
+    if "start_field" in attr:
+        start_field = attr["start_field"]
+        del attr["start_field"]
+    else:
+        start_field = None
+
+    if "default_interval" in attr:
+        default_interval = attr["default_interval"]
+        del attr["default_interval"]
+    else:
+        default_interval = None
 
     if "default" in attr and attr["default"] == "now":
         attr["default"] = current.request.utcnow
@@ -1290,13 +1317,25 @@ def s3_date(name="date", **attr):
             attr["requires"] = IS_EMPTY_OR(requires)
     if "widget" not in attr:
         if past is None and future is None:
-            attr["widget"] = S3DateWidget()
+            attr["widget"] = S3DateWidget(start_field = start_field,
+                                          default_interval = default_interval,
+                                          )
         elif past is None:
-            attr["widget"] = S3DateWidget(future=future)
+            attr["widget"] = S3DateWidget(future = future,
+                                          start_field = start_field,
+                                          default_interval = default_interval,
+                                          )
         elif future is None:
-            attr["widget"] = S3DateWidget(past=past)
+            attr["widget"] = S3DateWidget(past = past,
+                                          start_field = start_field,
+                                          default_interval = default_interval,
+                                          )
         else:
-            attr["widget"] = S3DateWidget(past=past, future=future)
+            attr["widget"] = S3DateWidget(past = past,
+                                          future = future,
+                                          start_field = start_field,
+                                          default_interval = default_interval,
+                                          )
 
     f = S3ReusableField(name, "date", **attr)
     return f()
