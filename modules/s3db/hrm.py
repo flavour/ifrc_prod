@@ -4127,6 +4127,7 @@ class S3HRProgrammeModel(S3Model):
 
     names = ("hrm_programme",
              "hrm_programme_hours",
+             "hrm_programme_id",
              )
 
     def model(self):
@@ -4321,7 +4322,8 @@ class S3HRProgrammeModel(S3Model):
         # ---------------------------------------------------------------------
         # Pass names back to global scope (s3.*)
         #
-        return dict()
+        return dict(hrm_programme_id = programme_id,
+                    )
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -6503,7 +6505,7 @@ def hrm_human_resource_controller(extra_filter=None):
                                type = "datalist",
                                tablename = "doc_document",
                                filter = FS("doc_id") == record.doc_id,
-                               icon = "paper-clip",
+                               icon = "attachment",
                                # Default renderer:
                                #list_layout = s3db.doc_document_list_layout,
                                )
@@ -6753,6 +6755,7 @@ def hrm_human_resource_controller(extra_filter=None):
                                       read_url = read_url,
                                       update_url = update_url)
                 if "msg" in settings.modules and \
+                   settings.get_hrm_compose_button() and \
                    current.auth.permission.has_permission("update",
                                                           c="hrm",
                                                           f="compose"):
@@ -6798,15 +6801,15 @@ def hrm_person_controller(**attr):
     if "all" in contacts_tabs:
         set_method("pr", "person",
                    method = "contacts",
-                   action = s3db.pr_contacts)
+                   action = s3db.pr_Contacts)
     if "public" in contacts_tabs:
         set_method("pr", "person",
                    method = "public_contacts",
-                   action = s3db.pr_contacts)
+                   action = s3db.pr_Contacts)
     if "private" in contacts_tabs:
         set_method("pr", "person",
                    method = "private_contacts",
-                   action = s3db.pr_contacts)
+                   action = s3db.pr_Contacts)
 
     # Custom Method for CV
     set_method("pr", "person",
@@ -7051,12 +7054,6 @@ def hrm_person_controller(**attr):
                                   s3db.org_site_represent,
                                   filterby="organisation_id",
                                   filter_opts=(session.s3.hrm.org,)))
-            elif method == "private_contacts":
-                # Flag to pass into s3db.pr_contacts()
-                s3.pr_contacts = 1
-            elif method == "public_contacts":
-                # Flag to pass into s3db.pr_contacts()
-                s3.pr_contacts = 2
 
             resource = r.resource
             if mode is not None:

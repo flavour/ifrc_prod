@@ -131,6 +131,7 @@ class S3Config(Storage):
         self.ui = Storage()
         self.vulnerability = Storage()
         self.transport = Storage()
+        self.xforms = Storage()
 
         self._debug = None
 
@@ -2328,6 +2329,13 @@ class S3Config(Storage):
         """
         return self.hrm.get("org_required", True)
 
+    def get_hrm_compose_button(self):
+        """
+            If set to True then HRM dataTables have a 'Send Message' button
+                if the messaging module is enabled & users have the permission to access hrm/compose
+        """
+        return self.hrm.get("compose_button", True)
+
     def get_hrm_deletable(self):
         """
             If set to True then HRM records are deletable rather than just being able to be marked as obsolete
@@ -3273,6 +3281,34 @@ class S3Config(Storage):
             Whether Seaport code is unique
         """
         return self.transport.get("seaport_code_unique", False)
+
+    # -------------------------------------------------------------------------
+    # XForms
+    #
+    def get_xforms_resources(self):
+        """
+            A list of xform resources
+
+            Item formats:
+                "tablename"
+                ("Title", "tablename")
+                ("Title", "tablename", options)
+
+            Format for options:
+                {c=controller,         ...use this controller for form handling
+                 f=function,           ...use this function for form handling
+                 vars=vars,            ...add these vars to the download URL
+                 title=title_field,    ...use this field in template for form title
+                 public=public_flag,   ...check this field whether the template is
+                                          public or not (must be boolean)
+                 }
+
+            Example:
+                settings.xforms.resources = [("Request", "req_req")]
+
+            @todo: move this documentation to the wiki?
+        """
+        return self.xforms.get("resources", None)
 
     # -------------------------------------------------------------------------
     # Frontpage Options
