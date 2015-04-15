@@ -231,8 +231,8 @@ class S3MainMenu(object):
                                 args="contact",
                                 vars={"person.pe_id" : auth.user.pe_id}),
                             #MM("Subscriptions", c="pr", f="person",
-                                #args="pe_subscription",
-                                #vars={"person.pe_id" : auth.user.pe_id}),
+                            #    args="pe_subscription",
+                            #    vars={"person.pe_id" : auth.user.pe_id}),
                             MM("Change Password", m="change_password"),
                             SEP(),
                             MM({"name": current.T("Rapid Data Entry"),
@@ -1492,6 +1492,24 @@ class S3OptionsMenu(object):
 
     # -------------------------------------------------------------------------
     @staticmethod
+    def po():
+        """ PO / Population Outreach """
+
+        return M(c="po")(
+                    M("Overview", f="index"),
+                    M("Households", f="household", m="summary")(
+                        M("Create", m="create"),
+                    ),
+                    M("Areas", f="area")(
+                        M("Create", m="create"),
+                    ),
+                    M("Referral Agencies", f="organisation")(
+                        M("Create", m="create"),
+                    ),
+                )
+
+    # -------------------------------------------------------------------------
+    @staticmethod
     def pr():
         """ PR / Person Registry """
 
@@ -1534,6 +1552,7 @@ class S3OptionsMenu(object):
         else:
             IMPORT = "Import Project Locations"
         hazards = lambda i: settings.get_project_hazards()
+        indicators = lambda i: settings.get_project_indicators()
         sectors = lambda i: settings.get_project_sectors()
         stats = lambda i: settings.has_module("stats")
         themes = lambda i: settings.get_project_themes()
@@ -1564,7 +1583,13 @@ class S3OptionsMenu(object):
                  M("Reports", f="location", m="report")(
                     M("3W", f="location", m="report"),
                     M("Beneficiaries", f="beneficiary", m="report",
-                      check = stats,
+                      check=stats,
+                      ),
+                    M("Indicators", f="indicator_data", m="report",
+                      check=indicators,
+                      ),
+                    M("Indicators over Time", f="indicator_data", m="timeplot",
+                      check=indicators,
                       ),
                     M("Funding", f="organisation", m="report"),
                  ),
@@ -1593,6 +1618,10 @@ class S3OptionsMenu(object):
                  ),
                  M("Hazards", f="hazard",
                    check=hazards)(
+                    M("Create", m="create"),
+                 ),
+                 M("Indicators", f="indicator",
+                   check=indicators)(
                     M("Create", m="create"),
                  ),
                  M("Sectors", f="sector",
@@ -1670,6 +1699,7 @@ class S3OptionsMenu(object):
         else:
             create_menu = M("Create", m="create")
 
+        recurring = lambda i: settings.get_req_recurring()
         use_commit = lambda i: settings.get_req_use_commit()
         req_items = lambda i: "Stock" in types
         req_skills = lambda i: "People" in types
@@ -1677,7 +1707,7 @@ class S3OptionsMenu(object):
         return M(c="req")(
                     M("Requests", f="req")(
                         create_menu,
-                        M("List Recurring Requests", f="req_template"),
+                        M("List Recurring Requests", f="req_template", check=recurring),
                         M("Map", m="map"),
                         M("Report", m="report"),
                         M("Search All Requested Items", f="req_item",

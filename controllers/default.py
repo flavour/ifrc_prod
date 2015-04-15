@@ -68,7 +68,16 @@ def index():
     auth.settings.register_onvalidation = register_validation
     auth.configure_user_fields()
 
-    page = request.args(0)
+    page = None
+    if len(request.args):
+        # Use the first non-numeric argument as page name
+        # (RESTful custom controllers may have record IDs in Ajax URLs)
+        for arg in request.args:
+            pname = arg.split(".", 1)[0] if "." in arg else arg
+            if not pname.isdigit():
+                page = pname
+                break
+
     custom = None
     if page:
         # Go to a custom page,
@@ -87,9 +96,6 @@ def index():
             current.log.warning("File not loadable",
                                 "%s, %s" % (page, sys.exc_info()[1]))
         else:
-            if "." in page:
-                # Remove format extension
-                page = page.split(".", 1)[0]
             if hasattr(custom, page):
                 controller = getattr(custom, page)()
             elif page != "login":
@@ -607,8 +613,9 @@ def person():
 
         next = URL(c = "default",
                    f = "person",
-                   args = [user_person_id, "user"])
+                   args = [user_person_id, "user_profile"])
         onaccept = lambda form: auth.s3_approve_user(form.vars),
+        auth.configure_user_fields()
         form = auth.profile(next = next,
                             onaccept = onaccept)
 
@@ -618,7 +625,7 @@ def person():
                     )
 
     set_method("pr", "person",
-               method="user",
+               method="user_profile",
                action=auth_profile_method)
 
     # Custom Method for Contacts
@@ -808,7 +815,7 @@ def person():
         trainings_tab = None
 
     tabs = [(T("Person Details"), None),
-            (T("User Account"), "user"),
+            (T("User Account"), "user_profile"),
             (T("Staff/Volunteer Record"), "human_resource"),
             id_tab,
             description_tab,
@@ -827,8 +834,8 @@ def person():
             ]
 
     output = s3_rest_controller("pr", "person",
-                                rheader = lambda r: \
-                                    s3db.pr_rheader(r, tabs=tabs))
+                                rheader = lambda r, tabs=tabs: \
+                                          s3db.pr_rheader(r, tabs=tabs))
     return output
 
 # -----------------------------------------------------------------------------
@@ -955,13 +962,18 @@ def about():
         item = db(query).select(table.id,
                                 table.body,
                                 limitby=(0, 1)).first()
+
+        get_vars = {"module": module, "resource": resource}
+
         if item:
             if ADMIN:
                 item = DIV(XML(item.body),
                            BR(),
                            A(T("Edit"),
                              _href=URL(c="cms", f="post",
-                                       args=[item.id, "update"]),
+                                       args=[item.id, "update"],
+                                       vars=get_vars,
+                                       ),
                              _class="action-btn"))
             else:
                 item = DIV(XML(item.body))
@@ -971,10 +983,10 @@ def about():
             else:
                 _class = "action-btn"
             item = A(T("Edit"),
-                     _href=URL(c="cms", f="post", args="create",
-                               vars={"module": module,
-                                     "resource": resource
-                                     }),
+                     _href=URL(c="cms", f="post",
+                               args="create",
+                               vars=get_vars,
+                               ),
                      _class="%s cms-edit" % _class)
         else:
             item = H2(T("About"))
@@ -1145,13 +1157,18 @@ def help():
         item = db(query).select(table.id,
                                 table.body,
                                 limitby=(0, 1)).first()
+
+        get_vars = {"module": module, "resource": resource}
+
         if item:
             if ADMIN:
                 item = DIV(XML(item.body),
                            BR(),
                            A(T("Edit"),
                              _href=URL(c="cms", f="post",
-                                       args=[item.id, "update"]),
+                                       args=[item.id, "update"],
+                                       vars=get_vars,
+                                       ),
                              _class="action-btn"))
             else:
                 item = DIV(XML(item.body))
@@ -1161,10 +1178,10 @@ def help():
             else:
                 _class = "action-btn"
             item = A(T("Edit"),
-                     _href=URL(c="cms", f="post", args="create",
-                               vars={"module": module,
-                                     "resource": resource
-                                     }),
+                     _href=URL(c="cms", f="post",
+                               args="create",
+                               vars=get_vars,
+                               ),
                      _class="%s cms-edit" % _class)
         else:
             item = TAG[""](H2(T("Help")),

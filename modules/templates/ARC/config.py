@@ -232,7 +232,7 @@ def config(settings):
     # Default Language
     settings.L10n.default_language = "en"
     # Default timezone for users
-    settings.L10n.utc_offset = "UTC -0500"
+    settings.L10n.utc_offset = "-0500"
     # Number formats (defaults to ISO 31-0)
     # Decimal separator for numbers (defaults to ,)
     settings.L10n.decimal_separator = "."
@@ -1683,7 +1683,7 @@ def config(settings):
                                          4: T("Accepted"),
                                          5: T("Blocked"),
                                          6: T("On Hold"),
-                                         7: T("Cancelled"),
+                                         7: T("Canceled"),
                                          8: T("Duplicate"),
                                          9: T("Ready"),
                                         10: T("Verified"),

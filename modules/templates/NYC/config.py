@@ -36,7 +36,7 @@ def config(settings):
     # Uncomment to Hide the language toolbar
     settings.L10n.display_toolbar = False
     # Default timezone for users
-    settings.L10n.utc_offset = "UTC -0500"
+    settings.L10n.utc_offset = "-0500"
     # Uncomment these to use US-style dates in English
     settings.L10n.date_format = "%m-%d-%Y"
     # Start week on Sunday
@@ -113,7 +113,10 @@ def config(settings):
     settings.auth.record_approval = True
     settings.auth.record_approval_required_for = ("org_organisation",)
 
-    settings.security.policy = 5 # Controller, Function & Table ACLs
+    settings.security.policy = 8 # Hierarchical Realms + Delegations
+
+    # Hide UTC offset
+    settings.auth.show_utc_offset = False
 
     # Enable this to have Open links in IFrames open a full page in a new tab
     settings.ui.iframe_opens_full = True
@@ -134,6 +137,7 @@ def config(settings):
 
     # -------------------------------------------------------------------------
     # Audit
+    #
     def audit_write(method, tablename, form, record, representation):
         if not current.auth.user:
             # Don't include prepop
@@ -150,6 +154,27 @@ def config(settings):
             return False
 
     settings.security.audit_write = audit_write
+
+    # -------------------------------------------------------------------------
+    # Realm Rules
+    #
+    def realm_entity(table, row):
+
+        tablename = table._tablename
+        if tablename == "pr_person":
+            # Person records define their own realm
+            ptable = current.s3db.pr_person
+            query = (ptable.id == row.id)
+            row = current.db(query).select(ptable.id,
+                                   ptable.pe_id,
+                                   limitby=(0, 1)).first()
+            if row.pe_id:
+                return row.pe_id
+
+        # All other cases follow default rules
+        return 0
+
+    settings.auth.realm_entity = realm_entity
 
     # -------------------------------------------------------------------------
     # CMS
@@ -411,13 +436,15 @@ def config(settings):
                 if not types:
                     # Hide Private Residences
                     from s3 import FS
-                    s3.filter = FS("site_facility_type.facility_type_id$name") != "Private Residence"
+                    query = (FS("site_facility_type.facility_type_id") == None) | \
+                            (FS("site_facility_type.facility_type_id$name") != "Private Residence")
+                    r.resource.add_filter(query)
 
             if r.interactive:
                 tablename = "org_facility"
                 table = s3db[tablename]
 
-                if not r.component and r.method in (None, "create", "update"):
+                if not r.component and r.method in (None, "create", "update", "summary"):
                     from s3 import S3LocationSelector, S3MultiSelectWidget
                     field = table.location_id
                     if r.method in ("create", "update"):
@@ -437,7 +464,8 @@ def config(settings):
                     # We default this onvalidation
                     table.name.notnull = False
                     table.name.requires = None
-                    crud_form = S3SQLCustomForm(S3SQLInlineComponent(
+                    crud_form = S3SQLCustomForm("organisation_id",
+                                                S3SQLInlineComponent(
                                                     "site_facility_type",
                                                     label = T("Facility Type"),
                                                     fields = [("", "facility_type_id")],
@@ -610,141 +638,148 @@ def config(settings):
                                                                   parent="group_membership",
                                                                   child="status_id"
                                                                   ))
-        crud_form = S3SQLCustomForm(
-            "name",
-            "acronym",
-            S3SQLInlineLink(
-                "organisation_type",
-                field = "organisation_type_id",
-                label = T("Type"),
-                multiple = False,
-                #widget = "hierarchy",
-            ),
-            S3SQLInlineComponentMultiSelectWidget(
-            # activate hierarchical org_service:
-            #S3SQLInlineLink(
-                "service",
-                label = T("Services"),
-                field = "service_id",
-                # activate hierarchical org_service:
-                #leafonly = False,
-                #widget = "hierarchy",
-            ),
-            S3SQLInlineComponent(
-                "tag",
-                label = T("Service Description"),
-                multiple = False,
-                fields = [("", "value")],
-                filterby = dict(field = "tag",
-                                options = "service_description"
-                                )
-            ),
-            S3SQLInlineComponent(
-                "group_membership",
-                label = T("Network"),
-                fields = [("", "group_id"),
-                          ("", "status_id"),
-                          ],
-                ),
-            S3SQLInlineComponent(
-                "organisation_location",
-                label = T("Areas Served"),
-                fields = [("", "location_id"),
-                          ],
-                ),
-            S3SQLInlineComponent(
-                "facility",
-                label = T("Main Facility"),
-                fields = ["name",
-                          "phone1",
-                          "phone2",
-                          "email",
-                          "location_id",
-                          ],
-                layout = FacilitySubFormLayout,
-                filterby = {"field": "main_facility",
-                            "options": True,
-                           },
-                multiple = False,
-            ),
-            "website",
-            S3SQLInlineComponent(
-                "contact",
-                comment = DIV(INPUT(_type="checkbox",
-                                    _name="rss_no_import",
-                                    value = rss_import,
-                                    ),
-                              T("Don't Import Feed")),
-                name = "rss",
-                label = T("RSS"),
-                multiple = False,
-                fields = [("", "value"),
-                          #(T("Don't Import Feed"), "poll"),
-                          ],
-                filterby = dict(field = "contact_method",
-                                options = "RSS"
-                                )
-            ),
-            S3SQLInlineComponent(
-                "document",
-                name = "iCal",
-                label = "iCAL",
-                multiple = False,
-                fields = [("", "url")],
-                filterby = dict(field = "name",
-                                options="iCal"
-                                )
-            ),
-            S3SQLInlineComponent(
-                "document",
-                name = "data",
-                label = T("Data"),
-                multiple = False,
-                fields = [("", "url")],
-                filterby = dict(field = "name",
-                                options="Data"
-                                )
-            ),
-            S3SQLInlineComponent(
-                "contact",
-                name = "twitter",
-                label = T("Twitter"),
-                multiple = False,
-                fields = [("", "value")],
-                filterby = dict(field = "contact_method",
-                                options = "TWITTER"
-                                )
-            ),
-            S3SQLInlineComponent(
-                "contact",
-                name = "facebook",
-                label = T("Facebook"),
-                multiple = False,
-                fields = [("", "value")],
-                filterby = dict(field = "contact_method",
-                                options = "FACEBOOK"
-                                )
-            ),
-            S3SQLInlineComponent(
-                "facility",
-                name = "other_facilities",
-                label = T("Other Facilities"),
-                fields = ["name",
-                          "phone1",
-                          "phone2",
-                          "email",
-                          "location_id",
-                          ],
-                layout = FacilitySubFormLayout,
-                filterby = {"field": "main_facility",
-                            "options": False,
-                           },
-                multiple = True,
-                explicit_add = T("Add Facility"),
-            ),
-            "comments",
-            postprocess = org_organisation_postprocess,
-        )
+        crud_fields = ["name",
+                       "acronym",
+                       S3SQLInlineLink("organisation_type",
+                                       field = "organisation_type_id",
+                                       label = T("Type"),
+                                       multiple = False,
+                                       #widget = "hierarchy",
+                                       ),
+                       # activate hierarchical org_service:
+                       #S3SQLInlineLink(
+                       S3SQLInlineComponentMultiSelectWidget(
+                            "service",
+                            label = T("Services"),
+                            field = "service_id",
+                            # activate hierarchical org_service:
+                            #leafonly = False,
+                            #widget = "hierarchy",
+                            ),
+                       S3SQLInlineComponent(
+                            "tag",
+                            label = T("Service Description"),
+                            multiple = False,
+                            fields = [("", "value")],
+                            filterby = dict(field = "tag",
+                                            options = "service_description",
+                                            ),
+                            ),
+                       S3SQLInlineComponent(
+                            "group_membership",
+                            label = T("Network"),
+                            fields = [("", "group_id"),
+                                      ("", "status_id"),
+                                      ],
+                            ),
+                       S3SQLInlineComponent(
+                            "organisation_location",
+                            label = T("Areas Served"),
+                            fields = [("", "location_id"),
+                                      ],
+                            ),
+                       S3SQLInlineComponent(
+                            "facility",
+                            label = T("Main Facility"),
+                            fields = ["name",
+                                      "phone1",
+                                      "phone2",
+                                      "email",
+                                      "location_id",
+                                      ],
+                            layout = FacilitySubFormLayout,
+                            filterby = {"field": "main_facility",
+                                        "options": True,
+                                        },
+                            multiple = False,
+                            ),
+                       "website",
+                       S3SQLInlineComponent(
+                            "contact",
+                            comment = DIV(INPUT(_type="checkbox",
+                                                _name="rss_no_import",
+                                                value = rss_import,
+                                                ),
+                                          T("Don't Import Feed"),
+                                          ),
+                            name = "rss",
+                            label = T("RSS"),
+                            multiple = False,
+                            fields = [("", "value"),
+                                      #(T("Don't Import Feed"), "poll"),
+                                      ],
+                            filterby = dict(field = "contact_method",
+                                            options = "RSS",
+                                            ),
+                            ),
+                       S3SQLInlineComponent(
+                            "document",
+                            name = "iCal",
+                            label = "iCAL",
+                            multiple = False,
+                            fields = [("", "url")],
+                            filterby = dict(field = "name",
+                                            options="iCal",
+                                            ),
+                            ),
+                       S3SQLInlineComponent(
+                            "document",
+                            name = "data",
+                            label = T("Data"),
+                            multiple = False,
+                            fields = [("", "url")],
+                            filterby = dict(field = "name",
+                                            options="Data",
+                                            ),
+                            ),
+                       S3SQLInlineComponent(
+                            "contact",
+                            name = "twitter",
+                            label = T("Twitter"),
+                            multiple = False,
+                            fields = [("", "value")],
+                            filterby = dict(field = "contact_method",
+                                            options = "TWITTER",
+                                            ),
+                            ),
+                       S3SQLInlineComponent(
+                            "contact",
+                            name = "facebook",
+                            label = T("Facebook"),
+                            multiple = False,
+                            fields = [("", "value")],
+                            filterby = dict(field = "contact_method",
+                                            options = "FACEBOOK",
+                                            ),
+                            ),
+                       S3SQLInlineComponent(
+                            "facility",
+                            name = "other_facilities",
+                            label = T("Other Facilities"),
+                            fields = ["name",
+                                      "phone1",
+                                      "phone2",
+                                      "email",
+                                      "location_id",
+                                      ],
+                            layout = FacilitySubFormLayout,
+                            filterby = {"field": "main_facility",
+                                        "options": False,
+                                        },
+                            multiple = True,
+                            explicit_add = T("Add Facility"),
+                            ),
+                       "comments",
+                       ]
+
+        if r.representation == "popup" and \
+           r.get_vars.get("caller") == "auth_user_organisation_id":
+            # Create Organisation during User Registration
+            crud_fields = crud_fields[:5] + ["website", "comments"]
+            postprocess = None
+        else:
+            postprocess = org_organisation_postprocess
+        crud_form = S3SQLCustomForm(postprocess=postprocess, *crud_fields)
 
         from s3 import S3LocationFilter, S3OptionsFilter, S3TextFilter#, S3HierarchyFilter
         filter_widgets = [
@@ -778,13 +813,25 @@ def config(settings):
             #                  ),
             ]
 
-        list_fields = ["name",
-                       (T("Type"), "organisation_organisation_type.organisation_type_id"),
-                       (T("Services"), "service.name"),
-                       "phone",
-                       (T("Email"), "email.value"),
-                       "website"
-                       ]
+        if r.method == "review":
+            from s3 import S3DateTime
+            s3db.org_organisation.created_on.represent = \
+                lambda dt: S3DateTime.date_represent(dt, utc=True)
+            list_fields = ["name",
+                           (T("Type"), "organisation_organisation_type.organisation_type_id"),
+                           (T("Date Registered"), "created_on"),
+                           "phone",
+                           (T("Email"), "email.value"),
+                           "website",
+                           ]
+        else:
+            list_fields = ["name",
+                           (T("Type"), "organisation_organisation_type.organisation_type_id"),
+                           (T("Services"), "service.name"),
+                           "phone",
+                           (T("Email"), "email.value"),
+                           "website",
+                           ]
 
         s3db.configure("org_organisation",
                        crud_form = crud_form,
@@ -1095,32 +1142,65 @@ def config(settings):
             if r.interactive or r.representation == "aadata":
 
                 if not r.component:
+
+                    htable = s3db.hrm_human_resource
+                    organisation_id = htable.organisation_id
+
+                    # Site ID uses drop-down not autocomplete
+                    site_id = htable.site_id
+                    site_id.widget = None
+                    from s3layouts import S3AddResourceLink
+                    site_id.comment = S3AddResourceLink(T("Create Facility"),
+                                                        c="org",
+                                                        f="facility",
+                                                        t="org_facility",
+                                                        vars={"prefix": "hrm",
+                                                              "parent": "human_resource",
+                                                              "child": "site_id",
+                                                              },
+                                                        )
+
+                    # Fields for embedded HR record
                     hr_fields = ["organisation_id",
                                  "org_contact",
                                  "job_title_id",
                                  "site_id",
                                  ]
-                    htable = s3db.hrm_human_resource
+
+                    # Show org_contact checkbox
                     field = htable.org_contact
                     field.readable = field.writable = True
                     field.label = POC
+
+                    # Profile popups: defaults for organisation and site
                     if r.method in ("create", "update"):
                         get_vars = r.get_vars
                         # Context from a Profile page?"
-                        organisation_id = get_vars.get("(organisation)", None)
-                        if organisation_id:
-                            field = htable.organisation_id
-                            field.default = organisation_id
-                            field.readable = field.writable = False
+                        organisation = get_vars.get("(organisation)", None)
+                        if organisation:
+                            organisation_id.default = organisation
+                            organisation_id.readable = \
+                            organisation_id.writable = False
                             hr_fields.remove("organisation_id")
-                        site_id = get_vars.get("(site)", None)
-                        if site_id:
-                            field = htable.site_id
-                            field.default = site_id
-                            field.readable = field.writable = False
+                        site = get_vars.get("(site)", None)
+                        if site:
+                            site_id.default = site
+                            site_id.readable = site_id.writable = False
                             hr_fields.remove("site_id")
                         else:
-                            s3db.hrm_human_resource.site_id.default = None
+                            site_id.default = None
+
+                    # Filter site options by organisation
+                    if organisation_id.writable and site_id.writable:
+                        s3.jquery_ready.append('''
+$.filterOptionsS3({
+ 'trigger':{'prefix':'human_resource','alias':'human_resource','name':'organisation_id'},
+ 'target':{'prefix':'human_resource','alias':'human_resource','name':'site_id'},
+ 'scope':'row',
+ 'lookupPrefix':'org',
+ 'lookupResource':'site',
+ 'msgNoRecords':'%s',
+})''' % T("No facilities for this organisation"))
 
                     # ImageCrop widget doesn't currently work within an Inline Form
                     #image_field = s3db.pr_image.image
@@ -1140,83 +1220,92 @@ def config(settings):
                                                     "joinby": "person_id",
                                                     "key": "group_id",
                                                     })
+
+                    # Filter contact information by access level
                     if current.auth.s3_logged_in():
+                        # Authenticated users see both public and private contacts
+                        contact_filter = []
+                        # Show access-level selector in form
                         contact_fields = [("", "value"),
                                           ("", "access"),
                                           ]
-                        contact_filter = []
                         field = s3db.pr_contact.access
                         field.readable = field.writable = True
                         field.default = 2 # public
                     else:
-                        contact_fields = [("", "value"),
-                                          ]
+                        # Anonymous users see only public contacts
                         contact_filter = [{"field": "access",
                                            "options": 2,
                                            }]
-                    s3_sql_custom_fields = ["first_name",
-                                            #"middle_name",
-                                            "last_name",
-                                            S3SQLInlineComponent(
-                                                "human_resource",
-                                                name = "human_resource",
-                                                label = "",
-                                                multiple = False,
-                                                fields = hr_fields,
-                                                ),
-                                            S3SQLInlineComponent(
-                                                "contact",
-                                                name = "email",
-                                                label = EMAIL,
-                                                #multiple = True,
-                                                fields = contact_fields,
-                                                filterby = [{"field": "contact_method",
-                                                             "options": "EMAIL",
-                                                             },
-                                                            ] + contact_filter,
-                                                ),
-                                            S3SQLInlineComponent(
-                                                "contact",
-                                                name = "work_phone",
-                                                label = T("Work Phone"),
-                                                #multiple = True,
-                                                fields = contact_fields,
-                                                filterby = [{"field": "contact_method",
-                                                             "options": "WORK_PHONE",
-                                                             },
-                                                            ] + contact_filter,
-                                                ),
-                                            S3SQLInlineComponent(
-                                                "contact",
-                                                name = "phone",
-                                                label = MOBILE,
-                                                #multiple = True,
-                                                fields = contact_fields,
-                                                filterby = [{"field": "contact_method",
-                                                             "options": "SMS",
-                                                             },
-                                                            ] + contact_filter,
-                                                ),
-                                            S3SQLInlineLink(
-                                                "group",
-                                                label = T("Groups"),
-                                                field = "group_id",
-                                                multiple = True,
-                                            ),
-                                            #S3SQLInlineComponent(
-                                            #    "image",
-                                            #    name = "image",
-                                            #    label = T("Photo"),
-                                            #    multiple = False,
-                                            #    fields = [("", "image")],
-                                            #    filterby = dict(field = "profile",
-                                            #                    options=[True]
-                                            #                    )
-                                            #    ),
-                                            ]
+                        # Hide access-level
+                        contact_fields = [("", "value"),
+                                          ]
 
-                    crud_form = S3SQLCustomForm(*s3_sql_custom_fields)
+                    # Custom CRUD form
+                    crud_fields = ["first_name",
+                                   #"middle_name",
+                                   "last_name",
+                                   S3SQLInlineComponent(
+                                        "human_resource",
+                                        name = "human_resource",
+                                        label = "",
+                                        multiple = False,
+                                        fields = hr_fields,
+                                        ),
+                                   S3SQLInlineComponent(
+                                        "contact",
+                                        name = "email",
+                                        label = EMAIL,
+                                        #multiple = True,
+                                        fields = contact_fields,
+                                        filterby = [{"field": "contact_method",
+                                                        "options": "EMAIL",
+                                                        },
+                                                    ] + contact_filter,
+                                        ),
+                                   S3SQLInlineComponent(
+                                        "contact",
+                                        name = "work_phone",
+                                        label = T("Work Phone"),
+                                        #multiple = True,
+                                        fields = contact_fields,
+                                        filterby = [{"field": "contact_method",
+                                                     "options": "WORK_PHONE",
+                                                     },
+                                                    ] + contact_filter,
+                                        ),
+                                   S3SQLInlineComponent(
+                                        "contact",
+                                        name = "phone",
+                                        label = MOBILE,
+                                        #multiple = True,
+                                        fields = contact_fields,
+                                        filterby = [{"field": "contact_method",
+                                                     "options": "SMS",
+                                                     },
+                                                    ] + contact_filter,
+                                        ),
+                                   S3SQLInlineLink(
+                                        "group",
+                                        label = T("Groups"),
+                                        field = "group_id",
+                                        multiple = True,
+                                        ),
+                                   #S3SQLInlineComponent(
+                                   #     "image",
+                                   #     name = "image",
+                                   #     label = T("Photo"),
+                                   #     multiple = False,
+                                   #     fields = [("", "image")],
+                                   #     filterby = dict(field = "profile",
+                                   #                     options=[True]
+                                   #                     ),
+                                   #     ),
+                                   ]
 
+                    crud_form = S3SQLCustomForm(*crud_fields)
+
+                    # Custom list fields
                     list_fields = [(current.messages.ORGANISATION, "human_resource.organisation_id"),
                                    "first_name",
                                    #"middle_name",
@@ -1231,6 +1320,7 @@ def config(settings):
                                         (EMAIL, "email.value"),
                                         ]
 
+                    # Update table configuration
                     s3db.configure(r.tablename,
                                    crud_form = crud_form,
                                    list_fields = list_fields,
@@ -1250,7 +1340,7 @@ def config(settings):
                 output = standard_postp(r, output)
 
             if r.interactive and isinstance(output, dict):
-                if "form" in output:
+                if "form" in output and hasattr(output["form"], "add_class"):
                     output["form"].add_class("pr_person")
                 elif "item" in output and hasattr(output["item"], "add_class"):
                     output["item"].add_class("pr_person")
@@ -1706,8 +1796,8 @@ def config(settings):
                                   "comments", # NB This is labelled 'Role' in DRRPP
                                   ],
                         filterby = dict(field = "role",
-                        options = "2"
-                        )
+                                        options = "2"
+                                        ),
                     ),
                     S3SQLInlineComponent(
                         "document",

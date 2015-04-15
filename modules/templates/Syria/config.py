@@ -95,7 +95,7 @@ def config(settings):
     # Default Language
     settings.L10n.default_language = "en"
     # Default timezone for users
-    settings.L10n.utc_offset = "UTC +0200"
+    settings.L10n.utc_offset = "+0200"
     # Unsortable 'pretty' date format
     settings.L10n.date_format = "%d %b %Y"
     # Number formats (defaults to ISO 31-0)
@@ -644,7 +644,12 @@ def config(settings):
                     s3.dl_rowsize = 2
 
                     # Just show specific Countries
-                    s3.filter = (table.name.belongs("Syrian Arab Republic", "Jordan", "Iraq", "Lebanon", "Turkey"))
+                    r.resource.add_filter(table.name.belongs("Syrian Arab Republic",
+                                                             "Jordan",
+                                                             "Iraq",
+                                                             "Lebanon",
+                                                             "Turkey",
+                                                             ))
                     # Default 5 triggers an AJAX call, we should load all by default
                     s3.dl_pagelength = 13
 
