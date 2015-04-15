@@ -102,7 +102,7 @@ def config(settings):
     # Default Language
     settings.L10n.default_language = "en"
     # Default timezone for users
-    settings.L10n.utc_offset = "UTC -0800"
+    settings.L10n.utc_offset = "-0800"
     # Unsortable 'pretty' date format
     settings.L10n.date_format = "%b %d %Y"
     # Number formats (defaults to ISO 31-0)
@@ -164,7 +164,7 @@ def config(settings):
     # MCOP sets these to match Wrike
     settings.project.task_status_opts = {2: T("Active"),
                                          6: T("Deferred"),
-                                         7: T("Cancelled"),
+                                         7: T("Canceled"),
                                         12: T("Completed"),
                                         }
     # -----------------------------------------------------------------------------

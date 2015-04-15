@@ -19,10 +19,10 @@ def index():
     mode = session.s3.hrm.mode
     if mode is not None:
         # Go to Personal Profile
-        redirect(URL(f="person"))
+        s3_redirect_default(URL(f="person"))
     else:
         # Bypass home page & go direct to Volunteers Summary
-        redirect(URL(f="volunteer", args=["summary"]))
+        s3_redirect_default(URL(f="volunteer", args=["summary"]))
 
 # =============================================================================
 # People
@@ -76,6 +76,8 @@ def volunteer():
         else:
             list_fields = ["person_id",
                            ]
+        if settings.get_hrm_use_code() is True:
+            list_fields.append("code")
         list_fields.append("job_title_id")
         if settings.get_hrm_multiple_orgs():
             list_fields.append("organisation_id")
@@ -150,13 +152,15 @@ def volunteer():
                     location_id.writable = location_id.readable = True
                     # Hide unwanted fields
                     for fn in ("site_id",
-                               "code",
                                "department_id",
                                "essential",
                                "site_contact",
                                "status",
                                ):
                         table[fn].writable = table[fn].readable = False
+                    # Hide volunteer ID as per setting
+                    if settings.get_hrm_use_code() is not True:
+                        table["code"].readable = table["code"].writable = False
                     # Organisation Dependent Fields
                     set_org_dependent_field = settings.set_org_dependent_field
                     set_org_dependent_field("pr_person_details", "father_name")
@@ -417,6 +421,7 @@ def person():
                 set_org_dependent_field = settings.set_org_dependent_field
                 set_org_dependent_field("pr_person", "middle_name")
                 set_org_dependent_field("pr_person_details", "father_name")
+                set_org_dependent_field("pr_person_details", "grandfather_name")
                 set_org_dependent_field("pr_person_details", "mother_name")
                 set_org_dependent_field("pr_person_details", "affiliations")
                 set_org_dependent_field("pr_person_details", "company")

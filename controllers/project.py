@@ -18,10 +18,10 @@ def index():
 
     if mode_task:
         # Bypass home page & go direct to browsing Tasks for a Project
-        redirect(URL(f="project", vars={"tasks":1}))
+        s3_redirect_default(URL(f="project", vars={"tasks":1}))
     else:
         # Bypass home page & go direct to filterable list of Projects
-        redirect(URL(f="project"))
+        s3_redirect_default(URL(f="project"))
 
 # =============================================================================
 def create():
@@ -1036,6 +1036,19 @@ $('#submit_record__row input').click(function(){
     return XML(output)
 
 def comment():
+    """ RESTful CRUD controller """
+
+    return s3_rest_controller()
+
+# =============================================================================
+# Indicators
+# =============================================================================
+def indicator():
+    """ RESTful CRUD controller """
+
+    return s3_rest_controller()
+
+def indicator_data():
     """ RESTful CRUD controller """
 
     return s3_rest_controller()

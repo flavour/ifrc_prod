@@ -108,6 +108,7 @@ from gluon.languages import lazyT
 from gluon.sqlhtml import *
 from gluon.storage import Storage
 
+from s3datetime import S3DateTime
 from s3utils import *
 from s3validators import *
 
@@ -629,11 +630,16 @@ class S3AddPersonWidget2(FormWidget):
     """
 
     def __init__(self,
-                 controller = None
+                 controller = None,
+                 father_name = False,
+                 grandfather_name = False,
                  ):
 
         # Controller to retrieve the person or hrm record
         self.controller = controller
+
+        self.father_name = father_name
+        self.grandfather_name = grandfather_name
 
     def __call__(self, field, value, **attributes):
 
@@ -737,6 +743,9 @@ class S3AddPersonWidget2(FormWidget):
             emailRequired = False
             occupation = None
 
+        father_name = dtable.father_name if self.father_name else None
+        grandfather_name = dtable.grandfather_name if self.grandfather_name else None
+
         if value:
             db = current.db
             fields = [ptable.first_name,
@@ -744,6 +753,8 @@ class S3AddPersonWidget2(FormWidget):
                       ptable.last_name,
                       ptable.pe_id,
                       ]
+            details = False
+
             if hrm:
                 query = (htable.id == value) & \
                         (htable.person_id == ptable.id)
@@ -755,27 +766,47 @@ class S3AddPersonWidget2(FormWidget):
                 fields.append(date_of_birth)
             if gender:
                 fields.append(gender)
+            if father_name:
+                fields.append(father_name)
+                details = True
+            if grandfather_name:
+                fields.append(grandfather_name)
+                details = True
             if occupation:
                 fields.append(occupation)
+                details = True
+
+            if details:
                 left = dtable.on(dtable.person_id == ptable.id)
             else:
                 left = None
+
             row = db(query).select(*fields,
                                    left=left,
                                    limitby=(0, 1)).first()
-            if hrm:
-                values["organisation_id"] = row["hrm_human_resource.organisation_id"]
-            if occupation:
-                values["occupation"] = row["pr_person_details.occupation"]
-            if hrm or occupation:
+
+            if details or hrm:
                 person = row["pr_person"]
+                if details:
+                    person_details = row["pr_person_details"]
+                if hrm:
+                    human_resource = row["hrm_human_resource"]
             else:
                 person = row
+            if hrm:
+                values["organisation_id"] = human_resource.organisation_id
+            if occupation:
+                values["occupation"] = person_details.occupation
+            if father_name:
+                values["father_name"] = person_details.father_name
+            if grandfather_name:
+                values["grandfather_name"] = person_details.grandfather_name
             values["full_name"] = s3_fullname(person)
             if date_of_birth:
                 values["date_of_birth"] = person.date_of_birth
             if gender:
                 values["gender"] = person.gender
+
             # Contacts as separate query as we can't easily limitby
             ctable = s3db.pr_contact
             if req_home_phone:
@@ -892,7 +923,10 @@ class S3AddPersonWidget2(FormWidget):
                      OptionsWidget.widget(gender, values.get("gender", None),
                                           _id = "%s_gender" % fieldname),
                      False))
-
+        if father_name:
+            fappend(("father_name", father_name.label, INPUT(), False))
+        if grandfather_name:
+            fappend(("grandfather_name", grandfather_name.label, INPUT(), False))
         if occupation:
             fappend(("occupation", occupation.label, INPUT(), False))
 
@@ -981,6 +1015,14 @@ i18n.dupes_found="%s"''' % (i18n,
                             T("No"),
                             T("_NUM_ duplicates found"),
                             )
+            if father_name or grandfather_name:
+                i18n = \
+'''%s
+i18n.father_name_label="%s:"
+i18n.grandfather_name_label="%s:"''' % (i18n,
+                                        father_name.label,
+                                        grandfather_name.label,
+                                        )
             s3.js_global.append(i18n)
         if lookup_duplicates:
             script = '''S3.addPersonWidget('%s',1)''' % fieldname
@@ -4701,11 +4743,17 @@ class S3LocationSelector(S3Selector):
         # Real input
         classes = ["location-selector"]
         if fieldname.startswith("sub_"):
+            is_inline = True
             classes.append("inline-locationselector-widget")
+        else:
+            is_inline = False
         real_input = self.inputfield(field, values, classes, **attributes)
 
         # The overall layout of the components
-        visible_components = self._layout(components, map_icon=map_icon)
+        visible_components = self._layout(components,
+                                          map_icon=map_icon,
+                                          inline=is_inline,
+                                          )
 
         return TAG[""](DIV(_class="throbber"),
                        real_input,
@@ -5013,7 +5061,8 @@ class S3LocationSelector(S3Selector):
     def _layout(self,
                 components,
                 map_icon=None,
-                formstyle=None):
+                formstyle=None,
+                inline=False):
         """
             Overall layout for visible components
 
@@ -5032,12 +5081,14 @@ class S3LocationSelector(S3Selector):
             # Formstyle with separate row for label
             # (e.g. old default Eden formstyle)
             tuple_rows = True
+            table_style = inline and row[0].tag == "tr"
         else:
             # Formstyle with just a single row
             # (e.g. Bootstrap, Foundation or DRRPP)
             tuple_rows = False
+            table_style = False
 
-        selectors = DIV()
+        selectors = DIV() if not table_style else TABLE()
         for name in ("L0", "L1", "L2", "L3", "L4", "L5"):
             if name in components:
                 label, widget, input_id, hidden = components[name]
@@ -5053,7 +5104,7 @@ class S3LocationSelector(S3Selector):
                 else:
                     selectors.append(formrow)
 
-        inputs = TAG[""]()
+        inputs = TAG[""]() if not table_style else TABLE()
         for name in ("address", "postcode", "lat", "lon", "latlon_toggle"):
             if name in components:
                 label, widget, input_id, hidden = components[name]
@@ -7678,11 +7729,13 @@ class ICON(I):
             "edit": "icon-edit",
             "exclamation": "icon-exclamation",
             "facebook": "icon-facebook",
+            "facility": "icon-home",
             "file": "icon-file",
             "file-alt": "icon-file-alt",
             "folder-open-alt": "icon-folder-open-alt",
             "fullscreen": "icon-fullscreen",
             "globe": "icon-globe",
+            "group": "icon-group",
             "home": "icon-home",
             "inactive": "icon-check-empty",
             "link": "icon-external-link",
@@ -7692,6 +7745,7 @@ class ICON(I):
             "map-marker": "icon-map-marker",
             "offer": "icon-truck",
             "organisation": "icon-sitemap",
+            "org-network": "icon-umbrella",
             "other": "icon-circle",
             "paper-clip": "icon-paper-clip",
             "phone": "icon-phone",
@@ -7744,11 +7798,13 @@ class ICON(I):
             #"edit": "fa-edit",
             #"exclamation": "fa-exclamation",
             #"facebook": "fa-facebook",
+            #"facility": "fa-home",
             #"file": "fa-file",
             #"file-alt": "fa-file-alt",
             #"folder-open-alt": "fa-folder-open-o",
             #"fullscreen": "fa-fullscreen",
             #"globe": "fa-globe",
+            #"group": "fa-group",
             #"home": "fa-home",
             #"inactive": "fa-check-empty",
             #"link": "fa-external-link",
@@ -7758,6 +7814,7 @@ class ICON(I):
             #"map-marker": "fa-map-marker",
             #"offer": "fa-truck",
             #"organisation": "fa-institution",
+            #"org-network": "fa-umbrella",
             #"other": "fa-circle",
             #"paper-clip": "fa-paper-clip",
             #"phone": "fa-phone",
@@ -7806,11 +7863,13 @@ class ICON(I):
             "edit": "fi-page-edit",
             "exclamation": "fi-alert",
             "facebook": "fi-social-facebook",
+            "facility": "fi-home",
             "file": "fi-page-filled",
             "file-alt": "fi-page",
             "folder-open-alt": "fi-folder",
             "fullscreen": "fi-arrows-out",
             "globe": "fi-map",
+            "group": "fi-torsos-all",
             "home": "fi-home",
             "inactive": "fi-x",
             "link": "fi-web",
@@ -7820,6 +7879,7 @@ class ICON(I):
             "map-marker": "fi-marker",
             "offer": "fi-burst",
             "organisation": "fi-torsos-all",
+            "org-network": "fi-asterisk",
             "other": "fi-asterisk",
             "paper-clip": "fi-paperclip",
             "phone": "fi-telephone",

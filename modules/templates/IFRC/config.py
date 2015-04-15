@@ -106,7 +106,8 @@ def config(settings):
                                 inv_send = SID,
                                 inv_track_item = "track_org_id",
                                 inv_adj_item = "adj_id",
-                                req_req_item = "req_id"
+                                req_req_item = "req_id",
+                                po_household = "area_id",
                                 )
 
         # Default Foreign Keys (ordered by priority)
@@ -166,7 +167,7 @@ def config(settings):
                     (ltable.organisation_type_id == ottable.id)
             otype = db(query).select(ottable.name,
                                      limitby=(0, 1)).first()
-            if otype and otype.name != "Red Cross / Red Crescent":
+            if not otype or otype.name != "Red Cross / Red Crescent":
                 use_user_organisation = True
 
         elif tablename == "hrm_training":
@@ -249,7 +250,7 @@ def config(settings):
     # Default Language
     settings.L10n.default_language = "en-gb"
     # Default timezone for users
-    settings.L10n.utc_offset = "UTC +0700"
+    settings.L10n.utc_offset = "+0700"
     # Number formats (defaults to ISO 31-0)
     # Decimal separator for numbers (defaults to ,)
     settings.L10n.decimal_separator = "."
@@ -265,14 +266,18 @@ def config(settings):
     settings.L10n.translate_gis_location = True
     # Uncomment this for Alternate Location Names
     settings.L10n.name_alt_gis_location = True
+    # Uncomment this to Translate Organisation Names/Acronyms
+    settings.L10n.translate_org_organisation = True
 
     # -----------------------------------------------------------------------------
     # Finance settings
+    # @ToDo: Allow this list to vary by NS
     settings.fin.currencies = {
         "AUD" : T("Australian Dollars"),
         "CAD" : T("Canadian Dollars"),
         "EUR" : T("Euros"),
         "GBP" : T("Great British Pounds"),
+        "HNL" : T("Honduran Lempira"),
         "PHP" : T("Philippine Pesos"),
         "CHF" : T("Swiss Francs"),
         "USD" : T("United States Dollars"),
@@ -308,7 +313,9 @@ def config(settings):
     ARCS = "Afghan Red Crescent Society"
     BRCS = "Bangladesh Red Crescent Society"
     CVTL = "Timor-Leste Red Cross Society (Cruz Vermelha de Timor-Leste)"
+    HNRC = "Honduran Red Cross"
     NRCS = "Nepal Red Cross Society"
+    NZRC = "New Zealand Red Cross"
     PMI = "Indonesian Red Cross Society (Palang Merah Indonesia)"
     PRC = "Philippine Red Cross"
     VNRC = "Viet Nam Red Cross"
@@ -513,6 +520,12 @@ def config(settings):
         ("deploy", Storage(
                name_nice = T("Regional Disaster Response Teams"),
                #description = "Alerting and Deployment of Disaster Response Teams",
+               restricted = True,
+               #module_type = 10,
+           )),
+        ("po", Storage(
+               name_nice = T("Recovery Outreach"),
+               #description = "Population Outreach",
                restricted = True,
                #module_type = 10,
            )),
@@ -762,6 +775,16 @@ def config(settings):
         return default
 
     settings.ui.location_filter_bulk_select_option = location_filter_bulk_select_option
+
+    def hrm_use_code(default):
+        """ Whether to use Staff-ID/Volunteer-ID """
+
+        root_org = current.auth.root_org_name()
+        if root_org == ARCS:
+            return True # use for both staff and volunteers
+        return default
+
+    settings.hrm.use_code = hrm_use_code
 
     # -------------------------------------------------------------------------
     def customise_asset_asset_controller(**attr):
@@ -1437,7 +1460,6 @@ def config(settings):
             if root_org == ARCS:
                 arcs = True
                 settings.L10n.mandatory_lastname = False
-                settings.hrm.use_code = True
                 settings.hrm.use_skills = True
                 settings.hrm.vol_active = True
             elif root_org in (CVTL, PMI, PRC):
@@ -1488,24 +1510,32 @@ def config(settings):
             resource = r.resource
             get_config = resource.get_config
 
-            if controller == "vol" and root_org == NRCS:
-                pos = 6
-                # Add volunteer type to list_fields
-                list_fields = get_config("list_fields")
-                list_fields.insert(pos, "details.volunteer_type")
+            if controller == "vol":
+                if root_org == ARCS:
+                    field = s3db.hrm_human_resource.person_id
+                    from s3 import S3AddPersonWidget2
+                    field.widget = S3AddPersonWidget2(controller = "vol",
+                                                      father_name = True,
+                                                      grandfather_name = True,
+                                                      )
+                elif root_org == NRCS:
+                    pos = 6
+                    # Add volunteer type to list_fields
+                    list_fields = get_config("list_fields")
+                    list_fields.insert(pos, "details.volunteer_type")
 
-                # Add volunteer type to report options
-                report_options = get_config("report_options")
-                if "details.volunteer_type" not in report_options["rows"]:
-                    report_options["rows"].insert(pos, "details.volunteer_type")
-                if "details.volunteer_type" not in report_options["cols"]:
-                    report_options["cols"].insert(pos, "details.volunteer_type")
+                    # Add volunteer type to report options
+                    report_options = get_config("report_options")
+                    if "details.volunteer_type" not in report_options["rows"]:
+                        report_options["rows"].insert(pos, "details.volunteer_type")
+                    if "details.volunteer_type" not in report_options["cols"]:
+                        report_options["cols"].insert(pos, "details.volunteer_type")
 
-                # Add filter widget for volunteer type
-                filter_widgets = s3db.get_config("hrm_human_resource", "filter_widgets")
-                filter_widgets.insert(-1, S3OptionsFilter("details.volunteer_type",
-                                                          hidden = True,
-                                                          ))
+                    # Add filter widget for volunteer type
+                    filter_widgets = s3db.get_config("hrm_human_resource", "filter_widgets")
+                    filter_widgets.insert(-1, S3OptionsFilter("details.volunteer_type",
+                                                              hidden = True,
+                                                              ))
 
             if controller == "deploy":
 
@@ -1830,15 +1860,34 @@ def config(settings):
     settings.customise_hrm_training_event_controller = customise_hrm_training_event_controller
 
     # -----------------------------------------------------------------------------
+    def customise_inv_inv_item_resource(r, tablename):
+
+        # Special cases for different NS
+        root_org = current.auth.root_org_name()
+        if root_org in ("Australian Red Cross", HNRC):
+            # Australian & Honduran RC use proper Logistics workflow
+            settings.inv.direct_stock_edits = False
+            current.s3db.configure("inv_inv_item",
+                                   create = False,
+                                   deletable = False,
+                                   editable = False,
+                                   listadd = False,
+                                   )
+
+    settings.customise_inv_inv_item_resource = customise_inv_inv_item_resource
+
+    # -----------------------------------------------------------------------------
     def customise_inv_warehouse_resource(r, tablename):
 
         # Special cases for different NS
         root_org = current.auth.root_org_name()
-        if root_org == "Australian Red Cross":
-            # AusRC use proper Logistics workflow
+        if root_org in ("Australian Red Cross", HNRC):
+            # Australian & Honduran RC use proper Logistics workflow
             settings.inv.direct_stock_edits = False
+            if root_org == HNRC:
+                settings.gis.postcode_selector = False # Needs to be done before prep as read during model load
         if root_org != NRCS:
-            # Only Nepal RCS use Warehouse Types
+            # Only Nepal RC use Warehouse Types
             field = current.s3db.inv_warehouse.warehouse_type_id
             field.readable = field.writable = False
 
@@ -2031,82 +2080,127 @@ def config(settings):
             else:
                 result = True
 
-            if not r.component or r.component_name == "branch":
-                if r.interactive or r.representation == "aadata":
-                    s3db = current.s3db
-                    list_fields = ["name",
-                                   "acronym",
-                                   "organisation_organisation_type.organisation_type_id",
-                                   "country",
-                                   "website"
-                                   ]
+            if r.interactive or r.representation == "aadata":
 
-                    type_filter = r.get_vars.get("organisation_type.name",
-                                                 None)
+                if not r.component or r.component_name == "branch":
+
+                    resource = r.resource
                     type_label = T("Type")
-                    if type_filter:
-                        type_names = type_filter.split(",")
-                        if len(type_names) == 1:
-                            # Strip Type from list_fields
-                            list_fields.remove("organisation_organisation_type.organisation_type_id")
-                            type_label = ""
 
-                        if type_filter == "Red Cross / Red Crescent":
-                            # Modify filter_widgets
-                            filter_widgets = s3db.get_config("org_organisation",
-                                                             "filter_widgets")
-                            # Remove type (always 'RC')
-                            filter_widgets.pop(1)
-                            # Remove sector (not relevant)
-                            filter_widgets.pop(1)
-
-                            # Modify CRUD Strings
-                            s3.crud_strings.org_organisation = Storage(
-                                label_create = T("Create National Society"),
-                                title_display = T("National Society Details"),
-                                title_list = T("Red Cross & Red Crescent National Societies"),
-                                title_update = T("Edit National Society"),
-                                title_upload = T("Import Red Cross & Red Crescent National Societies"),
-                                label_list_button = T("List Red Cross & Red Crescent National Societies"),
-                                label_delete_button = T("Delete National Society"),
-                                msg_record_created = T("National Society added"),
-                                msg_record_modified = T("National Society updated"),
-                                msg_record_deleted = T("National Society deleted"),
-                                msg_list_empty = T("No Red Cross & Red Crescent National Societies currently registered")
-                                )
-                            # Add Region to list_fields
-                            list_fields.insert(-1, "region_id")
-                            # Region is required
-                            r.table.region_id.requires = r.table.region_id.requires.other
-                        else:
-                            r.table.region_id.readable = r.table.region_id.writable = False
-
-                    s3db.configure("org_organisation",
-                                   list_fields = list_fields,
-                                   )
-
-                    if r.interactive:
-                        r.table.country.label = T("Country")
-                        from s3 import S3SQLCustomForm, S3SQLInlineLink
-                        crud_form = S3SQLCustomForm(
-                            "name",
-                            "acronym",
-                            S3SQLInlineLink("organisation_type",
-                                            field = "organisation_type_id",
-                                            label = type_label,
-                                            multiple = False,
-                                            #widget = "hierarchy",
-                                            ),
-                            "region_id",
-                            "country",
-                            "phone",
-                            "website",
-                            "logo",
-                            "comments",
-                            )
-                        s3db.configure("org_organisation",
-                                       crud_form = crud_form,
+                    if r.controller == "po":
+                        # Referral Agencies in PO module
+                        list_fields = ("name",
+                                       "acronym",
+                                       "organisation_organisation_type.organisation_type_id",
+                                       "website",
                                        )
+                        resource.configure(list_fields=list_fields)
+
+                        # Default country
+                        root_org = current.auth.root_org_name()
+                        if root_org == NZRC:
+                            resource.table.country.default = "NZ"
+
+                        # Custom CRUD form
+                        if r.interactive:
+                            from s3 import S3SQLCustomForm, S3SQLInlineLink, S3SQLInlineComponent
+                            # Filter inline address for type "office address", also sets default
+                            OFFICE = {"field": "type", "options": 3}
+                            crud_form = S3SQLCustomForm(
+                                            "name",
+                                            "acronym",
+                                            S3SQLInlineLink("organisation_type",
+                                                            field = "organisation_type_id",
+                                                            label = type_label,
+                                                            multiple = False,
+                                                            ),
+                                            S3SQLInlineComponent("address",
+                                                                 fields = [("", "location_id")],
+                                                                 multiple = False,
+                                                                 filterby = (OFFICE,),
+                                                                 ),
+                                            "phone",
+                                            "website",
+                                            "logo",
+                                            "comments",
+                                            )
+                            # Remove unwanted filters
+                            # @todo: add a location filter for office address
+                            unwanted_filters = ("sector_organisation.sector_id",
+                                                "country",
+                                                )
+                            filter_widgets = [widget
+                                              for widget in resource.get_config("filter_widgets")
+                                              if widget.field not in unwanted_filters]
+                            resource.configure(crud_form=crud_form,
+                                               filter_widgets=filter_widgets,
+                                               )
+                    else:
+                        # Organisations in org module
+                        list_fields = ["name",
+                                       "acronym",
+                                       "organisation_organisation_type.organisation_type_id",
+                                       "country",
+                                       "website",
+                                       ]
+                        type_filter = r.get_vars.get("organisation_type.name", None)
+                        if type_filter:
+                            type_names = type_filter.split(",")
+                            if len(type_names) == 1:
+                                # Strip Type from list_fields
+                                list_fields.remove("organisation_organisation_type.organisation_type_id")
+                                type_label = ""
+
+                            if type_filter == "Red Cross / Red Crescent":
+                                # Modify filter_widgets
+                                filter_widgets = resource.get_config("filter_widgets")
+                                # Remove type (always 'RC')
+                                filter_widgets.pop(1)
+                                # Remove sector (not relevant)
+                                filter_widgets.pop(1)
+
+                                # Modify CRUD Strings
+                                s3.crud_strings.org_organisation = Storage(
+                                    label_create = T("Create National Society"),
+                                    title_display = T("National Society Details"),
+                                    title_list = T("Red Cross & Red Crescent National Societies"),
+                                    title_update = T("Edit National Society"),
+                                    title_upload = T("Import Red Cross & Red Crescent National Societies"),
+                                    label_list_button = T("List Red Cross & Red Crescent National Societies"),
+                                    label_delete_button = T("Delete National Society"),
+                                    msg_record_created = T("National Society added"),
+                                    msg_record_modified = T("National Society updated"),
+                                    msg_record_deleted = T("National Society deleted"),
+                                    msg_list_empty = T("No Red Cross & Red Crescent National Societies currently registered")
+                                    )
+                                # Add Region to list_fields
+                                list_fields.insert(-1, "region_id")
+                                # Region is required
+                                r.table.region_id.requires = r.table.region_id.requires.other
+                            else:
+                                r.table.region_id.readable = r.table.region_id.writable = False
+                        resource.configure(list_fields=list_fields)
+
+                        if r.interactive:
+                            r.table.country.label = T("Country")
+                            from s3 import S3SQLCustomForm, S3SQLInlineLink
+                            crud_form = S3SQLCustomForm(
+                                            "name",
+                                            "acronym",
+                                            S3SQLInlineLink("organisation_type",
+                                                            field = "organisation_type_id",
+                                                            label = type_label,
+                                                            multiple = False,
+                                                            #widget = "hierarchy",
+                                                            ),
+                                            "region_id",
+                                            "country",
+                                            "phone",
+                                            "website",
+                                            "logo",
+                                            "comments",
+                                            )
+                            resource.configure(crud_form=crud_form)
 
             return result
         s3.prep = custom_prep
@@ -2284,9 +2378,10 @@ def config(settings):
             settings.L10n.mandatory_lastname = False
             # Override what has been set in the model already
             s3db.pr_person.last_name.requires = None
-            settings.hrm.use_code = True
             settings.hrm.use_skills = True
             settings.hrm.vol_active = True
+        elif root_org == HNRC:
+            settings.gis.postcode_selector = False # Needs to be done before prep as read during model load
         elif root_org == PMI:
             settings.hrm.use_skills = True
             settings.hrm.staff_experience = "experience"
@@ -2454,7 +2549,18 @@ def config(settings):
                         # Use default form (legacy)
                         s3db.clear_config("hrm_human_resource", "crud_form")
 
-            if vnrc:
+            if arcs:
+                controller = r.controller
+                if controller == "vol" and not r.component:
+                    # Hide unwanted fields
+                    table = r.resource.table
+                    for field in ("initials", "preferred_name", "local_name"):
+                        table[field].writable = table[field].readable = False
+                    table = s3db.pr_person_details
+                    for field in ("religion",):
+                        table[field].writable = table[field].readable = False
+
+            elif vnrc:
                 controller = r.controller
                 if not r.component:
                     crud_fields = ["first_name",
@@ -2868,6 +2974,8 @@ def config(settings):
     settings.project.community = True
     # Uncomment this to enable Hazards in 3W projects
     settings.project.hazards = True
+    # Uncomment this to enable Indicators in projects
+    settings.project.indicators = True
     # Uncomment this to use multiple Budgets per project
     settings.project.multiple_budgets = True
     # Uncomment this to use multiple Organisations per project
@@ -3233,6 +3341,19 @@ def config(settings):
     # Uncomment if you need a simpler (but less accountable) process for managing stock levels
     settings.inv.direct_stock_edits = True
     settings.inv.org_dependent_warehouse_types = True
+    # Settings for HNRC:
+    settings.inv.item_status = {#0: current.messages["NONE"], # Not defined yet
+                                0: "-",
+                                1: T("Dump"),
+                                #2: T("Sale"),
+                                #3: T("Reject"),
+                                4: T("Surplus")
+                                }
+    settings.inv.recv_type = {32: T("Donation"),
+                              34: T("Purchase"),
+                              36: T("Consignment") # Borrowed
+                              }
+
 
     # -----------------------------------------------------------------------------
     # Request Management
@@ -3242,6 +3363,8 @@ def config(settings):
     settings.req.use_commit = False
     # Should Requests ask whether Transportation is required?
     settings.req.ask_transport = True
+    # Uncomment to disable Recurring Request
+    settings.req.recurring = False # HNRC
 
     # -----------------------------------------------------------------------------
     def customise_req_commit_controller(**attr):

@@ -119,7 +119,7 @@ def config(settings):
     # Default Language
     settings.L10n.default_language = "tet"
     # Default timezone for users
-    settings.L10n.utc_offset = "UTC +0900"
+    settings.L10n.utc_offset = "+0900"
     # Unsortable 'pretty' date format
     settings.L10n.date_format = "%d %b %Y"
     # Number formats (defaults to ISO 31-0)
@@ -2615,7 +2615,7 @@ def config(settings):
                     s3.dl_rowsize = 2
 
                     # Just show L1s (Districts)
-                    s3.filter = (table.level == "L1")
+                    r.resource.add_filter(table.level == "L1")
                     # Default 5 triggers an AJAX call, we should load all by default
                     s3.dl_pagelength = 13
 
@@ -3998,7 +3998,7 @@ def config(settings):
                 result = standard_prep(r)
 
             # Filter Out Docs from Newsfeed & Projects
-            current.response.s3.filter = (table.name != None)
+            r.resource.add_filter(table.name != None)
 
             if r.interactive:
                 s3.crud_strings[tablename] = Storage(

@@ -1328,7 +1328,7 @@ class S3Config(Storage):
                            )
 
     def get_L10n_utc_offset(self):
-        return self.L10n.get("utc_offset", "UTC +0000")
+        return self.L10n.get("utc_offset", "+0000")
 
     def get_L10n_firstDOW(self):
         return self.L10n.get("firstDOW", 1)
@@ -2510,9 +2510,11 @@ class S3Config(Storage):
 
     def get_hrm_use_code(self):
         """
-            Whether Human Resources should use Staff/Volunteer IDs
+            Whether Human Resources should use Staff/Volunteer IDs,
+            either True or False, or "staff" to use code for staff
+            only
         """
-        return self.hrm.get("use_code", False)
+        return self.__lazy(self.hrm, "use_code", default=False)
 
     def get_hrm_use_credentials(self):
         """
@@ -3053,6 +3055,12 @@ class S3Config(Storage):
         """
         return self.project.get("hazards", False)
 
+    def get_project_indicators(self):
+        """
+            Use Indicators in Projects
+        """
+        return self.project.get("indicators", False)
+
     #def get_project_locations_from_countries(self):
     #    """
     #        Create a project_location for each country that a Project is
@@ -3146,7 +3154,7 @@ class S3Config(Storage):
                                                      4: T("Feedback"),
                                                      5: T("Blocked"),
                                                      6: T("On Hold"),
-                                                     7: T("Cancelled"),
+                                                     7: T("Canceled"),
                                                      8: T("Duplicate"),
                                                      9: T("Ready"),
                                                     10: T("Verified"),
@@ -3190,6 +3198,12 @@ class S3Config(Storage):
 
     def get_req_type_hrm_label(self):
         return current.T(self.req.get("type_hrm_label", "People"))
+
+    def get_req_recurring(self):
+        """
+            Do we allow creation of recurring requests?
+        """
+        return current.T(self.req.get("recurring", True))
 
     def get_req_requester_label(self):
         return current.T(self.req.get("requester_label", "Requester"))

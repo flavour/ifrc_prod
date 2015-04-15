@@ -60,6 +60,7 @@ from gluon.languages import lazyT
 from gluon.tools import addrow
 
 from s3dal import Expression, Row
+from s3datetime import ISOFORMAT, s3_decode_iso_datetime
 
 DEBUG = False
 if DEBUG:
@@ -913,6 +914,34 @@ def s3_yes_no_represent(value):
         return current.T("No")
     else:
         return current.messages["NONE"]
+
+# =============================================================================
+def s3_redirect_default(location="", how=303, client_side=False, headers=None):
+    """
+        Redirect preserving response messages, useful when redirecting from
+        index() controllers.
+
+        @param location: the url where to redirect
+        @param how: what HTTP status code to use when redirecting
+        @param client_side: if set to True, it triggers a reload of
+                            the entire page when the fragment has been
+                            loaded as a component
+        @param headers: response headers
+    """
+
+    response = current.response
+    session = current.session
+
+    session.error = response.error
+    session.warning = response.warning
+    session.confirmation = response.confirmation
+    session.flash = response.flash
+
+    redirect(location,
+             how=how,
+             client_side=client_side,
+             headers=headers,
+             )
 
 # =============================================================================
 def s3_include_debug_css():
@@ -1788,104 +1817,6 @@ class S3CustomController(object):
         return
 
 # =============================================================================
-class S3DateTime(object):
-    """
-        Toolkit for date+time parsing/representation
-    """
-
-    # -------------------------------------------------------------------------
-    @classmethod
-    def date_represent(cls, date, format=None, utc=False):
-        """
-            Represent the date according to deployment settings &/or T()
-
-            @param date: the date
-            @param format: the format if wishing to override deployment_settings
-            @param utc: the date is given in UTC
-        """
-
-        if not format:
-            format = current.deployment_settings.get_L10n_date_format()
-
-        if date and isinstance(date, datetime.datetime) and utc:
-            offset = cls.get_offset_value(current.session.s3.utc_offset)
-            if offset:
-                date = date + datetime.timedelta(seconds=offset)
-
-        if date:
-            try:
-                return date.strftime(str(format))
-            except:
-                # e.g. dates < 1900
-                date = date.isoformat()
-                current.log.warning("Date cannot be formatted - using isoformat", date)
-                return date
-        else:
-            return current.messages["NONE"]
-
-    # -----------------------------------------------------------------------------
-    @classmethod
-    def time_represent(cls, time, utc=False):
-        """
-            Represent the date according to deployment settings &/or T()
-
-            @param time: the time
-            @param utc: the time is given in UTC
-        """
-
-        session = current.session
-        settings = current.deployment_settings
-        format = settings.get_L10n_time_format()
-
-        if time and utc:
-            offset = cls.get_offset_value(session.s3.utc_offset)
-            if offset:
-                time = time + datetime.timedelta(seconds=offset)
-
-        if time:
-            return time.strftime(str(format))
-        else:
-            return current.messages["NONE"]
-
-    # -----------------------------------------------------------------------------
-    @classmethod
-    def datetime_represent(cls, dt, utc=False):
-        """
-            Represent the datetime according to deployment settings &/or T()
-
-            @param dt: the datetime
-            @param utc: the datetime is given in UTC
-        """
-
-        if dt and utc:
-            offset = cls.get_offset_value(current.session.s3.utc_offset)
-            if offset:
-                dt = dt + datetime.timedelta(seconds=offset)
-
-        if dt:
-            return current.xml.encode_local_datetime(dt)
-        else:
-            return current.messages["NONE"]
-
-    # -----------------------------------------------------------------------------
-    @staticmethod
-    def get_offset_value(offset_str):
-        """
-            Convert an UTC offset string into a UTC offset value in seconds
-
-            @param offset_str: the UTC offset as string
-        """
-        if offset_str and len(offset_str) >= 5 and \
-            (offset_str[-5] == "+" or offset_str[-5] == "-") and \
-            offset_str[-4:].isdigit():
-            offset_hrs = int(offset_str[-5] + offset_str[-4:-2])
-            offset_min = int(offset_str[-5] + offset_str[-2:])
-            offset = 3600 * offset_hrs + 60 * offset_min
-            return offset
-        else:
-            return None
-
-# =============================================================================
 class S3TypeConverter(object):
     """ Universal data type converter """
 
@@ -2024,8 +1955,7 @@ class S3TypeConverter(object):
         elif isinstance(b, basestring):
             try:
                 # ISO Format is standard (e.g. in URLs)
-                tfmt = current.xml.ISOFORMAT
-                (y, m, d, hh, mm, ss, t0, t1, t2) = time.strptime(b, tfmt)
+                (y, m, d, hh, mm, ss, t0, t1, t2) = time.strptime(b, ISOFORMAT)
             except ValueError:
                 try:
                     # Try localized datetime format
@@ -2034,7 +1964,7 @@ class S3TypeConverter(object):
                 except ValueError:
                     # dateutil as last resort
                     try:
-                        dt = current.xml.decode_iso_datetime(b)
+                        dt = s3_decode_iso_datetime(b)
                     except:
                         raise ValueError
                     else:

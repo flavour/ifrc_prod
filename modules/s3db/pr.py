@@ -67,6 +67,7 @@ __all__ = ("S3PersonEntity",
            "pr_add_to_role",
            "pr_remove_from_role",
            # Hierarchy Lookup
+           "pr_instance_type",
            "pr_realm",
            "pr_realm_users",
            "pr_get_role_paths",
@@ -1593,6 +1594,8 @@ class S3PersonModel(S3Model):
             else:
                 dob = None
         gender = post_vars.get("sex", None)
+        father_name = post_vars.get("father_name", None)
+        grandfather_name = post_vars.get("grandfather_name", None)
         occupation = post_vars.get("occupation", None)
         mobile_phone = post_vars.get("mphone", None)
         home_phone = post_vars.get("hphone", None)
@@ -1643,6 +1646,8 @@ class S3PersonModel(S3Model):
                   "last_name",
                   "date_of_birth",
                   "gender",
+                  "person_details.father_name",
+                  "person_details.grandfather_name",
                   "person_details.occupation",
                   "image.image",
                   ]
@@ -1757,31 +1762,37 @@ class S3PersonModel(S3Model):
             item = {"id"     : row["pr_person.id"],
                     "name"   : name,
                     }
-            date_of_birth = row.get("pr_person.date_of_birth", None)
+            date_of_birth = row.get("pr_person.date_of_birth")
             if date_of_birth:
                 item["dob"] = date_of_birth.isoformat()
-            gender = row.get("pr_person.gender", None)
+            gender = row.get("pr_person.gender")
             if gender in (2, 3, 4):
                 # 1 = unknown
                 item["sex"] = gender
-            occupation = row.get("pr_person_details.occupation", None)
+            father_name = row.get("pr_person_details.father_name")
+            if father_name:
+                item["father_name"] = father_name
+            grandfather_name = row.get("pr_person_details.grandfather_name")
+            if grandfather_name:
+                item["grandfather_name"] = grandfather_name
+            occupation = row.get("pr_person_details.occupation")
             if occupation:
                 item["job"] = occupation
-            email = row.get("pr_contact.email", None)
+            email = row.get("pr_contact.email")
             if email:
                 item["email"] = email
-            phone = row.get("pr_contact.phone", None)
+            phone = row.get("pr_contact.phone")
             if phone:
                 item["mphone"] = phone
-            image = row.get("pr_image.image", None)
+            image = row.get("pr_image.image")
             if image:
                 item["image"] = image
             if show_hr:
-                job_title = row.get("hrm_job_title.name", None)
+                job_title = row.get("hrm_job_title.name")
                 if job_title:
                     item["job"] = job_title
                 if show_orgs:
-                     org = row.get("org_organisation.name", None)
+                     org = row.get("org_organisation.name")
                      if org:
                         item["org"] = org
             iappend(item)
@@ -4646,7 +4657,7 @@ class pr_PersonEntityRepresent(S3Represent):
         if self.show_type:
             etable = current.s3db.pr_pentity
             instance_type_nice = etable.instance_type.represent(instance_type)
-            instance_type_nice = " (%s)" % instance_type_nice
+            instance_type_nice = " (%s)" % s3_unicode(instance_type_nice)
         else:
             instance_type_nice = ""
 
@@ -6211,6 +6222,22 @@ def pr_get_ancestors(pe_id):
     ancestors = S3MultiPath.all_nodes(paths)
 
     return ancestors
+
+# =============================================================================
+def pr_instance_type(pe_id):
+    """
+        Get the instance type for a PE
+
+        @param pe_id: the PE ID
+    """
+
+    if pe_id:
+        etable = current.s3db.pr_pentity
+        row = current.db(etable.pe_id == pe_id).select(etable.instance_type,
+                                                       limitby=(0, 1)).first()
+        if row:
+            return row.instance_type
+    return None
 
 # =============================================================================
 def pr_realm(entity):
