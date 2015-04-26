@@ -45,6 +45,7 @@ __all__ = ("S3WarehouseModel",
            "inv_InvItemRepresent",
            )
 
+import datetime
 import itertools
 
 from gluon import *
@@ -195,9 +196,11 @@ class S3WarehouseModel(S3Model):
         #
 
         if settings.get_inv_warehouse_code_unique():
-            code_unique = IS_EMPTY_OR(IS_NOT_IN_DB(db, "inv_warehouse.code"))
+            code_requires = IS_EMPTY_OR([IS_LENGTH(10),
+                                         IS_NOT_IN_DB(db, "inv_warehouse.code"),
+                                         ])
         else:
-            code_unique = None
+            code_requires = IS_EMPTY_OR(IS_LENGTH(10))
 
         tablename = "inv_warehouse"
         define_table(tablename,
@@ -211,7 +214,7 @@ class S3WarehouseModel(S3Model):
                      Field("code", length=10, # Mayon compatibility
                            label = T("Code"),
                            represent = lambda v: v or NONE,
-                           requires = code_unique,
+                           requires = code_requires,
                            ),
                      organisation_id(
                         requires = self.org_organisation_requires(updateable=True),
@@ -425,7 +428,7 @@ class S3InventoryModel(S3Model):
         UNKNOWN_OPT = messages.UNKNOWN_OPT
 
         settings = current.deployment_settings
-        WAREHOUSE = settings.get_inv_facility_label()
+        WAREHOUSE = T(settings.get_inv_facility_label())
         track_pack_values = settings.get_inv_track_pack_values()
 
         inv_source_type = {0: None,
@@ -493,6 +496,7 @@ class S3InventoryModel(S3Model):
                                   ),
                           s3_date("expiry_date",
                                   label = T("Expiry Date"),
+                                  represent = self.inv_expiry_date_represent,
                                   ),
                           Field("pack_value", "double",
                                 label = T("Value per Pack"),
@@ -635,7 +639,7 @@ $.filterOptionsS3({
         if track_pack_values:
             rows = ["item_id", "item_id$item_category_id", "currency"]
             cols = ["site_id", "owner_org_id", "supply_org_id", "currency"]
-            fact = ["quantity", (T("Total Value"), "total_value"),]
+            fact = ["quantity", (T("Total Value"), "total_value")]
         else:
             rows = ["item_id", "item_id$item_category_id"]
             cols = ["site_id", "owner_org_id", "supply_org_id"]
@@ -661,6 +665,7 @@ $.filterOptionsS3({
                            "item_id$code",
                            "item_id$item_category_id",
                            "quantity",
+                           "expiry_date",
                            "owner_org_id",
                            "pack_value",
                            (T("Total Value"), "total_value"),
@@ -713,6 +718,20 @@ $.filterOptionsS3({
                     inv_remove = self.inv_remove,
                     inv_prep = self.inv_prep,
                     )
+
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def inv_expiry_date_represent(date):
+        """
+            Show Expired Dates in Red
+        """
+
+        dtstr = S3DateTime.date_represent(date, utc=True)
+
+        if date and datetime.datetime(date.year, date.month, date.day) < current.request.now:
+            return SPAN(dtstr, _class="expired")
+        else:
+            return dtstr
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -780,7 +799,7 @@ $.filterOptionsS3({
                    ):
         """
             Check that the required_total can be removed from the inv_record
-            if their is insufficient stock then set up the total to being
+            if there is insufficient stock then set up the total to being
             what is in stock otherwise set it to be the required total.
             If the update flag is true then remove it from stock.
 
@@ -960,7 +979,8 @@ class S3InventoryTrackingModel(S3Model):
              "inv_recv",
              "inv_recv_represent",
              "inv_recv_ref_represent",
-             "inv_kit",
+             "inv_kitting",
+             "inv_kitting_item",
              "inv_track_item",
              "inv_track_item_onaccept",
              )
@@ -1324,7 +1344,7 @@ class S3InventoryTrackingModel(S3Model):
                            label = T("Shipment Type"),
                            default = 0,
                            ),
-                     organisation_id(label = T("Organization/Supplier")
+                     organisation_id(label = T("Organization/Supplier"),
                                      ),
                      # This is a reference, not a super-link, so we can override
                      Field("from_site_id", "reference org_site",
@@ -1538,10 +1558,10 @@ class S3InventoryTrackingModel(S3Model):
                    action = self.inv_timeline)
 
         # ---------------------------------------------------------------------
-        # Kits
-        # - actual Kits in stock
+        # Kittings
+        # - process for creating Kits from component items
         #
-        tablename = "inv_kit"
+        tablename = "inv_kitting"
         define_table(tablename,
                      Field("site_id", "reference org_site",
                            default = user.site_id if is_logged_in() else None,
@@ -1584,10 +1604,12 @@ class S3InventoryTrackingModel(S3Model):
                                            _title="%s|%s" % (T("Kit"),
                                                              T("Type the name of an existing catalog kit"))),
                              ),
+                     item_pack_id(),
                      Field("quantity", "double",
                            label = T("Quantity"),
                            represent = lambda v, row=None: \
-                            IS_FLOAT_AMOUNT.represent(v, precision=2)
+                            IS_FLOAT_AMOUNT.represent(v, precision=2),
+                           requires = IS_FLOAT_IN_RANGE(minimum=1),
                            ),
                      s3_date(comment = DIV(_class="tooltip",
                                            _title="%s|%s" % \
@@ -1595,7 +1617,7 @@ class S3InventoryTrackingModel(S3Model):
                                             T("Will be filled automatically when the Item has been Repacked")))
                             ),
                      req_ref(writable = True),
-                     person_id(name = "repacked_id",
+                     person_id("repacked_id",
                                default = auth.s3_logged_in_person(),
                                label = T("Repacked By"),
                                ondelete = "SET NULL",
@@ -1606,27 +1628,81 @@ class S3InventoryTrackingModel(S3Model):
 
         # CRUD strings
         crud_strings[tablename] = Storage(
-            label_create = T("Create Kit"),
-            title_display = T("Kit Details"),
-            title_list = T("Kits"),
-            title_update = T("Kit"),
-            label_list_button = T("List Kits"),
-            label_delete_button = T("Delete Kit"),
-            msg_record_created = T("Kit Created"),
-            msg_record_modified = T("Kit updated"),
-            msg_record_deleted = T("Kit canceled"),
-            msg_list_empty = T("No Kits"))
+            label_create = T("Create Kitting"),
+            title_display = T("Kitting Details"),
+            title_list = T("Kittings"),
+            title_update = T("Kitting"),
+            label_list_button = T("List Kittings"),
+            label_delete_button = T("Delete Kitting"),
+            msg_record_created = T("Kitting completed"),
+            msg_record_modified = T("Kitting updated"),
+            msg_record_deleted = T("Kitting canceled"),
+            msg_list_empty = T("No Kittings"))
+
+        # Components
+        add_components(tablename,
+                       inv_kitting_item = {"name": "item",
+                                           "joinby": "kitting_id",
+                                           },
+                       )
 
         # Resource configuration
         configure(tablename,
+                  create_next = URL(c="inv", f="kitting",
+                                    args=["[id]", "item"]),
+                  create_onaccept = self.inv_kitting_onaccept,
                   list_fields = ["site_id",
                                  "req_ref",
                                  "quantity",
                                  "date",
                                  "repacked_id",
                                  ],
-                  onaccept = self.inv_kit_onaccept,
-                  onvalidation = self.inv_kit_onvalidate,
+                  onvalidation = self.inv_kitting_onvalidate,
+                  )
+
+        # ---------------------------------------------------------------------
+        # Kitting Items
+        # - Component items of Kits which can be used to build a pick-list
+        #
+        tablename = "inv_kitting_item"
+        define_table(tablename,
+                     Field("site_id", "reference org_site",
+                           readable = False,
+                           writable = False,
+                           ),
+                     Field("kitting_id", "reference inv_kitting",
+                           readable = False,
+                           writable = False,
+                           ),
+                     item_id(writable = False),
+                     item_pack_id(writable = False),
+                     Field("quantity", "double",
+                           label = T("Quantity"),
+                           represent = lambda v, row=None: \
+                            IS_FLOAT_AMOUNT.represent(v, precision=2),
+                           writable = False,
+                           ),
+                     Field("bin", length=16,
+                           label = T("Bin"),
+                           represent = s3_string_represent,
+                           writable = False,
+                           ),
+                     Field("item_source_no", "string", length=16,
+                           label = self.inv_itn_label,
+                           represent = s3_string_represent,
+                           ),
+                     inv_item_id(ondelete = "RESTRICT",
+                                 readable = False,
+                                 writable = False,
+                                 ),
+                     #s3_comments(),
+                     *s3_meta_fields())
+
+        # Resource configuration
+        configure(tablename,
+                  deletable = False,
+                  editable = False,
+                  insertable = False,
                   )
 
         # ---------------------------------------------------------------------
@@ -1710,7 +1786,8 @@ $.filterOptionsS3({
                            represent = s3_string_represent,
                            readable = False,
                            writable = False,
-                           widget = S3InvBinWidget("inv_track_item"),
+                           # Nice idea but not working properly
+                           #widget = S3InvBinWidget("inv_track_item"),
                            comment = DIV(_class="tooltip",
                                          _title="%s|%s" % \
                                                 (T("Bin"),
@@ -1720,12 +1797,12 @@ $.filterOptionsS3({
                            label = self.inv_itn_label,
                            represent = s3_string_represent,
                            ),
-                     # original donating org
+                     # Organisation which originally supplied/donated item(s)
                      organisation_id("supply_org_id",
                                      label = T("Supplier/Donor"),
                                      ondelete = "SET NULL",
                                      ),
-                     # which org owns this item
+                     # Organisation that owns item(s)
                      organisation_id("owner_org_id",
                                      label = T("Owned By (Organization/Branch)"),
                                      ondelete = "SET NULL",
@@ -1759,6 +1836,10 @@ $.filterOptionsS3({
                                   self.inv_track_item_total_value),
                      Field.Method("pack_quantity",
                                   self.supply_item_pack_quantity(tablename=tablename)),
+                     Field.Method("total_volume",
+                                  self.inv_track_item_total_volume),
+                     Field.Method("total_weight",
+                                  self.inv_track_item_total_weight),
                      s3_comments(),
                      *s3_meta_fields()
                      )
@@ -1778,9 +1859,18 @@ $.filterOptionsS3({
 
         # Filter Widgets
         filter_widgets = [
-            S3TextFilter(["item_id$name",
+            S3TextFilter(["item_source_no",
+                          "item_id$name",
                           "send_id$site_id$name",
                           "recv_id$site_id$name",
+                          "recv_id$purchase_ref",
+                          "recv_id$recv_ref",
+                          "recv_id$req_ref",
+                          "recv_id$send_ref",
+                          "send_id$req_ref",
+                          "send_id$send_ref",
+                          "supply_org_id",
+                          "owner_org_id",
                           ],
                          label = T("Search"),
                          #comment = recv_search_comment,
@@ -1801,13 +1891,16 @@ $.filterOptionsS3({
                   filter_widgets = filter_widgets,
                   list_fields = ["id",
                                  "status",
+                                 "item_source_no",
                                  "item_id",
-                                 (T("Weight (kg)"), "item_id$weight"),
-                                 (T("Volume (m3)"), "item_id$volume"),
+                                 #(T("Weight (kg)"), "item_id$weight"),
+                                 #(T("Volume (m3)"), "item_id$volume"),
                                  "item_pack_id",
                                  "send_id",
                                  "recv_id",
                                  "quantity",
+                                 (T("Total Weight (kg)"), "total_weight"),
+                                 (T("Total Volume (m3)"), "total_volume"),
                                  "currency",
                                  "pack_value",
                                  "bin",
@@ -1840,6 +1933,46 @@ $.filterOptionsS3({
             row = row.inv_track_item
         try:
             v = row.quantity * row.pack_value
+            return v
+        except:
+            # not available
+            return current.messages["NONE"]
+
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def inv_track_item_total_volume(row):
+        """ Total volume of a track item """
+
+        if hasattr(row, "inv_track_item"):
+            row = row.inv_track_item
+        try:
+            # Lookup Volume of each item
+            table = current.s3db.supply_item
+            item = current.db(table.id == row.item_id).select(table.volume,
+                                                              limitby=(0, 1)
+                                                              ).first()
+            # Return the total volume
+            v = row.quantity * item.volume
+            return v
+        except:
+            # not available
+            return current.messages["NONE"]
+
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def inv_track_item_total_weight(row):
+        """ Total weight of a track item """
+
+        if hasattr(row, "inv_track_item"):
+            row = row.inv_track_item
+        try:
+            # Lookup Weight of each item
+            table = current.s3db.supply_item
+            item = current.db(table.id == row.item_id).select(table.weight,
+                                                              limitby=(0, 1)
+                                                              ).first()
+            # Return the total weight
+            v = row.quantity * item.weight
             return v
         except:
             # not available
@@ -2142,7 +2275,8 @@ $.filterOptionsS3({
                         list_fields.insert(5, "currency")
                     if record.req_ref and r.interactive:
                         s3db.configure("inv_track_item",
-                                       extra_fields = ["req_item_id"])
+                                       extra_fields = ["req_item_id"],
+                                       )
                         tracktable.quantity_needed = \
                             Field.Method("quantity_needed",
                                          cls.inv_track_item_quantity_needed)
@@ -2160,16 +2294,16 @@ $.filterOptionsS3({
                         return s3.inv_track_item_deleting(r.component_id)
 
                 # Filter out Items which have Quantity 0, are Expired or in Bad condition
-                query = (iitable.quantity != 0) & \
-                        (iitable.expiry_date >= r.now) & \
+                query = (iitable.quantity > 0) & \
+                        ((iitable.expiry_date >= r.now) | ((iitable.expiry_date == None))) & \
                         (iitable.status == 0)
                 if record.get("site_id"):
                     # Restrict to items from this facility only
                     query &= (iitable.site_id == record.site_id)
                 tracktable.send_inv_item_id.requires = IS_ONE_OF(db(query), "inv_inv_item.id",
                                                                  s3db.inv_item_represent,
-                                                                 not_filterby = "quantity",
-                                                                 not_filter_opts = (0,),
+                                                                 #not_filterby = "quantity",
+                                                                 #not_filter_opts = (0,),
                                                                  orderby = "inv_inv_item.id",
                                                                  sort = True,
                                                                  )
@@ -2297,7 +2431,8 @@ $.filterOptionsS3({
 
         s3.prep = prep
         output = current.rest_controller("inv", "send",
-                                         rheader = inv_send_rheader)
+                                         rheader = inv_send_rheader,
+                                         )
         return output
 
     # -------------------------------------------------------------------------
@@ -2579,7 +2714,7 @@ $.filterOptionsS3({
         table.date.readable = True
         table.site_id.readable = True
         track_table.recv_quantity.readable = True
-        table.site_id.label = T("By %(site)s") % dict(site=current.deployment_settings.get_inv_facility_label())
+        table.site_id.label = T("By %(site)s") % dict(site=T(current.deployment_settings.get_inv_facility_label()))
         table.site_id.represent = current.s3db.org_site_represent
 
         record = table[r.id]
@@ -2619,14 +2754,15 @@ $.filterOptionsS3({
             Generate a PDF of a Donation certificate
         """
 
+        T = current.T
         db = current.db
         table = db.inv_recv
         table.date.readable = True
         table.type.readable = False
         field = table.site_id
         field.readable = True
-        field.label = current.T("By %(site)s") % \
-            dict(site=current.deployment_settings.get_inv_facility_label())
+        field.label = T("By %(site)s") % \
+            dict(site=T(current.deployment_settings.get_inv_facility_label()))
         field.represent = current.s3db.org_site_represent
 
         record = table[r.id]
@@ -2643,7 +2779,7 @@ $.filterOptionsS3({
                         pdf_hide_comments=True,
                         pdf_componentname = "track_item",
                         **attr
-                       )
+                        )
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -2767,73 +2903,233 @@ $.filterOptionsS3({
 
     # -------------------------------------------------------------------------
     @staticmethod
-    def inv_kit_onvalidate(form):
+    def inv_kitting_onvalidate(form):
         """
             Check that we have sufficient inv_item in stock to build the kits
         """
 
-        vars = form.vars
+        form_vars = form.vars
+        item_id = form_vars.item_id
+        item_pack_id = form_vars.item_pack_id
+        quantity = form_vars.quantity
+        site_id = form_vars.site_id
 
         db = current.db
         s3db = current.s3db
         ktable = s3db.supply_kit_item
         ptable = db.supply_item_pack
-        invtable = db.inv_inv_item
-
-        # The Facility at which we're building these kits
-        squery = (invtable.site_id == vars.site_id)
+        iitable = s3db.inv_inv_item
 
         # Get contents of this kit
-        query = (ktable.parent_item_id == vars.item_id)
+        query = (ktable.parent_item_id == item_id)
         rows = db(query).select(ktable.item_id,
                                 ktable.quantity,
-                                ktable.item_pack_id)
+                                ktable.item_pack_id,
+                                )
 
-        quantity = vars.quantity
-        max_kits = 0
-        # @ToDo: Save the results for the onaccept
-        #items = {}
+        # How many kits are we building?
+        p_id_field = ptable.id
+        p_qty_field = ptable.quantity
+        pack_qty = db(p_id_field == item_pack_id).select(p_qty_field,
+                                                         limitby=(0, 1)
+                                                         ).first().quantity
+        quantity = quantity * pack_qty
+
+        max_kits = None
+
+        ii_pack_field = iitable.item_pack_id
+        ii_qty_field = iitable.quantity
+        ii_expiry_field = iitable.expiry_date
+
+        # Base Query: The Facility at which we're building these kits
+        # Filter out Stock which is in Bad condition or Expired
+        squery = (iitable.site_id == site_id) & \
+                 (iitable.deleted == False) & \
+                 ((ii_expiry_field >= current.request.now) | ((ii_expiry_field == None))) & \
+                 (iitable.status == 0)
 
         # Loop through each supply_item in the kit
         for record in rows:
             # How much of this supply_item is required per kit?
-            one_kit = record.quantity * ptable[record.item_pack_id].quantity
+            pack_qty = db(p_id_field == record.item_pack_id).select(p_qty_field,
+                                                                    limitby=(0, 1)
+                                                                    ).first().quantity
+            one_kit = record.quantity * pack_qty
 
             # How much of this supply_item do we have in stock?
             stock_amount = 0
-            query = squery & (invtable.item_id == record.item_id)
-            wh_items = db(query).select(invtable.quantity,
-                                        invtable.item_pack_id)
+            query = squery & (iitable.item_id == record.item_id)
+            wh_items = db(query).select(#iitable.id,
+                                        ii_qty_field,
+                                        ii_pack_field,
+                                        )
             for wh_item in wh_items:
-                amount = wh_item.quantity * ptable[wh_item.item_pack_id].quantity
+                pack_qty = db(p_id_field == wh_item.item_pack_id).select(p_qty_field,
+                                                                         limitby=(0, 1)
+                                                                         ).first().quantity
+                amount = wh_item.quantity * pack_qty
                 stock_amount += amount
 
-            # How many Kits can we create?
+            # How many Kits can we create based on this item?
             kits = stock_amount / one_kit
-            if kits > max_kits:
+            if max_kits is None:
+                # 1st run so this item starts the list
                 max_kits = kits
+            else:
+                # Reduce the total possible if less than for previous items
+                if kits < max_kits:
+                    max_kits = kits
 
-            # @ToDo: Save the results for the onaccept
+        # @ToDo: Save the results for the onaccept?
 
         if max_kits < quantity:
             form.errors.quantity = current.T("You can only make %d kit(s) with the available stock") % \
                                         int(max_kits)
 
-        return
-
     # -------------------------------------------------------------------------
     @staticmethod
-    def inv_kit_onaccept(form):
+    def inv_kitting_onaccept(form):
         """
-            Reduce the Inventory stocks by the amounts used to make the kits
-            - pick items which have an earlier expiry_date where they have them
-            - provide a pick list to ensure that the right stock items are used
-              to build the kits: inv_kit_item
+            Adjust the Inventory stocks
+                reduce the components & increase the kits
+            - picks items which have an earlier expiry_date where they have them,
+              earlier purchase_data otherwise
+            Provide a pick list to ensure that the right stock items are used
+            to build the kits: inv_kitting_item
         """
 
-        # @ToDo
+        form_vars = form.vars
+        kitting_id = form_vars.id
+        item_id = form_vars.item_id
+        item_pack_id = form_vars.item_pack_id
+        quantity = form_vars.quantity
+        site_id = form_vars.site_id
 
-        return
+        db = current.db
+        s3db = current.s3db
+        ktable = s3db.supply_kit_item
+        ptable = db.supply_item_pack
+        iitable = s3db.inv_inv_item
+        insert = s3db.inv_kitting_item.insert
+        inv_remove = s3db.inv_remove
+
+        # Get contents of this kit
+        query = (ktable.parent_item_id == item_id)
+        rows = db(query).select(ktable.item_id,
+                                ktable.quantity,
+                                ktable.item_pack_id,
+                                )
+
+        # How many kits are we building?
+        p_id_field = ptable.id
+        p_qty_field = ptable.quantity
+        pack_qty = db(p_id_field == item_pack_id).select(p_qty_field,
+                                                         limitby=(0, 1)
+                                                         ).first().quantity
+        quantity = quantity * pack_qty
+
+        ii_id_field = iitable.id
+        ii_bin_field = iitable.bin
+        ii_pack_field = iitable.item_pack_id
+        ii_qty_field = iitable.quantity
+        ii_expiry_field = iitable.expiry_date
+        ii_purchase_field = iitable.purchase_date
+        ii_src_field = iitable.item_source_no
+
+        # Match Stock based on oldest expiry date or purchase date
+        orderby = ii_expiry_field | ii_purchase_field
+
+        # We set expiry date of the kit to the oldest expiry date of the components
+        expiry_date = None
+
+        # Base Query: The Facility at which we're building these kits
+        # Filter out Stock which is in Bad condition or Expired
+        squery = (iitable.site_id == site_id) & \
+                 (iitable.deleted == False) & \
+                 ((ii_expiry_field >= current.request.now) | ((ii_expiry_field == None))) & \
+                 (iitable.status == 0)
+
+        # Loop through each supply_item in the kit
+        for record in rows:
+            # How much of this supply_item is required per kit?
+            pack_qty = db(p_id_field == record.item_pack_id).select(p_qty_field,
+                                                                    limitby=(0, 1)
+                                                                    ).first().quantity
+            one_kit = record.quantity * pack_qty
+
+            # How much is required for all Kits?
+            required = one_kit * quantity
+
+            # List of what we have available in stock
+            ritem_id = record.item_id
+            query = squery & (iitable.item_id == ritem_id)
+
+            wh_items = db(query).select(ii_id_field,
+                                        ii_qty_field,
+                                        ii_expiry_field,
+                                        ii_purchase_field, # Included just for orderby on Postgres
+                                        ii_pack_field,
+                                        ii_bin_field,
+                                        ii_src_field,
+                                        orderby = orderby,
+                                        )
+            for wh_item in wh_items:
+                # Get the pack_qty
+                pack_qty = db(p_id_field == wh_item.item_pack_id).select(p_qty_field,
+                                                                         limitby=(0, 1)
+                                                                         ).first().quantity
+                # How many of this item can we use for these kits?
+                amount = wh_item.quantity * pack_qty
+                # How many of this item will we use for the kits?
+                if amount > required:
+                    # Use only what is required
+                    amount = required
+                #else:
+                #    # We use all
+
+                if wh_item.expiry_date:
+                    if expiry_date is None:
+                        # No expiry date set so this item starts the list
+                        expiry_date = wh_item.expiry_date
+                    else:
+                        # Shorten the expiry date if less than for previous items
+                        if wh_item.expiry_date < expiry_date:
+                            expiry_date = wh_item.expiry_date
+
+                # @ToDo: Record which components are to be used for the kits
+                # Store results in a table?
+
+                # Remove from stock
+                inv_remove(wh_item, amount)
+
+                # Add to Pick List
+                insert(site_id = site_id,
+                       kitting_id = kitting_id,
+                       item_id = ritem_id,
+                       item_pack_id = wh_item.item_pack_id,
+                       bin = wh_item.bin,
+                       item_source_no = wh_item.item_source_no,
+                       quantity = amount,
+                       inv_item_id = wh_item.id,
+                       )
+
+                # Update how much is still required
+                required -= amount
+
+                if not required:
+                    # No more required: move on to the next component
+                    break
+
+        # Add Kits to Stock
+        # @ToDo: Keep track of Donor? Owner?
+        # @ToDo: Update Pack Value
+        new_id = iitable.insert(site_id = site_id,
+                                item_id = item_id,
+                                item_pack_id = item_pack_id,
+                                quantity = quantity,
+                                expiry_date = expiry_date,
+                                )
+        s3db.update_super(iitable, dict(id=new_id))
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -2965,20 +3261,24 @@ $.filterOptionsS3({
                         source_type = 1 # Donation
                     else:
                         source_type = 2 # Procured
-                inv_item_id = inv_item_table.insert(site_id = recv_site_id,
-                                                    item_id = record.item_id,
-                                                    item_pack_id = record.item_pack_id,
-                                                    currency = record.currency,
-                                                    pack_value = record.pack_value,
-                                                    expiry_date = record.expiry_date,
-                                                    bin = record.recv_bin,
-                                                    owner_org_id = record.owner_org_id,
-                                                    supply_org_id = record.supply_org_id,
-                                                    quantity = record.recv_quantity,
-                                                    item_source_no = record.item_source_no,
-                                                    source_type = source_type,
-                                                    status = record.inv_item_status,
-                                                    )
+                inv_item = dict(site_id = recv_site_id,
+                                item_id = record.item_id,
+                                item_pack_id = record.item_pack_id,
+                                currency = record.currency,
+                                pack_value = record.pack_value,
+                                expiry_date = record.expiry_date,
+                                bin = record.recv_bin,
+                                owner_org_id = record.owner_org_id,
+                                supply_org_id = record.supply_org_id,
+                                quantity = record.recv_quantity,
+                                item_source_no = record.item_source_no,
+                                source_type = source_type,
+                                status = record.inv_item_status,
+                                )
+                realm_entity = current.auth.get_realm_entity(inv_item_table, inv_item)
+                inv_item.update(realm_entity=realm_entity)
+                inv_item_id = inv_item_table.insert(**inv_item)
+
             # If this item is linked to a request, then update the quantity fulfil
             if use_req and record.req_item_id:
                 req_item = db(ritable.id == record.req_item_id).select(ritable.quantity_fulfil,
@@ -3246,14 +3546,12 @@ def inv_tabs(r):
                 show_collapse = False
 
             if show_inv:
-                if settings.get_inv_shipment_name() == "order":
-                    recv_tab = T("Orders")
-                else:
-                    recv_tab = T("Receive")
+                recv_label = settings.get_inv_recv_tab_label()
+                send_label = settings.get_inv_send_tab_label()
                 inv_tabs = [(T("Stock"), "inv_item"),
                             #(T("Incoming"), "incoming/"),
-                            (recv_tab, "recv"),
-                            (T("Send"), "send"),
+                            (T(recv_label), "recv"),
+                            (T(send_label), "send"),
                             ]
                 if settings.has_module("proc"):
                     inv_tabs.append((T("Planned Procurements"), "plan"))
@@ -3329,7 +3627,7 @@ def inv_rheader(r):
         # Tabs
         tabs = [(T("Details"), None),
                 (T("Track Shipment"), "track_movement/"),
-               ]
+                ]
         rheader_tabs = DIV(s3_rheader_tabs(r, tabs))
 
         # Header
@@ -3342,6 +3640,41 @@ def inv_rheader(r):
                            ),
                         TR(TH("%s: " % table.site_id.label),
                            TD(table.site_id.represent(record.site_id),
+                              _colspan=3),
+                           ),
+                        ), rheader_tabs)
+
+    elif tablename == "inv_kitting":
+        # Tabs
+        tabs = [(T("Details"), None),
+                (T("Pick List"), "item"),
+               ]
+        rheader_tabs = DIV(s3_rheader_tabs(r, tabs))
+
+        # Header
+        rheader = DIV(
+                    TABLE(
+                        TR(TH("%s: " % table.req_ref.label),
+                           TD(table.req_ref.represent(record.req_ref),
+                              _colspan=3),
+                           ),
+                        TR(TH("%s: " % table.item_id.label),
+                           table.item_id.represent(record.item_id),
+                           TH("%s: " % table.item_pack_id.label),
+                           table.item_pack_id.represent(record.item_pack_id),
+                           TH("%s: " % table.quantity.label),
+                           table.quantity.represent(record.quantity),
+                           ),
+                        TR(TH("%s: " % table.site_id.label),
+                           TD(table.site_id.represent(record.site_id),
+                              _colspan=3),
+                           ),
+                        TR(TH("%s: " % table.repacked_id.label),
+                           TD(table.repacked_id.represent(record.repacked_id),
+                              _colspan=3),
+                           ),
+                        TR(TH("%s: " % table.date.label),
+                           TD(table.date.represent(record.date),
                               _colspan=3),
                            ),
                         ), rheader_tabs)
@@ -3779,7 +4112,14 @@ def inv_recv_rheader(r):
 
             recv_id = record.id
             site_id = record.site_id
-            org_id = s3db.org_site[site_id].organisation_id
+            stable = s3db.org_site
+            site = current.db(stable.site_id == site_id).select(stable.organisation_id,
+                                                                limitby=(0, 1)
+                                                                ).first()
+            try:
+                org_id = site.organisation_id
+            except:
+                org_id = None
             logo = s3db.org_organisation_logo(org_id)
             rData = TABLE(TR(TD(T(current.deployment_settings.get_inv_recv_form_name()),
                                 _colspan=2, _class="pdf_title"),
@@ -3966,7 +4306,7 @@ class S3InventoryAdjustModel(S3Model):
                                        ),
                      # This is a reference, not a super-link, so we can override
                      Field("site_id", self.org_site,
-                           label = current.deployment_settings.get_inv_facility_label(),
+                           label = T(current.deployment_settings.get_inv_facility_label()),
                            ondelete = "SET NULL",
                            default = auth.user.site_id if auth.is_logged_in() else None,
                            requires = IS_ONE_OF(db, "org_site.site_id",
@@ -4038,9 +4378,8 @@ class S3InventoryAdjustModel(S3Model):
 
         # CRUD strings
         if settings.get_inv_stock_count():
-            ADJUST_STOCK = T("New Stock Count")
             crud_strings["inv_adj"] = Storage(
-                label_create = ADJUST_STOCK,
+                label_create = T("New Stock Count"),
                 title_display = T("Stock Count Details"),
                 title_list = T("Stock Counts"),
                 title_update = T("Edit Stock Count"),
@@ -4051,9 +4390,8 @@ class S3InventoryAdjustModel(S3Model):
                 msg_record_deleted = T("Stock Count deleted"),
                 msg_list_empty = T("No stock counts have been done"))
         else:
-            ADJUST_STOCK = T("New Stock Adjustment")
             crud_strings["inv_adj"] = Storage(
-                label_create = ADJUST_STOCK,
+                label_create = T("New Stock Adjustment"),
                 title_display = T("Stock Adjustment Details"),
                 title_list = T("Stock Adjustments"),
                 title_update = T("Edit Adjustment"),
@@ -4158,7 +4496,8 @@ class S3InventoryAdjustModel(S3Model):
                                                     IS_ONE_OF(db, "inv_adj_item.id",
                                                               self.inv_adj_item_represent,
                                                               orderby="inv_adj_item.item_id",
-                                                              sort=True)),
+                                                              sort=True)
+                                                    ),
                                       sortby = "item_id",
                                       )
 

@@ -2933,15 +2933,19 @@ $.filterOptionsS3({
         """
 
         db = current.db
-        s3db = current.s3db
-        deployment_settings = current.deployment_settings
 
         approver = None
-        organisation_id = None
+        organisation_id = user.get("organisation_id")
 
-        # Check for Domain: Whitelist or specific Approver
-        table = s3db.auth_organisation
-        if "email" in user and user["email"] and "@" in user["email"]:
+        table = current.s3db.auth_organisation
+        if organisation_id:
+            # Check for an Organisation-specific Approver
+            query = (table.organisation_id == organisation_id) & \
+                    (table.deleted == False)
+            record = db(query).select(table.approver,
+                                      limitby=(0, 1)).first()
+        elif "email" in user and user["email"] and "@" in user["email"]:
+            # Check for Domain: Whitelist or specific Approver
             domain = user.email.split("@", 1)[-1]
             query = (table.domain == domain) & \
                     (table.deleted == False)
@@ -2952,22 +2956,13 @@ $.filterOptionsS3({
             record = None
 
         if record:
-            organisation_id = record.organisation_id
+            if not organisation_id:
+                organisation_id = record.organisation_id
             approver = record.approver
-        elif deployment_settings.get_auth_registration_requests_organisation():
-            # Check for an Organisation-specific Approver
-            organisation_id = user.get("organisation_id", None)
-            if organisation_id:
-                query = (table.organisation_id == organisation_id) & \
-                        (table.deleted == False)
-                record = db(query).select(table.approver,
-                                          limitby=(0, 1)).first()
-                if record and record.approver:
-                    approver = record.approver
 
         if not approver:
             # Default Approver
-            approver = deployment_settings.get_mail_approver()
+            approver = current.deployment_settings.get_mail_approver()
             if "@" not in approver:
                 # Must be the UUID of a Group
                 utable = db.auth_user
@@ -5419,13 +5414,19 @@ class S3Permission(object):
             return False
 
     # -------------------------------------------------------------------------
-    def owner_query(self, table, user, use_realm=True, no_realm=[]):
+    def owner_query(self,
+                    table,
+                    user,
+                    use_realm=True,
+                    realm=None,
+                    no_realm=None):
         """
             Returns a query to select the records in table owned by user
 
             @param table: the table
             @param user: the current auth.user (None for not authenticated)
             @param use_realm: use realms
+            @param realm: limit owner access to these realms
             @param no_realm: don't include these entities in role realms
             @return: a web2py Query instance, or None if no query can be
                       constructed
@@ -5434,6 +5435,11 @@ class S3Permission(object):
         OUSR = "owned_by_user"
         OGRP = "owned_by_group"
         OENT = "realm_entity"
+
+        if realm is None:
+            realm = []
+        if no_realm is None:
+            no_realm = []
 
         query = None
         if user is None:
@@ -5454,6 +5460,14 @@ class S3Permission(object):
             if OUSR in table.fields:
                 user_id = user.id
                 query = (table[OUSR] == user_id)
+                if use_realm:
+                    # Limit owner access to permitted realms
+                    if realm:
+                        realm_query = self.realm_query(table, realm)
+                        if realm_query:
+                            query &= realm_query
+                    else:
+                        query = None
 
             if not current.deployment_settings.get_security_strict_ownership():
 
@@ -6044,7 +6058,12 @@ class S3Permission(object):
         if check_owner_acls:
 
             use_realm = "ANY" not in oacls
-            owner_query = self.owner_query(table, user, use_realm=use_realm, no_realm=no_realm)
+            owner_query = self.owner_query(table,
+                                           user,
+                                           use_realm=use_realm,
+                                           realm=oacls,
+                                           no_realm=no_realm,
+                                           )
 
             if owner_query is not None:
                 _debug("==> permitted for owned records (limit to realms=%s)" % use_realm)
@@ -6928,6 +6947,8 @@ class S3Audit(object):
 # =============================================================================
 class S3RoleManager(S3Method):
     """ REST Method to manage ACLs (Role Manager UI for administrators) """
+
+    # @ToDo: Support settings.L10n.translate_org_organisation
 
     # Controllers to hide from the permissions matrix
     HIDE_CONTROLLER = ("admin", "default")

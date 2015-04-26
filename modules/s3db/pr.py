@@ -177,6 +177,8 @@ class S3PersonEntity(S3Model):
                            org_office = T("Office"),
                            pr_person = T("Person"),
                            pr_group = T("Group"),
+                           po_area = T("Recovery Outreach Area"),
+                           po_household = T("Household"),
                            )
 
         pr_pentity_represent = pr_PersonEntityRepresent()
@@ -1393,9 +1395,10 @@ class S3PersonModel(S3Model):
         limit = int(_vars.limit or 0)
         MAX_SEARCH_RESULTS = settings.get_search_max_results()
         if (not limit or limit > MAX_SEARCH_RESULTS) and resource.count() > MAX_SEARCH_RESULTS:
-            output = json.dumps([
-                dict(label=str(current.T("There are more than %(max)s results, please input more characters.") % dict(max=MAX_SEARCH_RESULTS)))
-                ], separators=SEPARATORS)
+            output = [
+                dict(label=str(current.T("There are more than %(max)s results, please input more characters.") % \
+                    dict(max=MAX_SEARCH_RESULTS)))
+                ]
         else:
             fields = ["id",
                       "first_name",
@@ -4673,7 +4676,7 @@ class pr_PersonEntityRepresent(S3Represent):
                                    instance_type_nice)
 
         elif "name" in item:
-            pe_str = "%s%s" % (item["name"],
+            pe_str = "%s%s" % (s3_unicode(item["name"]),
                                instance_type_nice)
         else:
             pe_str = "[%s]%s" % (label,

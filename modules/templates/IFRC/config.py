@@ -159,6 +159,7 @@ def config(settings):
                 # Fall back to default get_realm_entity function
 
         use_user_organisation = False
+        #use_user_root_organisation = False
         # Suppliers & Partners are owned by the user's organisation
         if realm_entity == 0 and tablename == "org_organisation":
             ottable = s3db.org_organisation_type
@@ -170,7 +171,8 @@ def config(settings):
             if not otype or otype.name != "Red Cross / Red Crescent":
                 use_user_organisation = True
 
-        elif tablename == "req_req":
+        # Facilities & Requisitions are owned by the user's organisation
+        elif tablename in ("org_facility", "req_req"):
             use_user_organisation = True
 
         elif tablename == "hrm_training":
@@ -200,12 +202,16 @@ def config(settings):
         elif tablename == "pr_group":
             use_user_organisation = True
 
-        user = current.auth.user
-        if use_user_organisation and user:
-            # @ToDo - this might cause issues if the user's org is different from the realm that gave them permissions to create the Org
-            realm_entity = s3db.pr_get_pe_id("org_organisation",
-                                             user.organisation_id)
-
+        auth = current.auth
+        user = auth.user
+        if user:
+            if use_user_organisation:
+                # @ToDo - this might cause issues if the user's org is different from the realm that gave them permissions to create the Org
+                realm_entity = s3db.pr_get_pe_id("org_organisation",
+                                                 user.organisation_id)
+            #elif use_user_root_organisation:
+            #    realm_entity = s3db.pr_get_pe_id("org_organisation",
+            #                                     auth.root_org())
         return realm_entity
 
     settings.auth.realm_entity = ifrc_realm_entity
@@ -852,6 +858,17 @@ def config(settings):
 
     settings.hrm.use_code = hrm_use_code
 
+    def auth_realm_entity_types(default):
+        """ Which entity types to use as realm entities in role manager """
+
+        auth = current.auth
+        if auth.s3_has_role(auth.get_system_roles().ADMIN) or \
+           current.auth.root_org_name() == NZRC:
+            return list(default) + ["po_area"]
+        return default
+
+    settings.auth.realm_entity_types = auth_realm_entity_types
+
     # -------------------------------------------------------------------------
     def customise_asset_asset_controller(**attr):
 
@@ -1490,11 +1507,16 @@ def config(settings):
         if r.controller == "vol":
             T = current.T
             root_org = current.auth.root_org_name()
-            if root_org in (HNRC, VNRC):
+            if root_org == HNRC:
+                settings.hrm.use_certificates = False
+                current.s3db.hrm_human_resource.status.requires = {1: T("Active"),
+                                                                   2: T("Inactive"),
+                                                                   }
+            elif root_org == VNRC:
                 settings.hrm.use_certificates = False
             elif root_org == NRCS:
                 # Expose volunteer_type field with these options:
-                types = {"PROGRAMME": T("Programme Volunteer"),
+                types = {"PROGRAMME": T("Program Volunteer"),
                          "GOVERNANCE": T("Governance Volunteer"),
                          }
                 field = current.s3db.vol_details.volunteer_type
@@ -1783,6 +1805,14 @@ def config(settings):
                     branches = False,
                     )
 
+        root_org = current.auth.root_org_name()
+        if root_org == HNRC:
+            # Don't show RDRT in the list
+            table.type.requires = IS_IN_SET({1: T("Staff"),
+                                             2: T("Volunteer"),
+                                             3: T("Both")
+                                             })
+
         # Custom prep
         standard_prep = s3.prep
         def custom_prep(r):
@@ -1928,6 +1958,35 @@ def config(settings):
     settings.customise_hrm_training_event_controller = customise_hrm_training_event_controller
 
     # -----------------------------------------------------------------------------
+    def customise_inv_home():
+        """
+            Homepage for the Inventory module
+        """
+
+        from gluon import URL
+        from s3 import s3_redirect_default
+
+        # Special cases for different NS
+        root_org = current.auth.root_org_name()
+        if root_org == HNRC:
+            auth = current.auth
+            if auth.user and auth.user.site_id and \
+               not auth.s3_has_role(current.session.s3.system_roles.ORG_ADMIN):
+                # Redirect to this Warehouse
+                table = current.s3db.inv_warehouse
+                wh = current.db(table.site_id == auth.user.site_id).select(table.id,
+                                                                           limitby=(0, 1)
+                                                                           ).first()
+                if wh:
+                    s3_redirect_default(URL(c="inv", f="warehouse",
+                                            args=[wh.id, "inv_item"]))
+
+        # Redirect to Warehouse Summary Page
+        s3_redirect_default(URL(c="inv", f="warehouse", args="summary"))
+
+    settings.customise_inv_home = customise_inv_home
+
+    # -----------------------------------------------------------------------------
     def customise_inv_inv_item_resource(r, tablename):
 
         # Special cases for different NS
@@ -1978,6 +2037,8 @@ def config(settings):
             settings.inv.direct_stock_edits = False
             if root_org == HNRC:
                 settings.gis.postcode_selector = False # Needs to be done before prep as read during model load
+                settings.inv.recv_tab_label = "Received/Incoming Shipments"
+                settings.inv.send_tab_label = "Sent Shipments"
         if root_org != NRCS:
             # Only Nepal RC use Warehouse Types
             s3db = current.s3db
@@ -3045,7 +3106,7 @@ def config(settings):
                 elif component_name == "membership":
                     field = s3db.member_membership.fee_exemption
                     field.readable = field.writable = True
-                    PROGRAMMES = T("Programmes")
+                    PROGRAMMES = T("Programs")
                     from s3 import S3SQLCustomForm, S3SQLInlineLink
                     crud_form = S3SQLCustomForm("organisation_id",
                                                 "code",
@@ -3105,6 +3166,17 @@ def config(settings):
             return s3db.hrm_rheader(r)
 
     # -----------------------------------------------------------------------------
+    def customise_supply_item_category_resource(r, tablename):
+
+        root_org = current.auth.root_org_name()
+        if root_org == HNRC:
+            # Not using Assets Module
+            field = current.s3db.supply_item_category.can_be_asset
+            field.readable = field.writable = False
+
+    settings.customise_supply_item_category_resource = customise_supply_item_category_resource
+
+    # -----------------------------------------------------------------------------
     def customise_survey_series_controller(**attr):
 
         # Organisation needs to be an NS/Branch
@@ -3152,6 +3224,73 @@ def config(settings):
         #5: T("Supplier"),
         9: T("Partner National Society"),
     }
+
+    # -------------------------------------------------------------------------
+    def project_project_postprocess(form):
+        """
+            When using Project Monitoring (i.e. HNRC) then create the entries
+        """
+
+        db = current.db
+        s3db = current.s3db
+        project_id = form.vars.id
+        # Read Budget Entity ID, Start Date and End Date
+        ptable = s3db.project_project
+        project = db(ptable.id == project_id).select(ptable.budget_entity_id,
+                                                     ptable.name,
+                                                     ptable.start_date,
+                                                     ptable.end_date,
+                                                     limitby=(0, 1)
+                                                     ).first()
+        if not project:
+            return
+
+        # Copy Project Name to Budget Name
+        budget_entity_id = project.budget_entity_id
+        btable = s3db.budget_budget
+        query = (btable.budget_entity_id == budget_entity_id)
+        budget = db(query).select(btable.id, # Needed for update_record
+                                  # If we want to provide smoothed default expected values
+                                  #btable.total_budget,
+                                  btable.currency,
+                                  # Assume Monthly
+                                  #btable.monitoring_frequency,
+                                  limitby=(0, 1)
+                                  ).first()
+        if not budget:
+            return
+        try:
+            budget.update_record(name = project.name)
+        except:
+            # unique=True violation
+            budget.update_record(name = "Budget for %s" % project.name)
+
+        # Create Monitoring Data entries
+        # Assume Monthly
+        #monitoring_frequency = budget.monitoring_frequency
+        #if not monitoring_frequency:
+        #    return
+        #total_budget = budget.total_budget
+        currency = budget.currency
+        start_date = project.start_date
+        end_date = project.end_date
+        if not start_date or not end_date:
+            return
+        # Create entries for the 1st of every month between start_date and end_date
+        from dateutil import rrule
+        dates = list(rrule.rrule(rrule.MONTHLY, bymonthday=1, dtstart=start_date, until=end_date))
+        mtable = s3db.budget_monitoring
+        for d in dates:
+            mtable.insert(budget_entity_id = budget_entity_id,
+                          # @ToDo: This needs to be modified whenever entries are manually edited
+                          # Set/update this in budget_monitoring_onaccept
+                          # - also check here that we don't exceed overall budget
+                          start_date = start_date,
+                          end_date = d,
+                          currency = currency,
+                          )
+            # Start date relates to previous entry
+            start_date = d
 
     # -----------------------------------------------------------------------------
     def customise_project_project_controller(**attr):
@@ -3209,11 +3348,30 @@ def config(settings):
             settings.project.outputs = True
             # Use Budget module instead of ProjectAnnualBudget
             settings.project.multiple_budgets = False
+            settings.project.budget_monitoring = True
+            # Require start/end dates
+            table.start_date.requires = table.start_date.requires.other
+            table.end_date.requires = table.end_date.requires.other
             budget = S3SQLInlineComponent(
                 "budget",
                 label = T("Budget"),
-                fields = ["total_budget", "monitoring_frequency"],
+                #link = False,
+                multiple = False,
+                fields = ["total_budget",
+                          "currency",
+                          #"monitoring_frequency",
+                          ],
             )
+            btable = s3db.budget_budget
+            # Need to provide a name
+            import random, string
+            btable.name.default = "".join(random.SystemRandom().choice(string.ascii_uppercase + string.digits) for _ in range(16))
+            btable.monitoring_frequency.default = 3 # Monthly
+            postprocess = project_project_postprocess
+            list_fields = s3db.get_config("project_project", "list_fields")
+            list_fields += [(T("Monthly Status"), "current_status_by_indicators"),
+                            (T("Cumulative Status"), "overall_status_by_indicators"),
+                            ]
         else:
             HFA = "drr.hfa"
             objectives = "objectives"
@@ -3223,18 +3381,18 @@ def config(settings):
                 fields = ["name", "status"],
             )
             budget = None
+            postprocess = None
 
-        s3db = current.s3db
         if settings.get_project_programmes():
             # Inject inline link for programmes including AddResourceLink
-            from s3layouts import S3AddResourceLink
+            #from s3layouts import S3AddResourceLink
             comment = s3db.project_programme_id.attr.comment
             comment.vars = {"caller": "link_defaultprogramme",
                             "prefix": "project",
                             "parent": "programme_project",
                             }
             programme = S3SQLInlineLink("programme",
-                                        label = T("Programme"),
+                                        label = T("Program"),
                                         field = "programme_id",
                                         multiple = False,
                                         comment = comment,
@@ -3349,6 +3507,7 @@ def config(settings):
             #"budget",
             #"currency",
             "comments",
+            postprocess = postprocess,
         )
 
         s3db.configure(tablename,
@@ -3550,7 +3709,7 @@ def config(settings):
     # -----------------------------------------------------------------------------
     # Request Management
     # Uncomment to disable Inline Forms in Requests module
-    #settings.req.inline_forms = False
+    settings.req.inline_forms = False
     settings.req.req_type = ["Stock"]
     settings.req.use_commit = False
     # Should Requests ask whether Transportation is required?

@@ -289,6 +289,18 @@ class S3Config(Storage):
         else:
             return attr
 
+    def customise_home(self, module, alt_function):
+        """
+            Allow use of a Customised module Home page
+            Fallback to cms_index if not configured
+            Fallback to an alt_function if defined in the controller
+        """
+        customise = self.get("customise_%s_home" % module)
+        if customise:
+            return customise()
+        else:
+            return current.s3db.cms_index(module, alt_function=alt_function)
+
     def customise_resource(self, tablename):
         """
             Get customisation callback for a resource
@@ -537,6 +549,17 @@ class S3Config(Storage):
     def get_auth_record_approval_required_for(self):
         """ Which tables record approval is required for """
         return self.auth.get("record_approval_required_for", [])
+
+    def get_auth_realm_entity_types(self):
+        """ Which entity types to use as realm entities in role manager """
+
+        default = ("org_group",
+                   "org_organisation",
+                   "org_office",
+                   "inv_warehouse",
+                   "pr_group",
+                   )
+        return self.__lazy(self.auth, "realm_entity_types", default=default)
 
     def get_auth_realm_entity(self):
         """ Hook to determine the owner entity of a record """
@@ -2589,7 +2612,19 @@ class S3Config(Storage):
         return self.inv.get("collapse_tabs", True)
 
     def get_inv_facility_label(self):
-        return self.inv.get("facility_label", current.T("Warehouse"))
+        return self.inv.get("facility_label", "Warehouse")
+
+    def get_inv_recv_tab_label(self):
+        label = self.inv.get("recv_tab_label")
+        if not label:
+            if self.get_inv_shipment_name() == "order":
+                label = "Orders"
+            else:
+                label = "Receive"
+        return label
+
+    def get_inv_send_tab_label(self):
+        return self.inv.get("send_tab_label", "Send")
 
     def get_inv_direct_stock_edits(self):
         """
@@ -3250,6 +3285,12 @@ class S3Config(Storage):
 
     def get_req_type_hrm_label(self):
         return current.T(self.req.get("type_hrm_label", "People"))
+
+    def get_req_copyable(self):
+        """
+            Provide a Copy button for Requests?
+        """
+        return self.req.get("copyable", False)
 
     def get_req_recurring(self):
         """

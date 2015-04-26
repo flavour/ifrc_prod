@@ -957,9 +957,10 @@ class S3OrganisationModel(S3Model):
         MAX_SEARCH_RESULTS = settings.get_search_max_results()
         limit = int(_vars.limit or MAX_SEARCH_RESULTS)
         if (not limit or limit > MAX_SEARCH_RESULTS) and resource.count() > MAX_SEARCH_RESULTS:
-            output = json.dumps([
-                dict(label=str(current.T("There are more than %(max)s results, please input more characters.") % dict(max=MAX_SEARCH_RESULTS)))
-                ], separators=SEPARATORS)
+            output = [
+                dict(label=str(current.T("There are more than %(max)s results, please input more characters.") % \
+                    dict(max=MAX_SEARCH_RESULTS)))
+                ]
         else:
             field = table.name
             field2 = table.acronym
@@ -1021,10 +1022,9 @@ class S3OrganisationModel(S3Model):
                         record["match"] = "acronym"
 
                 append(record)
-            output = json.dumps(output, separators=SEPARATORS)
 
         response.headers["Content-Type"] = "application/json"
-        return output
+        return json.dumps(output, separators=SEPARATORS)
 
 # =============================================================================
 class S3OrganisationNameModel(S3Model):
@@ -2993,9 +2993,10 @@ class S3SiteModel(S3Model):
         MAX_SEARCH_RESULTS = settings.get_search_max_results()
         limit = int(_vars.limit or MAX_SEARCH_RESULTS)
         if (not limit or limit > MAX_SEARCH_RESULTS) and resource.count() > MAX_SEARCH_RESULTS:
-            output = json.dumps([
-                dict(label=str(current.T("There are more than %(max)s results, please input more characters.") % dict(max=MAX_SEARCH_RESULTS)))
-                ], separators=SEPARATORS)
+            output = [
+                dict(label=str(current.T("There are more than %(max)s results, please input more characters.") % \
+                    dict(max=MAX_SEARCH_RESULTS)))
+                ]
         else:
             from s3.s3widgets import set_match_strings
             s3db = current.s3db
@@ -3045,10 +3046,9 @@ class S3SiteModel(S3Model):
                 # Populate match information (if applicable)
                 set_match_strings(record, value)
                 append(record)
-            output = json.dumps(output, separators=SEPARATORS)
 
         response.headers["Content-Type"] = "application/json"
-        return output
+        return json.dumps(output, separators=SEPARATORS)
 
 # =============================================================================
 class S3SiteDetailsModel(S3Model):
@@ -3271,9 +3271,11 @@ class S3FacilityModel(S3Model):
         # Facilities (generic)
         #
         if settings.get_org_facility_code_unique():
-            code_requires = IS_EMPTY_OR(IS_NOT_IN_DB(db, "org_facility.code"))
+            code_requires = IS_EMPTY_OR([IS_LENGTH(10),
+                                         IS_NOT_IN_DB(db, "org_facility.code"),
+                                         ])
         else:
-            code_requires = None
+            code_requires = IS_EMPTY_OR(IS_LENGTH(10))
 
         tablename = "org_facility"
         define_table(tablename,
@@ -3990,9 +3992,12 @@ class S3OfficeModel(S3Model):
         # Offices
         #
         if settings.get_org_office_code_unique():
-            code_requires = IS_EMPTY_OR(IS_NOT_IN_DB(db, "org_office.code"))
+            code_requires = IS_EMPTY_OR([IS_LENGTH(10),
+                                         IS_NOT_IN_DB(db, "org_office.code"),
+                                         ])
         else:
-            code_requires = None
+            code_requires = IS_EMPTY_OR(IS_LENGTH(10))
+
         tablename = "org_office"
         define_table(tablename,
                      super_link("doc_id", "doc_entity"),
@@ -5700,7 +5705,8 @@ def org_facility_controller():
                     field.readable = field.writable = False
                     # Stay within Facility tab
                     s3db.configure("asset_asset",
-                                   create_next = None)
+                                   create_next = None,
+                                   )
 
             elif r.id:
                 table = r.table
