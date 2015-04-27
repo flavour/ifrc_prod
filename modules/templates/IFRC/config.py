@@ -594,13 +594,12 @@ def config(settings):
                restricted = True,
                #module_type = 10,
            )),
-        # Disabled until ready for Production
-        #("po", Storage(
-        #       name_nice = T("Recovery Outreach"),
-        #       #description = "Population Outreach",
-        #       restricted = True,
-        #       #module_type = 10,
-        #   )),
+        ("po", Storage(
+               name_nice = T("Recovery Outreach"),
+               #description = "Population Outreach",
+               restricted = True,
+               #module_type = 10,
+           )),
         ("stats", Storage(
                 name_nice = T("Statistics"),
                 #description = "Manages statistics",
