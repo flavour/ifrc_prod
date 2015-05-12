@@ -521,7 +521,7 @@ class S3OrganisationModel(S3Model):
 
         # Don't add Type or Sector Filters for Supplier organizations in the asset and inv controllers
         if current.request.function != "supplier":
-            append(type_filter) 
+            append(type_filter)
             if use_sector:
                 append(S3OptionsFilter("sector_organisation.sector_id",
                                        options = lambda: \
@@ -535,7 +535,7 @@ class S3OrganisationModel(S3Model):
         append(S3OptionsFilter("country",
                                #label = T("Home Country"),
                                 ),
-               ) 
+               )
 
         report_fields = ["organisation_organisation_type.organisation_type_id",
                          "country",
@@ -565,6 +565,9 @@ class S3OrganisationModel(S3Model):
                   crud_form = crud_form,
                   deduplicate = self.organisation_duplicate,
                   filter_widgets = filter_widgets,
+                  hierarchy_export = {"root": "Organisation",
+                                      "branch": "Branch",
+                                      },
                   list_fields = list_fields,
                   list_layout = org_organisation_list_layout,
                   list_orderby = "org_organisation.name",
@@ -5378,7 +5381,8 @@ def org_organisation_controller():
             s3db.configure("org_organisation_branch",
                            list_fields = ["organisation_id",
                                           "branch_id",
-                                          (T("SubBranch"), "branch_id$branch.branch_id"),
+                                          # Not working - makes for an empty export:
+                                          #(T("SubBranch"), "branch_id$branch.branch_id"),
                                           ],
                            )
         elif r.interactive or r.representation == "aadata":
