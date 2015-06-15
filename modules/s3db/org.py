@@ -30,6 +30,7 @@
 __all__ = ("S3OrganisationModel",
            "S3OrganisationNameModel",
            "S3OrganisationBranchModel",
+           "S3OrganisationCapacityModel",
            "S3OrganisationGroupModel",
            "S3OrganisationGroupPersonModel",
            "S3OrganisationGroupTeamModel",
@@ -1113,7 +1114,7 @@ class S3OrganisationNameModel(S3Model):
                        )
 
         # Pass names back to global scope (s3.*)
-        return dict()
+        return {}
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -1350,6 +1351,226 @@ class S3OrganisationBranchModel(S3Model):
                                                limitby=(0, 1)).first()
         if record:
             org_update_affiliations("org_organisation_branch", record)
+
+# =============================================================================
+class S3OrganisationCapacityModel(S3Model):
+    """
+        (Branch) Organisational Capacity Assessment
+    """
+
+    names = ("org_capacity_indicator",
+             "org_capacity_assessment",
+             "org_capacity_assessment_data",
+             )
+
+    def model(self):
+
+        T = current.T
+
+        define_table = self.define_table
+
+        # ---------------------------------------------------------------------
+        # Indicators
+        #
+        tablename = "org_capacity_indicator"
+        define_table(tablename,
+                     Field("section"),
+                     Field("header"),
+                     Field("number", "integer"),
+                     Field("name"),
+                     *s3_meta_fields()
+                     )
+
+        # ---------------------------------------------------------------------
+        # (Branch) Organisational Capacity Assessment
+        #
+        tablename = "org_capacity_assessment"
+        define_table(tablename,
+                     self.org_organisation_id(empty=False),
+                     s3_date(future=0),
+                     self.pr_person_id(label = T("Lead Facilitator")),
+                     s3_comments(),
+                     *s3_meta_fields()
+                     )
+
+        current.response.s3.crud_strings[tablename] = Storage(
+                label_create = T("Create Assessment"),
+                title_display = T("Assessment Details"),
+                title_list = T("Assessments"),
+                title_update = T("Edit Assessment"),
+                label_list_button = T("List Assessments"),
+                label_delete_button = T("Delete Assessment"),
+                msg_record_created = T("Assessment added"),
+                msg_record_modified = T("Assessment updated"),
+                msg_record_deleted = T("Assessment removed"),
+                msg_list_empty = T("No Assessments currently registered"))
+
+        # Components
+        self.add_components(tablename,
+                            org_capacity_assessment_data = {"name": "data",
+                                                            "joinby": "assessment_id",
+                                                            },
+                            )
+
+        # ---------------------------------------------------------------------
+        # (Branch) Organisational Capacity Assessment Data
+        #
+        tablename = "org_capacity_assessment_data"
+        define_table(tablename,
+                     Field("assessment_id", "reference org_capacity_assessment",
+                           readable = False,
+                           writable = False,
+                           ),
+                     Field("indicator_id", "reference org_capacity_indicator",
+                           represent = S3Represent(lookup="org_capacity_indicator",
+                                                   fields=["number", "name"],
+                                                   field_sep=". "),
+                           writable = False,
+                           ),
+                     Field("rating",
+                           label = T("Rating"),
+                           requires = IS_IN_SET(("A","B","C","D","E","F")),
+                           ),
+                     Field("ranking", "integer",
+                           label = T("Ranking"),
+                           requires = IS_EMPTY_OR(
+                                        IS_IN_SET((1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20)),
+                                      ),
+                           ),
+                     *s3_meta_fields()
+                     )
+
+        # Custom Report Method
+        self.set_method("org", "capacity_assessment_data",
+                        method = "custom_report",
+                        action = self.org_capacity_report)
+
+        # ---------------------------------------------------------------------
+        # Pass names back to global scope (s3.*)
+        return {}
+
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def org_capacity_report(r, **attr):
+        """
+            Custom Report Method for Organisation Capacity Assessment Data
+        """
+
+        T = current.T
+
+        output = dict(title = T("Branch Organisational Capacity Assessment"))
+        current.response.view = "org/capacity_report.html"
+
+        # Maintain RHeader for consistency
+        if attr.get("rheader"):
+            rheader = attr["rheader"](r)
+            if rheader:
+                output["rheader"] = rheader
+
+        # Read all the permitted data
+        resource = r.resource
+        resource.load()
+        rows = resource._rows
+
+        if not len(rows):
+            output["items"] = T("No Assessment Data Found")
+            return output
+
+        db = current.db
+        s3db = current.s3db
+
+        # Read all the Indicators
+        itable = s3db.org_capacity_indicator
+        indicators = db(itable.deleted == False).select(itable.id,
+                                                        itable.number,
+                                                        itable.section,
+                                                        itable.name,
+                                                        orderby = itable.number,
+                                                        )
+
+        # Find all the Assessments
+        assessments = [row.assessment_id for row in rows]
+        atable = s3db.org_capacity_assessment
+        assessments = db(atable.id.belongs(assessments)).select(atable.id,
+                                                                atable.organisation_id,
+                                                                #atable.date,
+                                                                # We will just include the most recent for each organisation
+                                                                orderby = ~atable.date,
+                                                                )
+
+        # Find all the Organisations and the Latest Assessments
+        latest_assessments = {}
+        orgs = {}
+        for a in assessments:
+            o = a.organisation_id
+            if o not in orgs:
+                latest_assessments[a.id] = o
+                orgs[o] = {}
+
+        # Calculate the Consolidated Ratings & populate the individual ratings
+        consolidated = {}
+        for i in indicators:
+            consolidated[i.id] = {"A": 0,
+                                  "B": 0,
+                                  "C": 0,
+                                  "D": 0,
+                                  "E": 0,
+                                  "F": 0,
+                                  }
+        for row in rows:
+            a = row.assessment_id
+            if a in latest_assessments:
+                indicator = row.indicator_id
+                rating = row.rating
+                # Update the Consolidated
+                consolidated[indicator][row.rating] += 1
+                # Lookup which org this data belongs to
+                o = latest_assessments[a]
+                # Populate the Individual
+                orgs[o][indicator] = row.rating
+
+        # Build the output table
+        rows = []
+        rappend = rows.append
+        section = None
+        for i in indicators:
+            if i.section != section:
+                section = i.section
+                rappend(TR(TD(section), _class="odd"))
+            title = TD("%s. %s" % (i.number, i.name))
+            row = TR(title)
+            append = row.append
+            indicator_id = i.id
+            values = consolidated[indicator_id]
+            for v in ("A", "B", "C", "D", "E", "F"):
+                append(TD(values[v]))
+            for o in orgs:
+                rating = orgs[o].get(indicator_id, "")
+                append(TD(rating))
+            rappend(row)
+
+        orepresent = org_OrganisationRepresent(parent=False,
+                                               acronym=False)
+        orgs = [TH(orepresent(o)) for o in orgs]
+
+        items = TABLE(THEAD(TR(TH("TOPICS", _rowspan=2),
+                               TH("Consolidated Ratings", _colspan=6),
+                               ),
+                            TR(TH("A"),
+                               TH("B"),
+                               TH("C"),
+                               TH("D"),
+                               TH("E"),
+                               TH("F"),
+                               *orgs
+                               ),
+                            ),
+                      TBODY(*rows),
+                      )
+
+        output["items"] = items
+
+        return output
 
 # =============================================================================
 class S3OrganisationGroupModel(S3Model):
@@ -1661,7 +1882,7 @@ class S3OrganisationGroupPersonModel(S3Model):
 
         # ---------------------------------------------------------------------
         # Pass names back to global scope (s3.*)
-        return dict()
+        return {}
 
 # =============================================================================
 class S3OrganisationGroupTeamModel(S3Model):
@@ -1694,7 +1915,7 @@ class S3OrganisationGroupTeamModel(S3Model):
                        )
 
         # Pass names back to global scope (s3.*)
-        return dict()
+        return {}
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -1773,7 +1994,7 @@ class S3OrganisationLocationModel(S3Model):
                        )
 
         # Pass names back to global scope (s3.*)
-        return dict()
+        return {}
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -1810,7 +2031,7 @@ class S3OrganisationResourceModel(S3Model):
         #settings = current.deployment_settings
         if not current.deployment_settings.has_module("stats"):
             current.log.warning("Organisation Resource Model needs Stats module enabling")
-            return dict()
+            return {}
 
         T = current.T
         #auth = current.auth
@@ -1951,7 +2172,7 @@ class S3OrganisationResourceModel(S3Model):
                   )
 
         # Pass names back to global scope (s3.*)
-        return dict()
+        return {}
 
 # =============================================================================
 class S3OrganisationSectorModel(S3Model):
@@ -2381,7 +2602,7 @@ class S3OrganisationServiceModel(S3Model):
                   )
 
         # Pass names back to global scope (s3.*)
-        return dict()
+        return {}
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -2453,7 +2674,7 @@ class S3OrganisationSummaryModel(S3Model):
                           *s3_meta_fields())
 
         # Pass names back to global scope (s3.*)
-        return dict()
+        return {}
 
 # =============================================================================
 class S3OrganisationTagModel(S3Model):
@@ -2493,7 +2714,7 @@ class S3OrganisationTagModel(S3Model):
                        )
 
         # Pass names back to global scope (s3.*)
-        return dict()
+        return {}
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -2550,7 +2771,7 @@ class S3OrganisationTeamModel(S3Model):
                        )
 
         # Pass names back to global scope (s3.*)
-        return dict()
+        return {}
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -2622,7 +2843,7 @@ class S3OrganisationTypeTagModel(S3Model):
                        )
 
         # Pass names back to global scope (s3.*)
-        return dict()
+        return {}
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -3192,7 +3413,7 @@ class S3SiteDetailsModel(S3Model):
                      *s3_meta_fields())
 
         # Pass names back to global scope (s3.*)
-        return dict()
+        return {}
 
 # =============================================================================
 class S3FacilityModel(S3Model):
@@ -4383,7 +4604,7 @@ class S3OfficeSummaryModel(S3Model):
                           *s3_meta_fields())
 
         # Pass names back to global scope (s3.*)
-        return dict()
+        return {}
 
 # =============================================================================
 class S3OfficeTypeTagModel(S3Model):
@@ -4418,7 +4639,7 @@ class S3OfficeTypeTagModel(S3Model):
                           *s3_meta_fields())
 
         # Pass names back to global scope (s3.*)
-        return dict()
+        return {}
 
 # =============================================================================
 def org_organisation_address(row):
@@ -4638,7 +4859,7 @@ def org_region_options(zones=False):
 
     represent = current.s3db.org_region_represent
     if represent is None:
-        return dict()
+        return {}
 
     db = current.db
     rtable = db.org_region
