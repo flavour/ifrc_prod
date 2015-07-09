@@ -166,10 +166,11 @@ class S3PersonEntity(S3Model):
                            deploy_alert = T("Deployment Alert"),
                            dvi_body = T("Body"),
                            dvi_morgue = T("Morgue"),
-                           # If we want these, then pe_id needs adding to their
-                           # tables & configuring as a super-entity
+                           # If we want this, then pe_id needs adding to the
+                           # table & configuring as a super-entity
                            #fire_station = T("Fire Station"),
                            hms_hospital = T("Hospital"),
+                           hrm_training_event = T("Training Event"),
                            inv_warehouse = T("Warehouse"),
                            org_organisation = messages.ORGANISATION,
                            org_group = org_group_label,
@@ -887,6 +888,7 @@ class S3PersonModel(S3Model):
         crud_form = S3SQLCustomForm("first_name",
                                     "middle_name",
                                     "last_name",
+                                    "person_details.year_of_birth",
                                     "date_of_birth",
                                     "initials",
                                     "preferred_name",
@@ -1504,15 +1506,27 @@ class S3PersonModel(S3Model):
         if current.request.controller == "vol":
             dtable = s3db.pr_person_details
             fields.append(dtable.occupation)
+            # @ToDo: deployment_settings? Args passed into fn?
+            fields += [dtable.father_name,
+                       dtable.grandfather_name,
+                       dtable.year_of_birth,
+                       ]
             left = dtable.on(dtable.person_id == ptable.id)
 
         row = db(ptable.id == id).select(left=left,
                                          *fields).first()
         if left:
-            occupation = row["pr_person_details.occupation"]
+            details = row["pr_person_details"]
+            occupation = details.occupation
+            father_name = details.father_name
+            grandfather_name = details.grandfather_name
+            year_of_birth = details.year_of_birth
             row = row["pr_person"]
         else:
             occupation = None
+            father_name = None
+            grandfather_name = None
+            year_of_birth = None
         if tablename == "org_site":
             name = s3_fullname(row)
         if request_dob:
@@ -1574,6 +1588,12 @@ class S3PersonModel(S3Model):
             item["dob"] = represent(date_of_birth)
         if occupation:
             item["occupation"] = occupation
+        if father_name:
+            item["father_name"] = father_name
+        if grandfather_name:
+            item["grandfather_name"] = grandfather_name
+        if year_of_birth:
+            item["year_of_birth"] = year_of_birth
         output = json.dumps(item, separators=SEPARATORS)
 
         current.response.headers["Content-Type"] = "application/json"
@@ -2229,6 +2249,7 @@ class S3ContactModel(S3Model):
                            ),
                      Field("address",
                            label = T("Address"),
+                           # Enable as-required in templates
                            readable = False,
                            writable = False,
                            ),
@@ -2898,9 +2919,11 @@ class S3PersonIdentityModel(S3Model):
                           s3_date("valid_from",
                                   label = T("Valid From"),
                                   future = 0,
+                                  set_min = "#pr_identity_valid_until",
                                   ),
                           s3_date("valid_until",
                                   label = T("Valid Until"),
+                                  set_max = "#pr_identity_valid_from",
                                   start_field = "pr_identity_valid_from",
                                   default_interval = 12,
                                   ),
@@ -3084,7 +3107,7 @@ class S3PersonEducationModel(S3Model):
                                       # Normally accessed via component
                                       #"person_id",
                                       "year",
-                                      "level",
+                                      "level_id",
                                       "award",
                                       "major",
                                       "grade",
@@ -3186,8 +3209,11 @@ class S3PersonDetailsModel(S3Model):
                                 readable = False,
                                 writable = False,
                                 ),
-                          Field("year_of_birth",
+                          Field("year_of_birth", "integer",
                                 label = T("Year of Birth"),
+                                requires = IS_EMPTY_OR(
+                                    IS_INT_IN_RANGE(1900, current.request.now.year)
+                                    ),
                                 # Enable as-required in template
                                 # (used when this is all that is available: normally use Date of Birth)
                                 readable = False,
@@ -3223,6 +3249,11 @@ class S3PersonDetailsModel(S3Model):
                                 ),
                           Field("grandfather_name",
                                 label = T("Name of Grandfather"),
+                                readable = False,
+                                writable = False,
+                                ),
+                          Field("grandmother_name",
+                                label = T("Name of Grandmother"),
                                 readable = False,
                                 writable = False,
                                 ),
@@ -4340,7 +4371,7 @@ def pr_get_entities(pe_ids=None,
 
     if pe_ids is None:
         pe_ids = []
-    elif not isinstance(pe_ids, (list, tuple)):
+    elif not isinstance(pe_ids, (list, set, tuple)):
         pe_ids = [pe_ids]
     pe_ids = [long(pe_id) for pe_id in set(pe_ids)]
     query = (pe_table.deleted != True)

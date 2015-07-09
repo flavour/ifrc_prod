@@ -567,7 +567,7 @@ Thank you"""
             buttons = []
 
             # Self-registration action link
-            self_registration = deployment_settings.get_security_self_registration()
+            self_registration = deployment_settings.get_security_registration_visible()
             if self_registration and register_link:
                 if self_registration == "index":
                     # Custom Registration page
@@ -4915,7 +4915,7 @@ $.filterOptionsS3({
         if not current.deployment_settings.get_org_branches():
             return org_id
         return current.cache.ram(
-                    # Common key for all users of this org & vol_service_record()
+                    # Common key for all users of this org & vol_service_record() & hrm_training_event_realm_entity()
                     "root_org_%s" % org_id,
                     lambda: current.s3db.org_root_organisation(org_id),
                     time_expire=120
@@ -8218,17 +8218,19 @@ class S3RoleManager(S3Method):
 
         types = current.deployment_settings.get_auth_realm_entity_types()
 
-        if is_admin:
-            pe_ids = []
-        else:
-            # Filter to the realms of the role
-            pe_ids = set()
+        pe_ids = []
+        if not is_admin:
+            # Limit selection to the realms of the role
             if has_role(system_roles.ORG_GROUP_ADMIN):
-                pe_ids |= set(auth.user.realms[system_roles.ORG_GROUP_ADMIN])
+                realms = auth.user.realms[system_roles.ORG_GROUP_ADMIN]
+                if realms:
+                    pe_ids.extend(realms)
             if has_role(system_roles.ORG_ADMIN):
-                pe_ids |= set(auth.user.realms[system_roles.ORG_ADMIN])
-            pe_ids = list(pe_ids)
+                realms = auth.user.realms[system_roles.ORG_ADMIN]
+                if realms:
+                    pe_ids.extend(realms)
 
+        # Retrieve all entities, grouped by type
         entities = s3db.pr_get_entities(pe_ids=pe_ids, types=types, group=True)
 
         for instance_type in types:

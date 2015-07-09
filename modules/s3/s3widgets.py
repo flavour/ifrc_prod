@@ -634,8 +634,9 @@ class S3AddPersonWidget2(FormWidget):
 
     def __init__(self,
                  controller = None,
-                 father_name = False,
-                 grandfather_name = False,
+                 father_name = None,
+                 grandfather_name = None,
+                 year_of_birth = None, # Whether to use Year of Birth (as well as, or instead of, Date of Birth)
                  ):
 
         # Controller to retrieve the person or hrm record
@@ -643,6 +644,7 @@ class S3AddPersonWidget2(FormWidget):
 
         self.father_name = father_name
         self.grandfather_name = grandfather_name
+        self.year_of_birth = year_of_birth
 
     def __call__(self, field, value, **attributes):
 
@@ -707,12 +709,22 @@ class S3AddPersonWidget2(FormWidget):
         controller = self.controller or request.controller
         settings = current.deployment_settings
 
+        date_of_birth = None
+        year_of_birth = self.year_of_birth
+
+        dtable = None
         ptable = s3db.pr_person
+
+        if year_of_birth is None:
+            # Use Global deployment_setting
+            settings.get_pr_request_year_of_birth()
+        if year_of_birth:
+            dtable = s3db.pr_person_details
+            year_of_birth = dtable.year_of_birth
 
         if settings.get_pr_request_dob():
             date_of_birth = ptable.date_of_birth
-        else:
-            date_of_birth = None
+
         if settings.get_pr_request_gender():
             gender = ptable.gender
             if request.env.request_method == "POST":
@@ -720,34 +732,40 @@ class S3AddPersonWidget2(FormWidget):
         else:
             gender = None
 
+        req_email = settings.get_pr_request_email()
         req_home_phone = settings.get_pr_request_home_phone()
 
+        emailRequired = settings.get_hrm_email_required()
+        occupation = None
+        father_name = self.father_name
+        grandfather_name = self.grandfather_name
+
         if controller == "hrm":
-            emailRequired = settings.get_hrm_email_required()
-            occupation = None
+            pass
 
         elif controller == "vol":
             dtable = s3db.pr_person_details
             occupation = dtable.occupation
-            emailRequired = settings.get_hrm_email_required()
+            if father_name is None:
+                # Use Global deployment_setting
+                father_name = settings.get_pr_request_father_name()
+            if father_name:
+                father_name = dtable.father_name
+            if grandfather_name is None:
+                # Use Global deployment_setting
+                grandfather_name  = settings.get_pr_request_grandfather_name()
+            if grandfather_name:
+                grandfather_name = dtable.grandfather_name
 
         elif controller == "patient":
             controller = "pr"
-            emailRequired = settings.get_hrm_email_required()
-            occupation = None
 
         elif hrm:
             controller = "hrm"
-            emailRequired = settings.get_hrm_email_required()
-            occupation = None
 
         else:
             controller = "pr"
             emailRequired = False
-            occupation = None
-
-        father_name = dtable.father_name if self.father_name else None
-        grandfather_name = dtable.grandfather_name if self.grandfather_name else None
 
         if value:
             db = current.db
@@ -778,6 +796,9 @@ class S3AddPersonWidget2(FormWidget):
             if occupation:
                 fields.append(occupation)
                 details = True
+            if year_of_birth:
+                fields.append(year_of_birth)
+                details = True
 
             if details:
                 left = dtable.on(dtable.person_id == ptable.id)
@@ -805,6 +826,8 @@ class S3AddPersonWidget2(FormWidget):
             if grandfather_name:
                 values["grandfather_name"] = person_details.grandfather_name
             values["full_name"] = s3_fullname(person)
+            if year_of_birth:
+                values["year_of_birth"] = person_details.year_of_birth
             if date_of_birth:
                 values["date_of_birth"] = person.date_of_birth
             if gender:
@@ -812,10 +835,11 @@ class S3AddPersonWidget2(FormWidget):
 
             # Contacts as separate query as we can't easily limitby
             ctable = s3db.pr_contact
+            contact_methods = ["SMS"]
+            if req_email:
+                contact_methods.append("EMAIL")
             if req_home_phone:
-                contact_methods = ("SMS", "EMAIL", "HOME_PHONE")
-            else:
-                contact_methods = ("SMS", "EMAIL")
+                contact_methods.append("HOME_PHONE")
             query = (ctable.pe_id == person.pe_id) & \
                     (ctable.deleted == False) & \
                     (ctable.contact_method.belongs(contact_methods))
@@ -823,27 +847,19 @@ class S3AddPersonWidget2(FormWidget):
                                         ctable.value,
                                         orderby=ctable.priority,
                                         )
-            email = mobile_phone = ""
-            if req_home_phone:
-                home_phone = ""
-                for contact in contacts:
-                    if not email and contact.contact_method == "EMAIL":
-                        email = contact.value
-                    elif not mobile_phone and contact.contact_method == "SMS":
-                        mobile_phone = contact.value
-                    elif not home_phone and contact.contact_method == "HOME_PHONE":
-                        home_phone = contact.value
-                    if email and mobile_phone and home_phone:
-                        break
-                values["home_phone"] = home_phone
-            else:
-                for contact in contacts:
-                    if not email and contact.contact_method == "EMAIL":
-                        email = contact.value
-                    elif not mobile_phone and contact.contact_method == "SMS":
-                        mobile_phone = contact.value
-                    if email and mobile_phone:
-                        break
+            email = mobile_phone = home_phone = ""
+            for contact in contacts:
+                if req_email and not email and contact.contact_method == "EMAIL":
+                    email = contact.value
+                elif not mobile_phone and contact.contact_method == "SMS":
+                    mobile_phone = contact.value
+                elif req_home_phone and not home_phone and contact.contact_method == "HOME_PHONE":
+                    home_phone = contact.value
+                if mobile_phone and \
+                   ((req_email and email) or (not req_email)) and \
+                   ((req_home_phone and home_phone) or (not req_home_phone)):
+                    break
+            values["home_phone"] = home_phone
             values["email"] = email
             values["mobile_phone"] = mobile_phone
 
@@ -922,7 +938,13 @@ class S3AddPersonWidget2(FormWidget):
         # - multiple names get assigned to first, middle, last
         fappend(("full_name", T("Name"), INPUT(data=data), True))
 
-        if date_of_birth:
+        if father_name:
+            fappend(("father_name", father_name.label, INPUT(), False))
+        if grandfather_name:
+            fappend(("grandfather_name", grandfather_name.label, INPUT(), False))
+        if year_of_birth:
+            fappend(("year_of_birth", year_of_birth.label, INPUT(), False))
+        elif date_of_birth:
             fappend(("date_of_birth", date_of_birth.label,
                      date_of_birth.widget(date_of_birth, values.get("date_of_birth", None),
                                           _id = "%s_date_of_birth" % fieldname),
@@ -932,15 +954,13 @@ class S3AddPersonWidget2(FormWidget):
                      OptionsWidget.widget(gender, values.get("gender", None),
                                           _id = "%s_gender" % fieldname),
                      False))
-        if father_name:
-            fappend(("father_name", father_name.label, INPUT(), False))
-        if grandfather_name:
-            fappend(("grandfather_name", grandfather_name.label, INPUT(), False))
         if occupation:
             fappend(("occupation", occupation.label, INPUT(), False))
 
+        if req_email:
+            fappend(("email", T("Email"), INPUT(), emailRequired))
+
         fappend(("mobile_phone", settings.get_ui_label_mobile_phone(), INPUT(), False))
-        fappend(("email", T("Email"), INPUT(), emailRequired))
 
         if req_home_phone:
             fappend(("home_phone", T("Home Phone"), INPUT(), False))
@@ -1294,7 +1314,9 @@ class S3CalendarWidget(FormWidget):
         Widget to select a date from a popup calendar, with
         optional time input
 
-        @status: work in progress
+        @note: this widget must be combined with the IS_UTC_DATE or
+               IS_UTC_DATETIME validators to have the value properly
+               converted from/to local timezone and format.
     """
 
     def __init__(self,
@@ -1310,10 +1332,14 @@ class S3CalendarWidget(FormWidget):
                  future_months=None,
                  month_selector=False,
                  year_selector=True,
+                 min_year=None,
+                 max_year=None,
                  week_number=False,
                  buttons=None,
                  timepicker=False,
                  minute_step=5,
+                 set_min=None,
+                 set_max=None,
                  ):
         """
             Constructor
@@ -1333,12 +1359,22 @@ class S3CalendarWidget(FormWidget):
 
             @param month_selector: show a months drop-down
             @param year_selector: show a years drop-down
+            @param min_year: the minimum selectable year (can be relative to now like "-10")
+            @param max_year: the maximum selectable year (can be relative to now like "+10")
+
             @param week_number: show the week number in the calendar
             @param buttons: show the button panel (defaults to True if
                             the widget has a timepicker, else False)
 
             @param timepicker: show a timepicker
             @param minute_step: minute-step for the timepicker slider
+
+            @param set_min: CSS selector for another S3Calendar widget for which to
+                            dynamically update the minimum selectable date/time from
+                            the selected date/time of this widget
+            @param set_max: CSS selector for another S3Calendar widget for which to
+                            dynamically update the maximum selectable date/time from
+                            the selected date/time of this widget
         """
 
         self.calendar = calendar
@@ -1356,11 +1392,17 @@ class S3CalendarWidget(FormWidget):
 
         self.month_selector = month_selector
         self.year_selector = year_selector
+        self.min_year = min_year
+        self.max_year = max_year
+
         self.week_number = week_number
         self.buttons = buttons if buttons is not None else timepicker
 
         self.timepicker = timepicker
         self.minute_step = minute_step
+
+        self.set_min = set_min
+        self.set_max = set_max
 
         self._class = "s3-calendar-widget datetimepicker"
 
@@ -1376,8 +1418,6 @@ class S3CalendarWidget(FormWidget):
 
         # Modify class as required
         _class = self._class
-
-        # Format value according to calendarFormat?
 
         # Default attributes
         defaults = {"_type": "text",
@@ -1410,7 +1450,7 @@ class S3CalendarWidget(FormWidget):
         settings = current.deployment_settings
 
         calendar = self.calendar or current.calendar.name
-        calendar = calendar.lower() if calendar else "gregorian"
+        calendar = calendar if calendar and calendar != "Gregorian" else "gregorian"
 
         date_format = self.date_format or \
                       settings.get_L10n_date_format()
@@ -1421,8 +1461,9 @@ class S3CalendarWidget(FormWidget):
 
         firstDOW = settings.get_L10n_firstDOW()
 
-        extremes = self.extremes()
+        extremes = self.extremes(time_format=time_format)
 
+        T = current.T
         options = {"calendar": calendar,
                    "dateFormat": date_format,
                    "timeFormat": time_format,
@@ -1434,6 +1475,12 @@ class S3CalendarWidget(FormWidget):
                    "weekNumber": self.week_number,
                    "timepicker": self.timepicker,
                    "minuteStep": self.minute_step,
+                   "todayText": str(T("Today")),
+                   "nowText": str(T("Now")),
+                   "closeText": str(T("Done")),
+                   "clearText": str(T("Clear")),
+                   "setMin": self.set_min,
+                   "setMax": self.set_max,
                    }
         options.update(extremes)
 
@@ -1451,13 +1498,17 @@ class S3CalendarWidget(FormWidget):
                        )
 
     # -------------------------------------------------------------------------
-    def extremes(self):
+    def extremes(self, time_format=None):
         """
-            Compute the minimum/maximum selectable date/time.
+            Compute the minimum/maximum selectable date/time, as well as
+            the default time (=the minute-step closest to now)
 
-            @return: a dict {minDateTime, maxDateTime} with the options
-                     as ISO-formatted strings in local time, to be passed
-                     as-is to s3.calendarwidget
+            @param time_format: the user time format
+
+            @return: a dict {minDateTime, maxDateTime, defaultValue, yearRange}
+                     with the min/max options as ISO-formatted strings, and the
+                     defaultValue in user-format (all in local time), to be
+                     passed as-is to s3.calendarwidget
         """
 
         extremes = {}
@@ -1465,11 +1516,14 @@ class S3CalendarWidget(FormWidget):
 
         offset = S3DateTime.get_offset_value(current.session.s3.utc_offset)
 
+        pyears, fyears = 10, 10
+
         # Minimum
         earliest = None
+        fallback = False
         if self.minimum:
             earliest = self.minimum
-            if isinstance(earliest, datetime.date):
+            if type(earliest) is datetime.date:
                 # Consistency with S3Calendar
                 earliest = datetime.datetime.combine(earliest, datetime.time(8, 0, 0))
         elif self.past:
@@ -1477,16 +1531,22 @@ class S3CalendarWidget(FormWidget):
         elif self.past_months:
             earliest = now - relativedelta(months=self.past_months)
         else:
+            fallback = True
             earliest = now - datetime.timedelta(hours=876000)
         if earliest is not None:
+            if not fallback:
+                pyears = abs(earliest.year - now.year)
+            earliest = earliest.replace(microsecond=0)
             if offset:
                 earliest += datetime.timedelta(seconds=offset)
             extremes["minDateTime"] = earliest.isoformat()
 
         # Maximum
+        latest = None
+        fallback = False
         if self.maximum:
             latest = self.maximum
-            if isinstance(latest, datetime.date):
+            if type(latest) is datetime.date:
                 # Consistency with S3Calendar
                 latest = datetime.datetime.combine(latest, datetime.time(8, 0, 0))
         elif self.future:
@@ -1494,11 +1554,53 @@ class S3CalendarWidget(FormWidget):
         elif self.future_months:
             latest = now + relativedelta(months=self.future_months)
         else:
+            fallback = True
             latest = now + datetime.timedelta(hours=876000)
         if latest is not None:
+            if not fallback:
+                fyears = abs(latest.year - now.year)
+            latest = latest.replace(microsecond=0)
             if offset:
                 latest += datetime.timedelta(seconds=offset)
             extremes["maxDateTime"] = latest.isoformat()
+
+        # Default date/time
+        if self.timepicker and time_format:
+            # Pick a start date/time
+            if earliest <= now <= latest:
+                start = now
+            elif now < earliest:
+                start = earliest
+            elif now > latest:
+                start = latest
+            # Round to the closest minute-step
+            step = self.minute_step * 60
+            seconds = (start - start.min).seconds
+            rounding = (seconds + step / 2) // step * step
+            rounded = start + datetime.timedelta(0,
+                                                 rounding - seconds,
+                                                 -start.microsecond,
+                                                 )
+            # Limits
+            if rounded < earliest:
+                rounded = earliest
+            elif rounded > latest:
+                rounded = latest
+            # Translate into local time
+            if offset:
+                rounded += datetime.timedelta(seconds=offset)
+            # Convert into user format (time part only)
+            default = rounded.strftime(time_format)
+            extremes["defaultValue"] = default
+
+        # Year range
+        min_year = self.min_year
+        if not min_year:
+            min_year = "-%s" % pyears
+        max_year = self.max_year
+        if not max_year:
+            max_year = "+%s" % fyears
+        extremes["yearRange"] = "%s:%s" % (min_year, max_year)
 
         return extremes
 
@@ -1519,19 +1621,96 @@ class S3CalendarWidget(FormWidget):
         s3 = current.response.s3
         appname = current.request.application
 
+        request = current.request
+        s3 = current.response.s3
+        jquery_ready = s3.jquery_ready
+
+        datepicker_l10n = None
+        timepicker_l10n = None
+        calendars_type = None
+        calendars_l10n = None
+        calendars_picker_l10n = None
+
+        # Paths to localization files
+        datepicker_l10n_path = os.path.join(request.folder, "static", "scripts", "ui", "i18n")
+        timepicker_l10n_path = os.path.join(request.folder, "static", "scripts", "ui", "i18n")
+        calendars_l10n_path = os.path.join(request.folder, "static", "scripts", "calendars", "i18n")
+
+        calendar = options["calendar"].lower()
+        if calendar != "gregorian":
+            # Include the right calendar script
+            filename = "jquery.calendars.%s.js" % calendar
+            lscript = os.path.join(calendars_l10n_path, filename)
+            if os.path.exists(lscript):
+                calendars_type = "calendars/i18n/%s" % filename
+
+        language = current.session.s3.language
+        if language in current.deployment_settings.date_formats:
+            # Localise if we have configured a Date Format and we have a jQueryUI options file
+
+            # Do we have a suitable locale file?
+            if language in ("prs", "ps"):
+                # Dari & Pashto use Farsi
+                language = "fa"
+            #elif language == "ur":
+            #    # Urdu uses Arabic
+            #    language = "ar"
+            elif "-" in language:
+                parts = language.split("_", 1)
+                language = "%s-%s" % (parts[0], parts[1].upper())
+
+            # datePicker regional
+            filename = "datepicker-%s.js" % language
+            path = os.path.join(timepicker_l10n_path, filename)
+            if os.path.exists(path):
+                timepicker_l10n = "ui/i18n/%s" % filename
+
+            # timePicker regional
+            filename = "jquery-ui-timepicker-%s.js" % language
+            path = os.path.join(datepicker_l10n_path, filename)
+            if os.path.exists(path):
+                datepicker_l10n = "ui/i18n/%s" % filename
+
+            if calendar != "gregorian" and language:
+                # calendars regional
+                filename = "jquery.calendars.%s-%s.js" % (calendar, language)
+                path = os.path.join(calendars_l10n_path, filename)
+                if os.path.exists(path):
+                    calendars_l10n = "calendars/i18n/%s" % filename
+                # calendarsPicker regional
+                filename = "jquery.calendars.picker-%s.js" % language
+                path = os.path.join(calendars_l10n_path, filename)
+                if os.path.exists(path):
+                    calendars_picker_l10n = "calendars/i18n/%s" % filename
+        else:
+            language = ""
+
+        options["language"] = language
+
         # Global scripts
-        if s3.debug or True: # @todo: add minified script configuration
+        if s3.debug:
             scripts = ("jquery.plugin.js",
                        "calendars/jquery.calendars.all.js",
-                       "calendars/jquery.calendars.lang.js",
-                       "calendars/jquery.calendars.picker.lang.js",
                        "calendars/jquery.calendars.picker.ext.js",
                        "S3/s3.ui.calendar.js",
+                       datepicker_l10n,
+                       timepicker_l10n,
+                       calendars_type,
+                       calendars_l10n,
+                       calendars_picker_l10n,
                        )
         else:
-            scripts = (#"S3/s3.ui.calendars.min.js",
+            scripts = ("jquery.plugin.min.js",
+                       "S3/s3.ui.calendar.min.js",
+                       datepicker_l10n,
+                       timepicker_l10n,
+                       calendars_type,
+                       calendars_l10n,
+                       calendars_picker_l10n,
                        )
         for script in scripts:
+            if not script:
+                continue
             path = "/%s/static/scripts/%s" % (appname, script)
             if path not in s3.scripts:
                 s3.scripts.append(path)
@@ -4587,11 +4766,11 @@ class S3LocationSelector(S3Selector):
                  hide_lx = True,
                  reverse_lx = False,
                  show_address = False,
-                 show_postcode = False,
+                 show_postcode = None,
                  show_latlon = None,
                  latlon_mode = "decimal",
                  latlon_mode_toggle = True,
-                 show_map = True,
+                 show_map = None,
                  open_map_on_load = False,
                  feature_required = False,
                  lines = False,
@@ -4641,6 +4820,8 @@ class S3LocationSelector(S3Selector):
                                                 creation of record if a dupe is found
         """
 
+        settings = current.deployment_settings
+
         self._initlx = True
         self._levels = levels
         self._required_levels = required_levels
@@ -4653,7 +4834,7 @@ class S3LocationSelector(S3Selector):
         self.prevent_duplicate_addresses = prevent_duplicate_addresses
 
         if show_latlon is None:
-            show_latlon = current.deployment_settings.get_gis_latlon_selector()
+            show_latlon = settings.get_gis_latlon_selector()
         self.show_latlon = show_latlon
         self.latlon_mode = latlon_mode
         if show_latlon:
@@ -4673,6 +4854,8 @@ class S3LocationSelector(S3Selector):
             self.feature_required = required
         else:
             self.feature_required = None
+        if show_map is None:
+            setttings = settings.get_gis_map_selector()
         self.show_map = show_map
         self.open_map_on_load = show_map and open_map_on_load
 
@@ -4878,7 +5061,10 @@ class S3LocationSelector(S3Selector):
                                                  )
 
         # Postcode INPUT
-        show_postcode = self.show_postcode and settings.get_gis_postcode_selector()
+        show_postcode = self.show_postcode
+        if show_postcode is None:
+            # Use global setting
+            show_postcode = settings.get_gis_postcode_selector()
         if show_postcode:
             postcode = values.get("postcode")
             components["postcode"] = manual_input(fieldname,
@@ -5221,7 +5407,8 @@ class S3LocationSelector(S3Selector):
         settings = current.deployment_settings
         translate = settings.get_L10n_translate_gis_location()
         language = current.session.s3.language
-        if language == settings.get_L10n_default_language():
+        #if language == settings.get_L10n_default_language():
+        if language == "en": # Can have a default language for system & yet still want to translate from base English
             translate = False
 
         db = current.db
@@ -5458,7 +5645,8 @@ class S3LocationSelector(S3Selector):
             label = labels.get(level, level)
 
             # Widget (options to be populated client-side)
-            placeholder = T("Select %(level)s") % {"level": label}
+            #placeholder = T("Select %(level)s") % {"level": label}
+            placeholder = ""
             widget = SELECT(OPTION(placeholder, _value=""),
                             _id = _id,
                             _class = _class,
