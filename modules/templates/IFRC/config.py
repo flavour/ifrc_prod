@@ -178,15 +178,20 @@ def config(settings):
 
         use_user_organisation = False
         #use_user_root_organisation = False
+
         # Suppliers & Partners are owned by the user's organisation
+        # @note: when the organisation record is first written, no
+        #        type-link would exist yet, so this needs to be
+        #        called again every time the type-links for an
+        #        organisation change in order to be effective
         if realm_entity == 0 and tablename == "org_organisation":
             ottable = s3db.org_organisation_type
             ltable = db.org_organisation_organisation_type
             query = (ltable.organisation_id == row.id) & \
-                    (ltable.organisation_type_id == ottable.id)
-            otype = db(query).select(ottable.name,
-                                     limitby=(0, 1)).first()
-            if not otype or otype.name != "Red Cross / Red Crescent":
+                    (ottable.id == ltable.organisation_type_id) & \
+                    (ottable.name == "Red Cross / Red Crescent")
+            rclink = db(query).select(ltable.id, limitby=(0, 1)).first()
+            if not rclink:
                 use_user_organisation = True
 
         # Facilities & Requisitions are owned by the user's organisation
