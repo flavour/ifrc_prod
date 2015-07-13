@@ -2822,12 +2822,11 @@ def config(settings):
                     # Hide the 'Name of Award' field
                     field = etable.award
                     field.readable = field.writable = False
-                    # Limit education-level dropdown to specific options
+                    # Limit education-level dropdown to the 3 specific options initially uploaded
                     field = s3db.pr_education.level_id
-                    levels = ("Vocational School/ College",
-                              "Graduate",
-                              "Post graduate (Master's)",
-                              "Post graduate (Doctor's)",
+                    levels = ("High School",
+                              "University / College",
+                              "Post Graduate",
                               )
                     from gluon import IS_EMPTY_OR
                     from s3 import IS_ONE_OF
