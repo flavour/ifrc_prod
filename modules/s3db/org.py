@@ -319,7 +319,7 @@ class S3OrganisationModel(S3Model):
                            writable = False,
                            represent = S3Represent(lookup="org_organisation"),
                            ),
-                     Field("name", notnull=True, unique=True, # @ToDo: Remove unique=True (ARC have 3x Wayne County chapters)
+                     Field("name", notnull=True,
                            length=128, # Mayon Compatibility
                            label = T("Name"),
                            ),
@@ -468,7 +468,8 @@ class S3OrganisationModel(S3Model):
             configure(tablename,
                       # link table alias (organisation_branch) is ambiguous here
                       # => need to specify the full join
-                      hierarchy="branch_id:org_organisation_branch.organisation_id")
+                      hierarchy = "branch_id:org_organisation_branch.organisation_id",
+                      )
             org_widgets["hierarchy"] = S3HierarchyWidget(lookup="org_organisation",
                                                          represent=org_organisation_represent,
                                                          multiple=False,
@@ -565,7 +566,7 @@ class S3OrganisationModel(S3Model):
                   context = {"location": location_context,
                              },
                   crud_form = crud_form,
-                  deduplicate = self.organisation_duplicate,
+                  deduplicate = org_OrganisationDuplicate.duplicate,
                   filter_widgets = filter_widgets,
                   hierarchy_export = {"root": "Organisation",
                                       "branch": "Branch",
@@ -984,47 +985,6 @@ class S3OrganisationModel(S3Model):
 
     # -----------------------------------------------------------------------------
     @staticmethod
-    def organisation_duplicate(item):
-        """
-            Import item deduplication, match by name or l10_name
-
-            @ToDo: parent (for Branches)
-
-            @param item: the S3ImportItem instance
-        """
-
-        name = item.data.get("name", None)
-        if name:
-            table = item.table
-            query = (table.name.lower() == name.lower())
-            duplicate = current.db(query).select(table.id,
-                                                 table.name,
-                                                 limitby=(0, 1)).first()
-            if duplicate:
-                # @ToDo: Can we see the parent in the import?
-                #if current.deployment_settings.get_org_branches():
-                #    btable = s3db.org_organisation_branch
-                item.id = duplicate.id
-                # Retain the original spelling of the name
-                item.data.name = duplicate.name
-                item.method = item.METHOD.UPDATE
-            elif current.deployment_settings.get_L10n_translate_org_organisation():
-                # See if this a name_l10n
-                ltable = current.s3db.org_organisation_name
-                query = (ltable.name_l10n == name) & \
-                        (ltable.organisation_id == table.id)
-                duplicate = current.db(query).select(table.id,
-                                                     table.name,
-                                                     limitby=(0, 1)).first()
-                if duplicate:
-                    # @ToDo: Import Log
-                    #current.log.debug("Organisation l10n Match")
-                    item.data.name = duplicate.name # Don't update the name
-                    item.id = duplicate.id
-                    item.method = item.METHOD.UPDATE
-
-    # -----------------------------------------------------------------------------
-    @staticmethod
     def org_search_ac(r, **attr):
         """
             JSON search method for S3OrganisationAutocompleteWidget
@@ -1295,6 +1255,7 @@ class S3OrganisationBranchModel(S3Model):
         request_vars = form.request_vars
         if request_vars and \
            request_vars.branch_id and \
+           request_vars.organisation_id and \
            int(request_vars.branch_id) == int(request_vars.organisation_id):
             error = current.T("Cannot make an Organization a branch of itself!")
             form.errors["branch_id"] = error
@@ -1387,7 +1348,6 @@ class S3OrganisationBranchModel(S3Model):
                 for t in org_types - branch_types:
                     link_id = ltable.insert(organisation_id = branch_id,
                                             organisation_type_id = t,
-
                                             )
                     form = Storage(vars = Storage(id = link_id))
                     S3OrganisationModel.org_organisation_organisation_type_onaccept(link_id)
@@ -2736,10 +2696,10 @@ class S3OrganisationTeamModel(S3Model):
     @staticmethod
     def org_team_onaccept(form):
         """
-            Update affiliations
-        """
+            Update affiliations.
 
-        from pr import OU
+            @ToDo: ondelete function needed too
+        """
 
         if hasattr(form, "vars"):
             _id = form.vars.id
@@ -2758,6 +2718,7 @@ class S3OrganisationTeamModel(S3Model):
                                             table.organisation_id,
                                             limitby=(0, 1)).first()
         if record:
+            from pr import OU
             org = ("org_organisation", record.organisation_id)
             group = ("pr_group", record.group_id)
             current.s3db.pr_add_affiliation(org, group,
@@ -4154,16 +4115,34 @@ class S3OfficeModel(S3Model):
         configure = self.configure
         crud_strings = s3.crud_strings
         define_table = self.define_table
+        organisation_id = self.org_organisation_id
         super_link = self.super_link
+
+        auth = current.auth
+        ADMIN = current.session.s3.system_roles.ADMIN
+        is_admin = auth.s3_has_role(ADMIN)
+        root_org = auth.root_org()
+        if is_admin:
+            filter_opts = ()
+        elif root_org:
+            filter_opts = (root_org, None)
+        else:
+            filter_opts = (None,)
 
         # ---------------------------------------------------------------------
         # Office Types
         #
         tablename = "org_office_type"
         define_table(tablename,
-                     Field("name", length=128, notnull=True, unique=True,
+                     Field("name", length=128, notnull=True,
                            label = T("Name"),
                            ),
+                     # Only included in order to be able to set
+                     # realm_entity to filter appropriately
+                     organisation_id(default = root_org,
+                                     readable = is_admin,
+                                     writable = is_admin,
+                                     ),
                      s3_comments(),
                      *s3_meta_fields())
 
@@ -4189,7 +4168,9 @@ class S3OfficeModel(S3Model):
                             requires = IS_EMPTY_OR(
                                         IS_ONE_OF(db, "org_office_type.id",
                                                   represent,
-                                                  sort=True
+                                                  sort=True,
+                                                  filterby="organisation_id",
+                                                  filter_opts=filter_opts
                                                   )),
                             sortby = "name",
                             comment = S3AddResourceLink(c="org",
@@ -4199,10 +4180,9 @@ class S3OfficeModel(S3Model):
                                 tooltip=T("If you don't see the Type in the list, you can add a new one by clicking link 'Create Office Type'.")),
                             )
 
-        # Not needed until we make Office Types organisation-dependent & hence remove the unique=True
-        #configure(tablename,
-        #          deduplicate = self.office_type_duplicate,
-        #          )
+        configure(tablename,
+                  deduplicate = self.office_type_duplicate,
+                  )
 
         # Components
         add_components(tablename,
@@ -4238,7 +4218,7 @@ class S3OfficeModel(S3Model):
                            #writable=False,
                            requires = code_requires,
                            ),
-                     self.org_organisation_id(
+                     organisation_id(
                          requires = org_organisation_requires(required=True,
                                                               updateable=True),
                          ),
@@ -4438,9 +4418,13 @@ class S3OfficeModel(S3Model):
     def office_type_duplicate(item):
         """ Import item de-duplication """
 
-        name = item.data.get("name")
+        data = item.data
+        name = data.get("name")
         table = item.table
         query = (table.name.lower() == name.lower())
+        organisation_id = data.get("organisation_id")
+        if organisation_id:
+            query &= (table.organisation_id == organisation_id)
         duplicate = current.db(query).select(table.id,
                                              limitby=(0, 1)).first()
         if duplicate:
@@ -5716,17 +5700,12 @@ def org_organisation_controller():
     def postp(r, output):
         if r.interactive and r.component:
             if r.component_name == "human_resource":
-                s3.jquery_ready.append(
-'''S3.start_end_date('hrm_human_resource_start_date','hrm_human_resource_end_date')''')
                 # Modify action button to open staff instead of human_resource
                 # (Delete not overridden to keep errors within Tab)
                 read_url = URL(c="hrm", f="staff", args=["[id]"])
                 update_url = URL(c="hrm", f="staff", args=["[id]", "update"])
                 S3CRUD.action_buttons(r, read_url=read_url,
                                          update_url=update_url)
-            elif r.component_name == "project":
-                s3.jquery_ready.append(
-'''S3.start_end_date('project_project_start_date','project_project_end_date')''')
 
             elif r.component_name == "branch" and r.record and \
                  isinstance(output, dict) and \
@@ -6422,6 +6401,214 @@ def org_update_root_organisation(organisation_id, root_org=None):
     return root_org
 
 # =============================================================================
+class org_OrganisationDuplicate(object):
+    """ Import item deduplication, match by name or l10_name """
+
+    @classmethod
+    def duplicate(cls, item):
+        """
+            Main method, to be set for the "deduplicate" hook
+
+            @param item: the S3ImportItem
+        """
+
+        try:
+            duplicate_id = cls.identify(item)
+        except ValueError:
+            # Ambiguous => reject the item
+            error = "Ambiguous data, try specifying parent organisation"
+            item.accepted = False
+            item.error = error
+            if item.element is not None:
+                item.element.set(current.xml.ATTRIBUTE["error"], error)
+            return
+
+        if duplicate_id:
+            item.id = duplicate_id
+            item.method = item.METHOD.UPDATE
+
+    # -------------------------------------------------------------------------
+    @classmethod
+    def identify(cls, item=None, uid=None):
+        """
+            Get the record ID that corresponds to the given import item
+            or UUID
+
+            @param item: the import item
+            @param uid: the UUID
+
+            @return: the record ID if successfully identified, or
+                     None if there is no record for that item yet
+            @raise ValueError: if there are multiple matches in the DB
+        """
+
+        if item.id:
+            # Already identified
+            return item.id
+
+        if uid is not None:
+            # Try to find the record for this UUID
+            table = item.table if item else current.s3db.org_organisation
+            query = (table.uuid == uid)
+            row = current.db(query).select(table.id, limitby=(0, 1)).first()
+            if row:
+                return row.id
+
+        if item is not None:
+
+            # Do we have any name matches?
+            name_matches = cls.name_match(item)
+            if not name_matches:
+                return None
+
+            # Do we have a parent specified by the source?
+            parent_id, parent_uid, parent_item = cls.parent(item)
+
+            if not any((parent_id, parent_uid, parent_item)):
+
+                if len(name_matches) == 1:
+                    # Single name match (+ no parent item = no conflict)
+                    match = name_matches.keys()[0]
+                    name = name_matches[match].get("name")
+                    if name:
+                        item.data.name = name
+                    return match
+
+                else:
+                    # Multiple name matches, look for a single root org match
+                    hits = [k for k, v in name_matches.items()
+                                  if v.get("parent") is None]
+                    if len(hits) == 1:
+                        # Single root organisation match
+                        match = hits[0]
+                        name = name_matches[match].get("name")
+                        if name:
+                            item.data.name = name
+                        return match
+
+                    else:
+                        # Multiple or no root organisation matches (=ambiguous)
+                        raise ValueError
+            else:
+                if not parent_id:
+                    # Try to identify the parent (recurse)
+                    parent_id = cls.identify(item = parent_item,
+                                             uid = parent_uid,
+                                             )
+                if not parent_id:
+                    # Parent does not yet exist, so branch must be new too
+                    return None
+
+                hits = [k for k, v in name_matches.items()
+                              if v.get("parent") == parent_id]
+
+                if len(hits) == 0:
+                    # No name match under the same parent => new branch
+                    return None
+
+                if len(hits) == 1:
+                    # Single name match under the same parent
+                    match = hits[0]
+                    name = name_matches[match].get("name")
+                    if name:
+                        item.data.name = name
+                    return match
+
+                else:
+                    # Multiple name matches under the same parent (=ambiguous)
+                    raise ValueError
+
+        # Default
+        return None
+
+    # -------------------------------------------------------------------------
+    @classmethod
+    def name_match(cls, item):
+        """
+            Find all name matches for the given import item
+
+            @param item: the import item
+            @return: a dict {id: name, parent: parent_id} of records which
+                     match the import item by name, or alternatively by
+                     local name if enabled and no direct name match
+        """
+
+        db = current.db
+        s3db = current.s3db
+
+        matches = {}
+
+        name = item.data.get("name")
+        if not name:
+            return matches
+
+        table = item.table
+
+        # Search by name
+        query = (table.name.lower() == name.lower())
+        rows = db(query).select(table.id, table.name)
+
+        settings = current.deployment_settings
+        if not rows and settings.get_L10n_translate_org_organisation():
+            # Search by local name
+            ltable = s3db.org_organisation_name
+            query = (ltable.name_l10n.lower() == name.lower()) & \
+                    (ltable.organisation_id == table.id) & \
+                    (ltable.deleted != True)
+            rows = db(query).select(table.id, table.name)
+
+        if rows:
+            # Get the parents for all matches
+            matches = dict((row.id, {"name": row.name}) for row in rows)
+
+            btable = s3db.org_organisation_branch
+            query = (btable.branch_id.belongs(matches.keys())) & \
+                    (btable.deleted != True)
+            links = db(query).select(btable.organisation_id,
+                                     btable.branch_id,
+                                     )
+            for link in links:
+                matches[link.branch_id]["parent"] = link.organisation_id
+
+        return matches
+
+    # -------------------------------------------------------------------------
+    @classmethod
+    def parent(cls, item):
+        """
+            Find the parent for the given import item
+
+            @param item: the import item
+            @return: a tuple (id, uid, item) for the parent
+        """
+
+        parent_id = parent_uid = parent_item = None
+
+        is_key = lambda fk, name: fk == name or \
+                                  isinstance(fk, tuple) and fk[1] == name
+
+        all_items = item.job.items
+        for uid, link_item in all_items.items():
+            if link_item.tablename == "org_organisation_branch":
+                references = link_item.references
+                parent = branch = None
+                for reference in references:
+                    fk = reference.field
+                    if is_key(fk, "branch_id"):
+                        branch = reference.entry
+                    elif is_key(fk, "organisation_id"):
+                        parent = reference.entry
+                    if parent and branch:
+                        break
+                if parent and branch and branch.item_id == item.item_id:
+                    parent_id = parent.id
+                    parent_uid = parent.uid
+                    parent_item = all_items.get(parent.item_id)
+                    break
+
+        return parent_id, parent_uid, parent_item
+
+# =============================================================================
 class org_AssignMethod(S3Method):
     """
         Custom Method to allow organisations to be assigned to something
@@ -6676,7 +6863,7 @@ class org_CapacityReport(S3Method):
 
         if r.http == "GET":
             if r.representation == "html":
-                
+
                 T = current.T
 
                 output = dict(title = T("Branch Organisational Capacity Assessment"))
@@ -6687,10 +6874,10 @@ class org_CapacityReport(S3Method):
                     rheader = attr["rheader"](r)
                     if rheader:
                         output["rheader"] = rheader
-                
+
                 data = self._read_data(r)
                 if data is None:
-                    output["items"] = T("No Assessment Data Found")
+                    output["items"] = current.response.s3.crud_strings["org_capacity_assessment"].msg_list_empty
                     return output
 
                 indicators, orgs, consolidated = data
@@ -6741,8 +6928,8 @@ class org_CapacityReport(S3Method):
             elif r.representation == "xls":
                 data = self._read_data(r)
                 if data is None:
-                    current.session.error = current.T("No Assessment Data Found")
-                    redirect(URL(extension=""))
+                    current.session.error = current.response.s3.crud_strings["org_capacity_assessment"].msg_list_empty
+                    redirect(URL(f="capacity_assessment", extension=""))
                 return self._xls(data)
 
             else:

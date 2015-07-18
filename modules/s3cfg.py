@@ -74,7 +74,7 @@ class S3Config(Storage):
                     "ko": "%Y-%m-%d",
                     #"mn": "",
                     #"my": "",
-                    #"ne": "",
+                    "ne": "%d/%m/%Y",
                     "prs": "%Y/%m/%d",
                     "ps": "%Y/%m/%d",
                     "pt": "%d/%m/%Y",
@@ -394,10 +394,18 @@ class S3Config(Storage):
 
         """
         return self.security.get("self_registration", True)
+
+    def get_security_registration_visible(self):
+        visible = self.get_security_self_registration() and \
+                  self.security.get("registration_visible", True)
+        return visible
+
     def get_auth_registration_requires_verification(self):
         return self.auth.get("registration_requires_verification", False)
+
     def get_auth_registration_requires_approval(self):
         return self.auth.get("registration_requires_approval", False)
+
     def get_auth_always_notify_approver(self):
         return self.auth.get("always_notify_approver", True)
 
@@ -571,6 +579,8 @@ class S3Config(Storage):
         """
             Should we set pr_person.realm_entity to that of
             hrm_human_resource.site_id$pe_id
+            or
+            hrm_human_resource.organisation_id$pe_id if 1st not set
         """
         return self.auth.get("person_realm_human_resource_site_then_org", False)
 
@@ -1181,7 +1191,7 @@ class S3Config(Storage):
         """
             Display Postcode form field when selecting Locations
         """
-        return self.gis.get("postcode_selector", True)
+        return self.__lazy(self.gis, "postcode_selector", default=True)
 
     def get_gis_print(self):
         """
@@ -1366,7 +1376,14 @@ class S3Config(Storage):
         return self.L10n.get("utc_offset", "+0000")
 
     def get_L10n_firstDOW(self):
-        return self.L10n.get("firstDOW", 1)
+        """
+            First day of the week (overrides calendar default)
+
+            0 = Sunday, 1 = Monday, ..., 6 = Saturday
+
+            None = use the calendar's default
+        """
+        return self.L10n.get("firstDOW", None)
 
     def get_L10n_calendar(self):
         """
@@ -1394,7 +1411,7 @@ class S3Config(Storage):
         return self.L10n.get("default_country_code", 1)
 
     def get_L10n_mandatory_lastname(self):
-        return self.L10n.get("mandatory_lastname", False)
+        return self.__lazy(self.L10n, "mandatory_lastname", False)
 
     def get_L10n_decimal_separator(self):
         """
@@ -2095,11 +2112,23 @@ class S3Config(Storage):
         """
         return self.cap.get("identifier_prefix", "")
 
+    def get_cap_identifier_oid(self):
+        """
+            OID for the CAP issuing authority
+        """
+        return self.cap.get("identifier_oid", "")
+
     def get_cap_identifier_suffix(self):
         """
             Suffix to be appended to identifiers of CAP alerts
         """
         return self.cap.get("identifier_suffix", "")
+
+    def get_cap_expire_offset(self):
+        """
+            Offset period for expiration
+        """
+        return self.cap.get("expire_offset", 2)
 
     def get_cap_codes(self):
         """
@@ -2526,27 +2555,6 @@ class S3Config(Storage):
         """
         return self.hrm.get("salary", False)
 
-    def get_hrm_vol_active(self):
-        """
-            Whether to use a 'Active' field for Volunteers &, if so, whether
-            this is set manually or calculated by a function
-            - options are: False, True or a function
-        """
-        return self.hrm.get("vol_active", False)
-
-    def get_hrm_vol_active_tooltip(self):
-        """
-            The tooltip to show when viewing the Active status in the Volunteer RHeader
-        """
-        return self.hrm.get("vol_active_tooltip")
-
-    def get_hrm_vol_experience(self):
-        """
-            Whether to use Experience for Volunteers &, if so, which table to use
-            - options are: False, "experience", "programme" or "both"
-        """
-        return self.hrm.get("vol_experience", "programme")
-
     def get_hrm_show_organisation(self):
         """
             Whether Human Resource representations should include the Organisation
@@ -2558,7 +2566,18 @@ class S3Config(Storage):
             Whether Human Resources should use Teams
             & what to call them (Teams or Groups currently supported)
         """
-        return self.hrm.get("teams", "Teams")
+        return self.__lazy(self.hrm, "teams", default="Teams")
+
+    def get_hrm_teams_orgs(self):
+        """
+            Whether Human Resource Teams should link to Organisations
+            & whether this is a Single Org or Multiple Orgs
+            Options:
+                None: disable link
+                1:    single Org
+                2:    multiple Orgs
+        """
+        return self.__lazy(self.hrm, "teams_orgs", default=1)
 
     def get_hrm_cv_tab(self):
         """
@@ -2594,7 +2613,7 @@ class S3Config(Storage):
         """
             Whether Human Resources should use Certificates
         """
-        return self.hrm.get("use_certificates", True)
+        return self.__lazy(self.hrm, "use_certificates", default=True)
 
     def get_hrm_use_code(self):
         """
@@ -2641,7 +2660,7 @@ class S3Config(Storage):
         """
             Whether Human Resources should use Skills
         """
-        return self.hrm.get("use_skills", True)
+        return self.__lazy(self.hrm, "use_skills", default=True)
 
     def get_hrm_use_trainings(self):
         """
@@ -2663,6 +2682,55 @@ class S3Config(Storage):
             a dict {"code": "label"}, None to deactivate (default)
         """
         return self.hrm.get("activity_types")
+
+    def get_hrm_vol_active(self):
+        """
+            Whether to use a 'Active' field for Volunteers &, if so, whether
+            this is set manually or calculated by a function
+            - options are: False, True or a function
+        """
+        return self.__lazy(self.hrm, "vol_active", default=False)
+
+    def get_hrm_vol_active_tooltip(self):
+        """
+            The tooltip to show when viewing the Active status in the Volunteer RHeader
+        """
+        return self.hrm.get("vol_active_tooltip")
+
+    #def get_hrm_vol_affiliation(self):
+    #    """
+    #        Which affiliation type Volunteers use:
+    #            1 = Organisational Unit (=> Hierarchy)
+    #            9 = 'Other Role'
+    #            None = default ('Other Role')
+    #    """
+    #    return self.__lazy(self.hrm, "vol_affiliation", default=None)
+
+    def get_hrm_vol_experience(self):
+        """
+            Whether to use Experience for Volunteers &, if so, which table to use
+            - options are: False, "experience", "programme" or "both"
+        """
+        return self.__lazy(self.hrm, "vol_experience", default="programme")
+
+    def get_hrm_vol_departments(self):
+        """
+            Whether Volunteers should use Departments
+        """
+        return self.__lazy(self.hrm, "vol_departments", default=False)
+
+    def get_hrm_vol_roles(self):
+        """
+            Whether Volunteers should use Roles
+        """
+        return self.__lazy(self.hrm, "vol_roles", default=True)
+
+    def get_hrm_vol_service_record_manager(self):
+        """
+            What should be put into the 'Manager' field of the Volunteer Service Record
+        """
+        return self.__lazy(self.hrm, "vol_service_record_manager",
+                           default=current.T("Branch Coordinator"))
 
     # -------------------------------------------------------------------------
     # Inventory Management Settings
@@ -3063,19 +3131,39 @@ class S3Config(Storage):
 
     def get_pr_request_dob(self):
         """ Include Date of Birth in the AddPersonWidget[2] """
-        return self.pr.get("request_dob", True)
+        return self.__lazy(self.pr, "request_dob", default=True)
+
+    def get_pr_request_email(self):
+        """ Include Email in the AddPersonWidget2 """
+        return self.__lazy(self.pr, "request_email", default=True)
+
+    def get_pr_request_father_name(self):
+        """ Include Father Name in the AddPersonWidget2 """
+        return self.__lazy(self.pr, "request_father_name", default=False)
+
+    def get_pr_request_grandfather_name(self):
+        """ Include GrandFather Name in the AddPersonWidget2 """
+        return self.__lazy(self.pr, "request_grandfather_name", default=False)
 
     def get_pr_request_gender(self):
         """ Include Gender in the AddPersonWidget[2] """
-        return self.pr.get("request_gender", True)
+        return self.__lazy(self.pr, "request_gender", default=True)
 
     def get_pr_request_home_phone(self):
         """ Include Home Phone in the AddPersonWidget2 """
-        return self.pr.get("request_home_phone", False)
+        return self.__lazy(self.pr, "request_home_phone", default=False)
+
+    def get_pr_request_year_of_birth(self):
+        """ Include Year of Birth in the AddPersonWidget2 """
+        return self.__lazy(self.pr, "request_year_of_birth", default=False)
 
     def get_pr_name_format(self):
-        """ Format with which to represent Person Names """
-        return self.pr.get("name_format", "%(first_name)s %(middle_name)s %(last_name)s")
+        """
+            Format with which to represent Person Names
+
+            Generally want an option in AddPersonWidget2 to handle the input like this too
+        """
+        return self.__lazy(self.pr, "name_format", default="%(first_name)s %(middle_name)s %(last_name)s")
 
     def get_pr_select_existing(self):
         """
