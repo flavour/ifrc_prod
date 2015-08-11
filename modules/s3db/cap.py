@@ -31,6 +31,9 @@ __all__ = ("S3CAPModel",
            "cap_info_labels",
            "cap_alert_is_template",
            "cap_rheader",
+           "cap_alert_list_layout",
+           "add_area_from_template",
+           "cap_AssignArea",
            #"cap_gis_location_xml_post_parse",
            #"cap_gis_location_xml_post_render",
            )
@@ -58,6 +61,7 @@ class S3CAPModel(S3Model):
 
     names = ("cap_alert",
              "cap_alert_represent",
+             "cap_warning_priority",
              "cap_info",
              "cap_info_represent",
              "cap_resource",
@@ -273,10 +277,10 @@ class S3CAPModel(S3Model):
                      Field("template_id", "reference cap_alert",
                            label = T("Template"),
                            ondelete = "RESTRICT",
-                           represent = self.template_represent,
+                           represent = self.cap_template_represent,
                            requires = IS_EMPTY_OR(
                                          IS_ONE_OF(db, "cap_alert.id",
-                                                   self.template_represent,
+                                                   self.cap_template_represent,
                                                    filterby="is_template",
                                                    filter_opts=(True,)
                                                    )),
@@ -369,6 +373,11 @@ class S3CAPModel(S3Model):
                                                   )),
                            widget = S3MultiSelectWidget(),
                            ),
+                     # approved_on field for recording when the alert was approved
+                     s3_datetime("approved_on",
+                                 readable = False,
+                                 writable = False,
+                                 ),
                      *s3_meta_fields())
 
         filter_widgets = [
@@ -376,7 +385,7 @@ class S3CAPModel(S3Model):
                           "sender",
                           "incidents",
                           "cap_info.headline",
-                          "cap_info.event",
+                          "cap_info.event_type_id",
                           ],
                          label = T("Search"),
                          comment = T("Search for an Alert by sender, incident, headline or event."),
@@ -398,7 +407,11 @@ class S3CAPModel(S3Model):
                   context = {"location": "location.location_id",
                              },
                   filter_widgets = filter_widgets,
+                  list_layout = cap_alert_list_layout,
+                  list_orderby = "cap_info.expires desc",
                   onvalidation = self.cap_alert_form_validation,
+                  # update the approved_on field on approve of the alert
+                  onapprove = self.cap_alert_approve,
                   )
 
         # Components
@@ -414,6 +427,10 @@ class S3CAPModel(S3Model):
         self.set_method("cap", "alert",
                         method = "import_feed",
                         action = CAPImportFeed())
+        
+        self.set_method("cap", "alert",
+                        method = "assign",
+                        action = self.cap_AssignArea())
 
         if crud_strings["cap_template"]:
             crud_strings[tablename] = crud_strings["cap_template"]
@@ -487,14 +504,59 @@ class S3CAPModel(S3Model):
             ("Unknown", T("Certainty unknown")),
         ])
 
+        # ---------------------------------------------------------------------
+        # Warning Priorities for CAP
+        
+        tablename = "cap_warning_priority"
+        define_table(tablename,
+                     Field("priority_rank", "integer",
+                           label = T("Priority Rank"),
+                           length = 2,
+                           ),
+                     Field("event_code",
+                           label = T("Event Code"),
+                           ),
+                     Field("name", notnull = True, length = 64,
+                           label = T("Name"),
+                           ),
+                     Field("event_type",
+                           label = T("Event Type"),
+                           ),
+                     Field("urgency",
+                           label = T("Urgency"),
+                           requires = IS_IN_SET(cap_info_urgency_opts),
+                           ),
+                     Field("severity",
+                           label = T("Severity"),
+                           requires = IS_IN_SET(cap_info_severity_opts),
+                           ),
+                     Field("certainty",
+                           label = T("Certainty"),
+                           requires = IS_IN_SET(cap_info_certainty_opts),
+                           ),
+                     Field("color_code",
+                           label = T("Color Code"),
+                           ),
+                     *s3_meta_fields())
+        
+        priority_represent = S3Represent(lookup = tablename)
+        
+        crud_strings[tablename] = Storage(
+            label_create = T("Create Warning Priority"),
+            title_display = T("Warning Priority Details"),
+            title_list = T("Warning Priorities"),
+            title_update = T("Edit Warning Priority"),
+            title_upload = T("Import Warning Priorities"),
+            label_list_button = T("List Warning Priorities"),
+            label_delete_button = T("Delete Warning Priority"),
+            msg_record_created = T("Warning Priority added"),
+            msg_record_modified = T("Warning Priority updated"),
+            msg_record_deleted = T("Warning Priority removed"),
+            msg_list_empty = T("No Warning Priorities currently registered")
+            )
+        
+        # ---------------------------------------------------------------------
         # CAP info priority
-        priorities = settings.get_cap_priorities()
-        try:
-            cap_info_priority_opts = OrderedDict([(f[0], f[1]) for f in priorities]
-                    + [("Undefined", T("Undefined"))])
-        except IndexError:
-            raise ValueError("CAP priorities setting is not structured properly")
-
         # @ToDo: i18n: Need label=T("")
         tablename = "cap_info"
         define_table(tablename,
@@ -509,7 +571,7 @@ class S3CAPModel(S3Model):
                            readable = False,
                            requires = IS_EMPTY_OR(
                                         IS_ONE_OF(db, "cap_info.id",
-                                                  self.template_represent,
+                                                  self.cap_template_represent,
                                                   filterby="is_template",
                                                   filter_opts=(True,)
                                                   )),
@@ -534,9 +596,15 @@ class S3CAPModel(S3Model):
                                                 ),
                            widget = S3MultiSelectWidget(),
                            ), # 1 or more allowed
-                     Field("event",
-                           required = True,
-                           ),
+                     self.event_type_id(empty = False,
+                                        script = '''
+                            $.filterOptionsS3({
+                             'trigger':'event_type_id',
+                             'target':'priority',
+                             'lookupURL':S3.Ap.concat('/cap/priority_get/'),
+                             'lookupResource':'event_type'                         
+                             })'''
+                     ),
                      Field("response_type", "list:string",
                            represent = S3Represent(options = cap_info_responseType_opts,
                                                    multiple = True,
@@ -546,8 +614,12 @@ class S3CAPModel(S3Model):
                            widget = S3MultiSelectWidget(),
                            ), # 0 or more allowed
                      Field("priority",
+                           represent = priority_represent,
                            requires = IS_EMPTY_OR(
-                                        IS_IN_SET(cap_info_priority_opts)
+                                        IS_ONE_OF(
+                                                  db, "cap_warning_priority.id",
+                                                  priority_represent
+                                                  ),
                                         ),
                            ),
                      Field("urgency",
@@ -591,6 +663,7 @@ class S3CAPModel(S3Model):
                            ),
                      *s3_meta_fields())
 
+        # @ToDo: Move labels into main define_table (can then be lazy & performs better anyway)
         info_labels = cap_info_labels()
         for field in info_labels:
             db.cap_info[field].label = info_labels[field]
@@ -756,15 +829,41 @@ class S3CAPModel(S3Model):
 
         tablename = "cap_area"
         define_table(tablename,
-                     alert_id(writable = False,
-                              ),
+                     alert_id(),
                      info_id(),
+                     Field("is_template", "boolean",
+                           default = False,
+                           readable = False,
+                           writable = False,
+                           ),
                      Field("name",
                            label = T("Area description"),
                            required = True,
                            ),
-                     Field("altitude", "integer"), # Feet above Sea-level in WGS84 (Specific or Minimum is using a range)
-                     Field("ceiling", "integer"), # Feet above Sea-level in WGS84 (Maximum)
+                     Field("altitude", "integer", # Feet above Sea-level in WGS84 (Specific or Minimum is using a range)
+                           label = T("Altitude"),
+                           ), 
+                     Field("ceiling", "integer", # Feet above Sea-level in WGS84 (Maximum)
+                           label = T("Ceiling"),
+                           ), 
+                     self.event_type_id(script = '''
+                            $.filterOptionsS3({
+                             'trigger':'event_type_id',
+                             'target':'priority',
+                             'lookupURL':S3.Ap.concat('/cap/priority_get/'),
+                             'lookupResource':'event_type'                         
+                             })'''
+                     ),
+                     Field("priority",
+                           label = T("Priority"),
+                           represent = priority_represent,
+                           requires = IS_EMPTY_OR(
+                                        IS_ONE_OF(
+                                                  db, "cap_warning_priority.id",
+                                                  priority_represent
+                                                  ),
+                                       ),
+                           ),
                      *s3_meta_fields())
 
         # CRUD Strings
@@ -781,7 +880,11 @@ class S3CAPModel(S3Model):
             msg_record_deleted = T("Area deleted"),
             msg_list_empty = T("No areas currently defined for this alert"))
 
-        crud_form = S3SQLCustomForm("name",
+
+        crud_form = S3SQLCustomForm("alert_id",
+                                    "info_id",
+                                    "is_template",
+                                    "name",
                                     "info_id",
                                     # Not yet working with default formstyle or multiple=True
                                     #S3SQLInlineComponent("location",
@@ -800,6 +903,8 @@ class S3CAPModel(S3Model):
                                                          ),
                                     "altitude",
                                     "ceiling",
+                                    "event_type_id",
+                                    "priority",
                                     )
 
         area_represent = S3Represent(lookup=tablename)
@@ -807,7 +912,7 @@ class S3CAPModel(S3Model):
         configure(tablename,
                   #create_next = URL(f="area", args=["[id]", "location"]),
                   # Shouldn't be required if all UI actions go through alert controller & XSLT configured appropriately
-                  create_onaccept = update_alert_id(tablename),
+                  #create_onaccept = update_alert_id(tablename),
                   crud_form = crud_form,
                   )
 
@@ -972,7 +1077,7 @@ class S3CAPModel(S3Model):
 
     # -------------------------------------------------------------------------
     @staticmethod
-    def template_represent(id, row=None):
+    def cap_template_represent(id, row=None):
         """
             Represent an alert template concisely
         """
@@ -1056,6 +1161,24 @@ class S3CAPModel(S3Model):
 
         return True
 
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def cap_alert_approve(record=None):
+        """
+            Update the approved_on field when alert gets approved
+        """
+        
+        if not record:
+            return
+        
+        alert_id = record["id"]        
+        
+        # Update approved_on at the time the alert is approved
+        if alert_id:
+            db = current.db
+            approved_on = record["approved_on"]
+            db(db.cap_alert.id == alert_id).update(approved_on = current.request.utcnow)
+
 # =============================================================================
 def cap_info_labels():
     """
@@ -1065,7 +1188,7 @@ def cap_info_labels():
     T = current.T
     return dict(language=T("Language"),
                 category=T("Category"),
-                event=T("Event"),
+                event_type_id=T("Event"),
                 response_type=T("Response type"),
                 urgency=T("Urgency"),
                 severity=T("Severity"),
@@ -1112,10 +1235,10 @@ def cap_rheader(r):
             s3db = current.s3db
             tablename = r.tablename
             if tablename == "cap_alert":
-                record_id = record.id
-                table = s3db.cap_info
-                query = (table.alert_id == record_id)
-                row = current.db(query).select(table.id,
+                alert_id = record.id
+                itable = s3db.cap_info
+                row = current.db(itable.alert_id == alert_id).\
+                                        select(itable.id,
                                                limitby=(0, 1)).first()
                 if record.is_template:
                     if not (row and row.id):
@@ -1133,9 +1256,9 @@ def cap_rheader(r):
                     rheader_tabs = s3_rheader_tabs(r, tabs)
 
                     rheader = DIV(TABLE(TR(TH("%s: " % T("Template")),
-                                           TD(A(S3CAPModel.template_represent(record_id, record),
+                                           TD(A(s3db.cap_template_represent(alert_id, record),
                                                 _href=URL(c="cap", f="template",
-                                                          args=[record_id, "update"]))),
+                                                          args=[alert_id, "update"]))),
                                            ),
                                         ),
                                   rheader_tabs,
@@ -1149,13 +1272,46 @@ def cap_rheader(r):
                     else:
                         error = ""
                         export_btn = A(DIV(_class="export_cap_large"),
-                                       _href=URL(c="cap", f="alert", args=["%s.cap" % record_id]),
+                                       _href=URL(c="cap", f="alert", args=["%s.cap" % alert_id]),
                                        _target="_blank",
                                        )
 
-                    table = s3db.cap_area
-                    query = (table.alert_id == record_id)
-                    row = current.db(query).select(table.id,
+                    update_auth = current.auth.s3_has_permission("update", "cap_alert",\
+                                                                 record_id=alert_id)
+                    # Display 'Submit for Approval' based on permission  
+                    # and deployment settings
+                    if not r.record.approved_by and \
+                       current.deployment_settings.get_cap_authorisation() and \
+                       update_auth:
+                        # Get the user ids for the role alert_approver
+                        db = current.db
+                        agtable = db.auth_group
+                        rows = db(agtable.role == "Alert Approver")._select(agtable.id)
+                        group_rows = db(agtable.id.belongs(rows)).select(agtable.id)
+                        if group_rows:
+                            for group_row in group_rows:
+                                group_id = group_row.id                            
+                                user_ids = auth.s3_group_members(group_id) # List of user_ids
+                                pe_ids = [] # List of pe_ids
+                                for user_id in user_ids:
+                                    pe_ids.append(auth.s3_user_pe_id(int(user_id)))
+                                    
+                            submit_btn = A(T("Submit for Approval"),
+                                           _href = URL(f = "compose",
+                                                       vars = {"cap_alert.id": record.id,
+                                                               "pe_ids": pe_ids,
+                                                               },
+                                                       ),
+                                           _class = "action-btn"
+                                           )
+                        else:
+                            submit_btn = None
+                    else:
+                        submit_btn = None
+
+                    artable = s3db.cap_area
+                    row = current.db(artable.alert_id == alert_id).\
+                                            select(artable.id,
                                                    limitby=(0, 1)).first()
                     if row:
                         # We have an Area, so we can add Locations
@@ -1169,18 +1325,29 @@ def cap_rheader(r):
                             (T("Resource Files"), "resource"),
                             ]
 
+                    # Check to see if 'Predefined Areas' tab need to be added
+                    query = (artable.is_template == True) & \
+                            (artable.deleted == False)
+                    if update_auth:                        
+                        template_area_rows = current.db(query)._select(artable.id,
+                                                                       limitby=(0, 1))
+                        if template_area_rows:
+                            tabs.insert(2, (T("Predefined Areas"), "assign"))
+                            
                     rheader_tabs = s3_rheader_tabs(r, tabs)
 
                     rheader = DIV(TABLE(TR(TH("%s: " % T("Alert")),
-                                           TD(A(s3db.cap_alert_represent(record_id, record),
+                                           TD(A(s3db.cap_alert_represent(alert_id, record),
                                                 _href=URL(c="cap", f="alert",
-                                                          args=[record_id, "update"]))),
+                                                          args=[alert_id, "update"]))),
                                            ),
                                         TR(export_btn)
                                         ),
                                   rheader_tabs,
                                   error
                                   )
+                    if submit_btn:
+                        rheader.insert(1, TR(submit_btn))
 
             elif tablename == "cap_area":
                 # Shouldn't ever be called
@@ -1228,7 +1395,7 @@ def cap_rheader(r):
                     rheader_tabs = s3_rheader_tabs(r, tabs)
                     table = r.table
                     rheader = DIV(TABLE(TR(TH("%s: " % T("Template")),
-                                           TD(A(S3CAPModel.template_represent(record.alert_id),
+                                           TD(A(s3db.cap_template_represent(record.alert_id),
                                                 _href=URL(c="cap", f="template",
                                                           args=[record.alert_id, "update"]))),
                                             ),
@@ -1616,7 +1783,97 @@ def cap_gis_location_xml_post_render(element, record):
     # Did not find anything to use. Presumably the area has a text description.
     return
 
-# -----------------------------------------------------------------------------
+# =============================================================================
+def cap_alert_list_layout(list_id, item_id, resource, rfields, record):
+    """
+        Default dataList item renderer for CAP Alerts on the Home page.
+
+        @param list_id: the HTML ID of the list
+        @param item_id: the HTML ID of the item
+        @param resource: the S3Resource to render
+        @param rfields: the S3ResourceFields to render
+        @param record: the record as dict
+    """
+
+    record_id = record["cap_alert.id"]
+    item_class = "thumbnail"
+
+    #raw = record._row
+    headline = record["cap_info.headline"]
+    location = record["cap_area.name"]
+    description = record["cap_info.description"]
+    sender = record["cap_info.sender_name"]
+
+    headline = A(headline,
+                 # @ToDo: Link to nicely-formatted version of Display page
+                 _href = URL(c="cap", f="alert", args=record_id),
+                 )
+    headline = DIV(headline,
+                   current.T("in %(location)s") % dict(location=location)
+                   )
+
+    item = DIV(headline,
+               P(description),
+               P(sender, style="bold"),
+               _class=item_class,
+               _id=item_id,
+               )
+
+    return item
+
+# =============================================================================
+def add_area_from_template(area_id, alert_id):
+    """
+        Add an area from a Template along with its components Location and Tag
+    """
+    
+    afieldnames = ("name",
+                   "altitude",
+                   "ceiling",
+                  )
+    lfieldnames = ("location_id",
+                   )
+    tfieldnames = ("tag",
+                   "value",
+                   "comments",
+                   )
+    
+    db = current.db
+    s3db = current.s3db
+    atable = s3db.cap_area
+    ltable = s3db.cap_area_location
+    ttable = s3db.cap_area_tag
+    
+    # Create Area Record from Template
+    atemplate = db(atable.id == area_id).select(limitby=(0, 1),
+                                                *afieldnames).first()
+    adata = {"is_template": False,
+             "alert_id": alert_id
+             }
+    for field in afieldnames:
+        adata[field] = atemplate[field]
+    aid = atable.insert(**adata) 
+    
+    # Add Area Location Components of Template
+    ltemplate = db(ltable.area_id == area_id).select(*lfieldnames)
+    for rows in ltemplate:
+        ldata = {"area_id": aid,
+                 "alert_id": alert_id}
+        for field in lfieldnames:
+            ldata[field] = rows[field]
+        lid = ltable.insert(**ldata)
+        
+    # Add Area Tag Components of Template
+    ttemplate = db(ttable.area_id == area_id).select(*tfieldnames)      
+    for row in ttemplate:
+        tdata = {"area_id": aid}
+        for field in tfieldnames:
+            tdata[field] = row[field]
+        tid = ttable.insert(**tdata)
+        
+    return aid
+
+# =============================================================================
 class CAPImportFeed(S3Method):
     """
         Import CAP alerts from a URL
@@ -1721,5 +1978,228 @@ class CAPImportFeed(S3Method):
 
         else:
             raise HTTP(501, current.ERROR.BAD_METHOD)
+
+# -----------------------------------------------------------------------------
+class cap_AssignArea(S3Method):
+    """
+        Assign CAP area to an alert, allows (multi-)selection of Predefined areas
+    """
+
+    def apply_method(self, r, **attr):
+        """
+            Apply method.
+            @param r: the S3Request
+            @param attr: controller options for this request
+        """
+
+        if not r.record:
+            # Must be called for a particular alert
+            r.error(404, current.ERROR.BAD_RECORD)
+
+        # The record ID of the alert the method is called for
+        alert_id = r.id
+        
+        # Requires permission to update this alert
+        authorised = current.auth.s3_has_permission("update", "cap_alert", 
+                                                    record_id=alert_id)
+        if not authorised:
+            r.unauthorised()            
+        
+        T = current.T        
+        s3db = current.s3db
+        response = current.response
+        
+        # Filter to limit the selection of areas
+        area_filter = (FS("is_template") == True)
+                      
+        if r.http == "POST":
+            # Template areas have been selected
+
+            added = 0
+            post_vars = r.post_vars
+
+            if all([n in post_vars for n in ("assign", "selected", "mode")]):
+
+                selected = post_vars.selected
+                if selected:
+                    selected = selected.split(",")
+                else:
+                    selected = []
+
+                # Handle exclusion filter
+                if post_vars.mode == "Exclusive":
+
+                    # URL filters
+                    if "filterURL" in post_vars:
+                        filters = S3URLQuery.parse_url(post_vars.ajaxURL)
+                    else:
+                        filters = None
+
+                    query = area_filter & (~(FS("id").belongs(selected)))                    
+                    aresource = s3db.resource("cap_area",
+                                              filter = query,
+                                              vars = filters)
+                    rows = aresource.select(["id"], as_rows=True)
+                    selected = [str(row.id) for row in rows]
+
+                for area_id in selected:
+                    area_id = int(area_id.strip())
+                    add_area_from_template(area_id, alert_id)
+                    added += 1
+            current.session.confirmation = T("%(number)s assigned") % \
+                                                            {"number": added}
+            if added > 0:
+                # Redirect to the list of areas of this alert
+                redirect(URL(args=[r.id, "area"], vars={}))
+            else:
+                # Return to the "assign" page
+                redirect(URL(args=r.args, vars={}))
+
+        elif r.http == "GET":
+
+            # Filter widgets (@todo: lookup from cap_area resource config?)
+            filter_widgets = []
+
+            # List fields
+            list_fields = ["id",
+                           "name",
+                           "event_type_id",
+                           "priority",
+                           ]
+
+            # Data table
+            aresource = s3db.resource("cap_area", filter=area_filter)
+            totalrows = aresource.count()
+            get_vars = r.get_vars
+            if "pageLength" in get_vars:
+                display_length = get_vars["pageLength"]
+                if display_length == "None":
+                    display_length = None
+                else:
+                    display_length = int(display_length)
+            else:
+                display_length = 25
+            if display_length:
+                limit = 4 * display_length
+            else:
+                limit = None
+
+            # Datatable filter and sorting
+            query, orderby, left = aresource.datatable_filter(list_fields,
+                                                              get_vars,
+                                                              )
+            aresource.add_filter(query)
+
+            # Extract the data
+            data = aresource.select(list_fields,
+                                    start = 0,
+                                    limit = limit,
+                                    orderby = orderby,
+                                    left = left,
+                                    count = True,
+                                    represent = True,
+                                    )
+            filteredrows = data.numrows
+
+            # Instantiate the datatable
+            dt = S3DataTable(data.rfields, data.rows)
+            dt_id = "datatable"
+
+            # Bulk actions
+            dt_bulk_actions = [(T("Assign"), "assign")]
+
+            if r.representation == "html":
+                # Page load
+
+                # Disallow deletion from this table, and link all open-buttons
+                # to the respective area read page
+                aresource.configure(deletable = False)
+                profile_url = URL(c = "cap",
+                                  f = "area",
+                                  args = ["[id]", "read"],
+                                  )
+                S3CRUD.action_buttons(r,
+                                      deletable = False,
+                                      read_url = profile_url,
+                                      update_url = profile_url,
+                                      )
+                # Hide export icons
+                response.s3.no_formats = True
+
+                # Render the datatable (will be "items" in the output dict)
+                items = dt.html(totalrows,
+                                filteredrows,
+                                dt_id,
+                                dt_ajax_url = URL(args = r.args,
+                                                  extension="aadata",
+                                                  vars={},
+                                                  ),
+                                dt_bulk_actions = dt_bulk_actions,
+                                dt_pageLength = display_length,
+                                dt_pagination = "true",
+                                dt_searching = "false",
+                                )
+
+                # Filter form
+                if filter_widgets:
+
+                    # Where to retrieve filtered data from:
+                    get_vars = aresource.crud._remove_filters(r.get_vars)
+                    filter_submit_url = r.url(vars=get_vars)
+
+                    # Where to retrieve updated filter options from:
+                    filter_ajax_url = URL(f="cap_area",
+                                          args=["filter.options"],
+                                          vars={},
+                                          )
+
+                    get_config = aresource.get_config
+                    filter_clear = get_config("filter_clear", True)
+                    filter_formstyle = get_config("filter_formstyle", None)
+                    filter_submit = get_config("filter_submit", True)
+                    filter_form = S3FilterForm(filter_widgets,
+                                               clear = filter_clear,
+                                               formstyle = filter_formstyle,
+                                               submit = filter_submit,
+                                               ajax = True,
+                                               url = filter_submit_url,
+                                               ajaxurl = filter_ajax_url,
+                                               _class = "filter-form",
+                                               _id = "datatable-filter-form",
+                                               )
+                    fresource = s3db.resource("cap_area")
+                    ff = filter_form.html(fresource,
+                                          r.get_vars,
+                                          target = "datatable",
+                                          )
+                else:
+                    ff = ""
+
+                output = {"items": items, # the datatable
+                          "title": T("Add Areas"),
+                          "list_filter_form": ff,
+                          }
+                response.view = "list_filter.html"
+                return output
+
+            elif r.representation == "aadata":
+                # Ajax refresh
+                if "draw" in get_vars:
+                    echo = int(get_vars.draw)
+                else:
+                    echo = None
+                items = dt.json(totalrows,
+                                filteredrows,
+                                dt_id,
+                                echo,
+                                dt_bulk_actions=dt_bulk_actions,
+                                )
+                response.headers["Content-Type"] = "application/json"
+                return items
+
+            else:
+                r.error(501, current.ERROR.BAD_FORMAT)
+        else:
+            r.error(405, current.ERROR.BAD_METHOD)
 
 # END =========================================================================
