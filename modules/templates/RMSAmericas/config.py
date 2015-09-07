@@ -431,6 +431,7 @@ def config(settings):
 
     # -----------------------------------------------------------------------------
     # Projects
+    settings.project.assign_staff_tab = False
     # Uncomment this to use settings suitable for a global/regional organisation (e.g. DRR)
     settings.project.mode_3w = True
     # Uncomment this to use DRR (Disaster Risk Reduction) extensions
@@ -450,6 +451,8 @@ def config(settings):
     settings.project.multiple_budgets = True
     # Uncomment this to use multiple Organisations per project
     settings.project.multiple_organisations = True
+    # Ondelete behaviour for ProjectPlanningModel
+    settings.project.planning_ondelete = "RESTRICT"
     # Uncomment this to enable Programmes in projects
     settings.project.programmes = True
     # Uncomment this to enable Themes in 3W projects
@@ -1394,12 +1397,21 @@ def config(settings):
 
         settings = current.deployment_settings
 
-        # Alter rheader tabs for Suppliers (=hide Offices, Warehouses and Contacts)
         if type_filter == "Supplier":
+            # Suppliers have simpler Tabs (hide Offices, Warehouses and Contacts)
             tabs = [(T("Basic Details"), None, {"native": 1}),
                     ]
             if settings.get_L10n_translate_org_organisation():
                 tabs.append((T("Local Names"), "name"))
+            attr["rheader"] = lambda r: current.s3db.org_rheader(r, tabs=tabs)
+
+        elif type_filter == "Academic,Bilateral,Government,Intergovernmental,NGO,UN agency":
+            # Partners have simpler Tabs (hide Offices, Warehouses and Contacts)
+            tabs = [(T("Basic Details"), None, {"native": 1}),
+                    (T("Projects"), "project"),
+                    ]
+            if settings.get_L10n_translate_org_organisation():
+                tabs.insert(1, (T("Local Names"), "name"))
             attr["rheader"] = lambda r: current.s3db.org_rheader(r, tabs=tabs)
 
         return attr
@@ -1715,32 +1727,49 @@ def config(settings):
             # unique=True violation
             budget.update_record(name = "Budget for %s" % project.name)
 
-        # Create Monitoring Data entries
-        # Assume Monthly
-        #monitoring_frequency = budget.monitoring_frequency
-        #if not monitoring_frequency:
-        #    return
-        #total_budget = budget.total_budget
-        currency = budget.currency
-        start_date = project.start_date
-        end_date = project.end_date
-        if not start_date or not end_date:
-            return
-        # Create entries for the 1st of every month between start_date and end_date
-        from dateutil import rrule
-        dates = list(rrule.rrule(rrule.MONTHLY, bymonthday=1, dtstart=start_date, until=end_date))
         mtable = s3db.budget_monitoring
-        for d in dates:
-            mtable.insert(budget_entity_id = budget_entity_id,
-                          # @ToDo: This needs to be modified whenever entries are manually edited
-                          # Set/update this in budget_monitoring_onaccept
-                          # - also check here that we don't exceed overall budget
-                          start_date = start_date,
-                          end_date = d,
-                          currency = currency,
-                          )
-            # Start date relates to previous entry
-            start_date = d
+        exists = db(mtable.budget_entity_id == budget_entity_id).select(mtable.id,
+                                                                        limitby=(0, 1))
+        if not exists:
+            # Create Monitoring Data entries
+            start_date = project.start_date
+            end_date = project.end_date
+            if not start_date or not end_date:
+                return
+            # Assume Monthly
+            #monitoring_frequency = budget.monitoring_frequency
+            #if not monitoring_frequency:
+            #    return
+            #total_budget = budget.total_budget
+            currency = budget.currency
+            # Create entries for the 1st of every month between start_date and end_date
+            from dateutil import rrule
+            dates = list(rrule.rrule(rrule.MONTHLY, bymonthday=1, dtstart=start_date, until=end_date))
+            for d in dates:
+                mtable.insert(budget_entity_id = budget_entity_id,
+                              # @ToDo: This needs to be modified whenever entries are manually edited
+                              # Set/update this in budget_monitoring_onaccept
+                              # - also check here that we don't exceed overall budget
+                              start_date = start_date,
+                              end_date = d,
+                              currency = currency,
+                              )
+                # Start date relates to previous entry
+                start_date = d
+
+    # -----------------------------------------------------------------------------
+    def customise_project_programme_controller(**attr):
+
+        # Organisation needs to be an NS/Branch
+        ns_only("project_programme",
+                required = True,
+                branches = False,
+                updateable = True,
+                )
+
+        return attr
+
+    settings.customise_project_programme_controller = customise_project_programme_controller
 
     # -----------------------------------------------------------------------------
     def customise_project_project_controller(**attr):
@@ -2097,6 +2126,27 @@ def config(settings):
 
 
     settings.customise_project_beneficiary_resource = customise_project_beneficiary_resource
+
+    # -----------------------------------------------------------------------------
+    def customise_project_indicator_resource(r, tablename):
+
+        table = current.s3db.project_indicator
+        table.definition.label = T("Indicator Definition")
+        table.measures.label = T("Indicator Criteria and Sources of Verification")
+
+    settings.customise_project_indicator_resource = customise_project_indicator_resource
+
+    # -----------------------------------------------------------------------------
+    def customise_project_indicator_data_resource(r, tablename):
+
+        # Only M & E should be updating the Actuals
+        has_role = current.auth.s3_has_role
+        if has_role("monitoring_evaluation") or has_role("ORG_ADMIN"):
+            pass
+        else:
+            current.s3db.project_indicator_data.value.writable = False
+
+    settings.customise_project_indicator_data_resource = customise_project_indicator_data_resource
 
     # -----------------------------------------------------------------------------
     def customise_project_location_resource(r, tablename):

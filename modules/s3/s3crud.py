@@ -542,8 +542,7 @@ class S3CRUD(S3Method):
                                     name="label_create",
                                     icon="add",
                                     _id="add-btn")
-                if buttons:
-                    output["buttons"] = {"add_btn": add_btn}
+                output["buttons"] = {"add_btn": add_btn}
 
         view = self._view(r, "listadd.html")
         output = XML(response.render(view, output))
@@ -607,7 +606,7 @@ class S3CRUD(S3Method):
             # Redirect to update if user has permission unless
             # a method has been specified in the URL
             # MH: Is this really desirable? Many users would prefer to open as read
-            if not r.method or r.method == "review":
+            if not r.method: #or r.method == "review":
                 authorised = self._permitted("update")
                 if authorised and representation == "html" and editable:
                     return self.update(r, **attr)
@@ -1926,18 +1925,25 @@ class S3CRUD(S3Method):
                 approve = FORM(INPUT(_value=T("Approve"),
                                     _type="submit",
                                     _name="approve-btn",
-                                    _id="approve-btn"))
+                                    _id="approve-btn",
+                                    _class="action-btn"))
 
                 reject = FORM(INPUT(_value=T("Reject"),
                                     _type="submit",
                                     _name="reject-btn",
-                                    _id="reject-btn"))
+                                    _id="reject-btn",
+                                    _class="action-btn"))
+                
+                edit = A(T("Edit"),
+                         _href=r.url(id=r.id, method="update",
+                                     vars={"_next": r.url(id=r.id, method="review")}),
+                         _class="action-btn")
 
                 cancel = A(T("Cancel"),
                            _href=r.url(id=0),
                            _class="action-lnk")
 
-                output["approve_form"] = DIV(TABLE(TR(approve, reject, cancel)),
+                output["approve_form"] = DIV(TABLE(TR(approve, reject, edit, cancel)),
                                              _id="approve_form")
 
                 reviewing = False
@@ -2448,7 +2454,7 @@ class S3CRUD(S3Method):
         """
 
         link = dict(attr)
-        link["label"] = str(label)
+        link["label"] = str(label) #s3_unicode(label).encode("utf8")
         link["url"] = url
         if icon and current.deployment_settings.get_ui_use_button_icons():
             link["icon"] = ICON.css_class(icon)
