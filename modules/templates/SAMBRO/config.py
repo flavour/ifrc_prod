@@ -17,6 +17,9 @@ def config(settings):
 
     T = current.T
 
+    settings.base.system_name = T("Sahana Alerting and Messaging Broker")
+    settings.base.system_name_short = T("SAMBRO")
+
     # Pre-Populate
     settings.base.prepopulate = ("SAMBRO", "SAMBRO/Demo", "default/users")
 
@@ -26,21 +29,78 @@ def config(settings):
     # The Registration functionality shouldn't be visible to the Public
     settings.security.registration_visible = False
 
+    # Link Users to Organisations
+    settings.auth.registration_requests_organisation = True
+
     # GeoNames username
     settings.gis.geonames_username = "eden_test"
 
     # =========================================================================
     # System Settings
     # -------------------------------------------------------------------------
+    # Security Policy
+    # http://eden.sahanafoundation.org/wiki/S3/S3AAA#System-widePolicy
+    # 1: Simple (default): Global as Reader, Authenticated as Editor
+    # 2: Editor role required for Update/Delete, unless record owned by session
+    # 3: Apply Controller ACLs
+    # 4: Apply both Controller & Function ACLs
+    # 5: Apply Controller, Function & Table ACLs
+    # 6: Apply Controller, Function, Table ACLs and Entity Realm
+    # 7: Apply Controller, Function, Table ACLs and Entity Realm + Hierarchy
+    # 8: Apply Controller, Function, Table ACLs, Entity Realm + Hierarchy and Delegations    
+    settings.security.policy = 4 # Controller-Function ACLs
+    
     # Record Approval
     settings.auth.record_approval = True
     # cap_alert record requires approval before sending
     settings.auth.record_approval_required_for = ("cap_alert",)
+    # Don't auto-approve so that can save draft
+    settings.auth.record_approval_manual = ("cap_alert",)
 
+    # =============================================================================
+    # Module Settings
+    # -----------------------------------------------------------------------------
+    # Notifications
+    
+    # Template for the subject line in update notifications
+    settings.msg.notify_subject = "$S %s" % T("Alert Notification")
+
+    # -----------------------------------------------------------------------------
+    # L10n (Localization) settings
+    languages = OrderedDict([
+        #("ar", "العربية"),
+        ("dv", "ދިވެހި"), # Divehi (Maldives)
+        ("en-US", "English"),
+        #("es", "Español"),
+        #("fr", "Français"),
+        #("km", "ភាសាខ្មែរ"),        # Khmer
+        #("mn", "Монгол хэл"),  # Mongolian
+        ("my", "မြန်မာစာ"),        # Burmese
+        #("ne", "नेपाली"),          # Nepali
+        #("prs", "دری"),        # Dari
+        #("ps", "پښتو"),        # Pashto
+        #("tet", "Tetum"),
+        #("th", "ภาษาไทย"),        # Thai
+        ("tl", "Tagalog"), # Filipino
+        #("vi", "Tiếng Việt"),   # Vietnamese
+        #("zh-cn", "中文 (简体)"),
+    ])
+    settings.L10n.languages = languages
+    settings.cap.languages = languages
+    # Translate the cap_area name
+    settings.L10n.translate_cap_area = True
+    
     # -------------------------------------------------------------------------
     # Messaging
     # Parser
     settings.msg.parser = "SAMBRO"
+
+    # -------------------------------------------------------------------------
+    # Organisations
+    # Enable the use of Organisation Branches
+    settings.org.branches = True
+    # Show branches as tree rather than as table
+    settings.org.branches_tree_view = True
 
     # -------------------------------------------------------------------------
     def customise_msg_rss_channel_resource(r, tablename):
@@ -114,6 +174,37 @@ def config(settings):
     settings.customise_msg_twitter_channel_resource = customise_msg_twitter_channel_resource
 
     # -------------------------------------------------------------------------
+    def customise_org_organisation_resource(r, tablename):
+
+        from s3 import S3SQLCustomForm, S3SQLInlineComponent, S3SQLInlineLink
+        crud_form = S3SQLCustomForm("name",
+                                    "acronym",
+                                    S3SQLInlineLink("organisation_type",
+                                                    field = "organisation_type_id",
+                                                    label = T("Type"),
+                                                    multiple = False,
+                                                    #widget = "hierarchy",
+                                                    ),
+                                    S3SQLInlineComponent(
+                                        "tag",
+                                        label = T("CAP OID"),
+                                        multiple = False,
+                                        fields = [("", "value")],
+                                        filterby = dict(field = "tag",
+                                                        options = "cap_oid",
+                                                        ),
+                                        ),
+                                    "website",
+                                    "comments",
+                                    )
+
+        current.s3db.configure("org_organisation",
+                               crud_form = crud_form,
+                               )
+
+    settings.customise_org_organisation_resource = customise_org_organisation_resource
+
+    # -------------------------------------------------------------------------
     # Comment/uncomment modules here to disable/enable them
     # @ToDo: Have the system automatically enable migrate if a module is enabled
     # Modules menu is defined in modules/eden/menu.py
@@ -161,7 +252,7 @@ def config(settings):
             module_type = None,
         )),
         ("gis", Storage(
-            name_nice = T("Map"),
+            name_nice = T("Mapping"),
             #description = "Situation Awareness & Geospatial Analysis",
             restricted = True,
             module_type = 6,     # 6th item in the menu
@@ -187,7 +278,7 @@ def config(settings):
         #    module_type = 2,
         #)),
         ("cap", Storage(
-            name_nice = T("CAP"),
+            name_nice = T("Alerting"),
             #description = "Create & broadcast CAP alerts",
             restricted = True,
             module_type = 1,
@@ -210,12 +301,6 @@ def config(settings):
             restricted = True,
             # The user-visible functionality of this module isn't normally required. Rather it's main purpose is to be accessed from other modules.
             module_type = None,
-        )),
-        ("irs", Storage(
-            name_nice = T("Incidents"),
-            #description = "Incident Reporting System",
-            restricted = True,
-            module_type = 10
         )),
         ("event", Storage(
             name_nice = T("Events"),

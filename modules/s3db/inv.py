@@ -708,6 +708,24 @@ $.filterOptionsS3({
                        onvalidation = self.inv_inv_item_onvalidate,
                        report_options = report_options,
                        super_entity = "supply_item_entity",
+                       # Experimental
+                       #grouped = {
+                       #  "default": {
+                       #      "title": T("Warehouse Stock Report"),
+                       #      "fields": [(T("Warehouse"), "site_id$name"),
+                       #                 "item_id$name",
+                       #                 "quantity",
+                       #                 ],
+                       #      "groupby": ["site_id",
+                       #                  "item_id",
+                       #                  ],
+                       #      "orderby": ["site_id$name",
+                       #                  "item_id$name",
+                       #                  ],
+                       #      "aggregate": [("sum", "quantity"),
+                       #                    ],
+                       #  },
+                       #},
                        )
 
         # ---------------------------------------------------------------------
@@ -2222,6 +2240,12 @@ $.filterOptionsS3({
                     # Now that the shipment has been sent,
                     # lock the record so that it can't be meddled with
                     s3db.configure("inv_send",
+                                   create = False,
+                                   deletable = False,
+                                   editable = False,
+                                   listadd = False,
+                                   )
+                    s3db.configure("inv_track_item",
                                    create = False,
                                    deletable = False,
                                    editable = False,

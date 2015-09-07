@@ -460,8 +460,8 @@ class S3ProjectModel(S3Model):
                                          "actuate": "hide",
                                          },
                        # Human Resources
-                       project_human_resource = "project_id",
-                       hrm_human_resource = {"link": "project_human_resource",
+                       project_human_resource_project = "project_id",
+                       hrm_human_resource = {"link": "project_human_resource_project",
                                              "joinby": "project_id",
                                              "key": "human_resource_id",
                                              "actuate": "hide",
@@ -2714,7 +2714,7 @@ class S3ProjectHRModel(S3Model):
         Optionally link Projects <> Human Resources
     """
 
-    names = ("project_human_resource",)
+    names = ("project_human_resource_project",)
 
     def model(self):
 
@@ -2733,7 +2733,7 @@ class S3ProjectHRModel(S3Model):
         # ---------------------------------------------------------------------
         # Projects <> Human Resources
         #
-        tablename = "project_human_resource"
+        tablename = "project_human_resource_project"
         self.define_table(tablename,
                           # Instance table
                           self.super_link("cost_item_id", "budget_cost_item"),
@@ -2810,7 +2810,7 @@ class S3ProjectHRModel(S3Model):
         """
 
         # The project human resource table
-        hr = current.s3db.project_human_resource
+        hr = current.s3db.project_human_resource_project
 
         # Fetch the first row that has the same project and human resource ids
         query = (hr.human_resource_id == form.vars.human_resource_id) & \
@@ -2818,11 +2818,9 @@ class S3ProjectHRModel(S3Model):
         row = current.db(query).select(hr.id,
                                        limitby=(0, 1)).first()
 
-        # If we found a row we have a duplicate. Return an error to the user.
         if row:
+            # We have a duplicate. Return an error to the user.
             form.errors.human_resource_id = current.T("Record already exists")
-
-        return
 
 # =============================================================================
 class S3ProjectIndicatorModel(S3Model):
@@ -3619,13 +3617,16 @@ class S3ProjectOrganisationModel(S3Model):
     def project_organisation_onvalidation(form, lead_role=None):
         """ Form validation """
 
+        #settings = current.deployment_settings
+
+        # Ensure only a single Lead Org
         if lead_role is None:
             lead_role = current.deployment_settings.get_project_organisation_lead_role()
 
-        vars = form.vars
-        project_id = vars.project_id
-        organisation_id = vars.organisation_id
-        if str(vars.role) == str(lead_role) and project_id:
+        form_vars = form.vars
+        project_id = form_vars.project_id
+        organisation_id = form_vars.organisation_id
+        if str(form_vars.role) == str(lead_role) and project_id:
             db = current.db
             otable = db.project_organisation
             query = (otable.deleted != True) & \
@@ -3637,6 +3638,14 @@ class S3ProjectOrganisationModel(S3Model):
             if row:
                 form.errors.role = \
                     current.T("Lead Implementer for this project is already set, please choose another role.")
+
+        #if settings.get_project_budget_monitoring():
+        #    # Check that total budget isn't exceeded
+        #    # - either needs knowledge of exchange rates or forcing that org contribnutions are in same currency as total_budget which doesn't match real world
+        #    btable = current.s3db.budget_budget
+        #    total_budget = 
+        #    form.errors.amount = \
+        #            current.T("Amount contributed cannot be greater than the total budget.")
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -3757,6 +3766,7 @@ class S3ProjectPlanningModel(S3Model):
         crud_strings = current.response.s3.crud_strings
         define_table = self.define_table
 
+        ondelete = settings.get_project_planning_ondelete()
         use_goals = settings.get_project_goals()
         use_outcomes = settings.get_project_outcomes()
         use_outputs = settings.get_project_outputs()
@@ -3769,7 +3779,7 @@ class S3ProjectPlanningModel(S3Model):
         #
         tablename = "project_goal"
         define_table(tablename,
-                     project_id(),
+                     project_id(ondelete = ondelete),
                      Field("code",
                            label = T("Code"),
                            represent = lambda v: v or NONE,
@@ -3833,7 +3843,7 @@ class S3ProjectPlanningModel(S3Model):
         goal_represent = S3Represent(lookup=tablename, fields=("code", "name"))
         goal_id = S3ReusableField("goal_id", "reference %s" % tablename,
                                   label = T("Goal"),
-                                  ondelete = "CASCADE",
+                                  ondelete = ondelete,
                                   represent = goal_represent,
                                   requires = IS_EMPTY_OR(
                                                 IS_ONE_OF(db, "project_goal.id",
@@ -3850,7 +3860,7 @@ class S3ProjectPlanningModel(S3Model):
         #
         tablename = "project_outcome"
         define_table(tablename,
-                     project_id(),
+                     project_id(ondelete = ondelete),
                      goal_id(readable = use_goals,
                              writable = use_goals,
                              ),
@@ -3912,7 +3922,7 @@ class S3ProjectPlanningModel(S3Model):
         outcome_represent = S3Represent(lookup=tablename, fields=("code", "name"))
         outcome_id = S3ReusableField("outcome_id", "reference %s" % tablename,
                                      label = T("Outcome"),
-                                     ondelete = "CASCADE",
+                                     ondelete = ondelete,
                                      represent = outcome_represent,
                                      requires = IS_EMPTY_OR(
                                                     IS_ONE_OF(db, "project_outcome.id",
@@ -3930,6 +3940,7 @@ class S3ProjectPlanningModel(S3Model):
         tablename = "project_output"
         define_table(tablename,
                      project_id(
+                       ondelete = ondelete,
                        # Override requires so that update access to the projects isn't required
                        requires = IS_ONE_OF(db, "project_project.id",
                                             self.project_project_represent
@@ -4008,7 +4019,7 @@ class S3ProjectPlanningModel(S3Model):
         output_represent = S3Represent(lookup=tablename, fields=("code", "name"))
         output_id = S3ReusableField("output_id", "reference %s" % tablename,
                                     label = T("Output"),
-                                    ondelete = "CASCADE",
+                                    ondelete = ondelete,
                                     represent = output_represent,
                                     requires = IS_EMPTY_OR(
                                                     IS_ONE_OF(db, "project_output.id",
@@ -4025,7 +4036,7 @@ class S3ProjectPlanningModel(S3Model):
         #
         tablename = "project_indicator"
         define_table(tablename,
-                     project_id(),
+                     project_id(ondelete = ondelete),
                      goal_id(readable = use_goals and not use_outcomes and not use_outputs,
                              writable = use_goals and not use_outcomes and not use_outputs,
                              ),
@@ -4039,8 +4050,17 @@ class S3ProjectPlanningModel(S3Model):
                            label = T("Code"),
                            represent = lambda v: v or NONE,
                            ),
-                     Field("name", "text",
+                     Field("name",
                            label = T("Description"),
+                           represent = lambda v: v or NONE,
+                           ),
+                     Field("definition", "text",
+                           label = T("Definition"),
+                           represent = lambda v: v or NONE,
+                           widget = s3_comments_widget,
+                           ),
+                     Field("measures", "text",
+                           label = T("Measurement Criteria and Sources of Verification"),
                            represent = lambda v: v or NONE,
                            widget = s3_comments_widget,
                            ),
@@ -4096,7 +4116,7 @@ class S3ProjectPlanningModel(S3Model):
         indicator_represent = S3Represent(lookup=tablename, fields=("code", "name"))
         indicator_id = S3ReusableField("indicator_id", "reference %s" % tablename,
                                        label = T("Indicator"),
-                                       ondelete = "CASCADE",
+                                       ondelete = ondelete,
                                        represent = indicator_represent,
                                        requires = IS_EMPTY_OR(
                                                         IS_ONE_OF(db, "project_indicator.id",
@@ -4114,6 +4134,7 @@ class S3ProjectPlanningModel(S3Model):
         tablename = "project_indicator_data"
         define_table(tablename,
                      project_id(
+                        ondelete = ondelete,
                         # Override requires so that update access to the projects isn't required
                         requires = IS_ONE_OF(db, "project_project.id",
                                              self.project_project_represent
@@ -4188,6 +4209,7 @@ class S3ProjectPlanningModel(S3Model):
                                       "comments",
                                       ],
                        onaccept = self.project_indicator_data_onaccept,
+                       ondelete = self.project_indicator_data_ondelete,
                        report_options = report_options,
                        )
 
@@ -4229,7 +4251,8 @@ class S3ProjectPlanningModel(S3Model):
         # Read all of the Indicator Data for this Project
         table = s3db.project_indicator_data
         query = (table.project_id == project_id) & \
-                (table.deleted == False)
+                (table.deleted == False) & \
+                (table.end_date < current.request.utcnow)
         indicator_data = db(query).select(table.indicator_id,
                                           table.target_value,
                                           table.value,
@@ -4237,8 +4260,8 @@ class S3ProjectPlanningModel(S3Model):
                                           )
         for d in indicator_data:
             indicator_id = d.indicator_id
-            target_value = d.target_value
-            value = d.value
+            target_value = d.target_value or 0
+            value = d.value or 0
             end_date = d.end_date
             if indicator_id not in indicators:
                 indicators[indicator_id] = {"total_target": target_value,
@@ -4250,8 +4273,8 @@ class S3ProjectPlanningModel(S3Model):
             else:
                 # Add this data to Totals
                 i = indicators[indicator_id]
-                i["total_target"] = i["total_target"] + target_value
-                i["total_value"] = i["total_value"] + value
+                i["total_target"] = i["total_target"] + (target_value or 0)
+                i["total_value"] = i["total_value"] + (value or 0)
                 if end_date > i["current_date"]:
                     # Replace the Current data
                     i.update(current_target = target_value,
@@ -4476,7 +4499,7 @@ class S3ProjectPlanningModel(S3Model):
         try:
             project_id = record.project_id
         except:
-            s3_debug("Cannot find Project Goal record (no record for this ID), so can't setup default weightings")
+            current.log.error("Cannot find Project Goal record (no record for this ID), so cannot setup default weightings")
             return
 
         # Read the records
@@ -4511,7 +4534,7 @@ class S3ProjectPlanningModel(S3Model):
         try:
             project_id = record.project_id
         except:
-            s3_debug("Cannot find Project Goal record (no record for this ID), so can't update statuses or validate weighting")
+            current.log.error("Cannot find Project Goal record (no record for this ID), so cannot update statuses or validate weighting")
             return
 
         if not create:
@@ -4573,7 +4596,9 @@ class S3ProjectPlanningModel(S3Model):
         try:
             goal_id = record.goal_id
         except:
-            s3_debug("Cannot find Project Outcome record (no record for this ID), so can't setup default weightings")
+            error = "Cannot find Project Outcome record (no record for this ID), so cannot setup default weightings"
+            current.log.error(error)
+            current.session.error = error
             return
 
         # Read the records
@@ -4597,7 +4622,8 @@ class S3ProjectPlanningModel(S3Model):
         """
 
         db = current.db
-        record_id = form.record_id
+        form_vars = form.vars
+        record_id = form_vars.id
 
         # Find the project_id
         table = current.s3db.project_outcome
@@ -4608,7 +4634,9 @@ class S3ProjectPlanningModel(S3Model):
         try:
             project_id = record.project_id
         except:
-            s3_debug("Cannot find Project Outcome record (no record for this ID), so can't update statuses or validate weighting")
+            error = "Cannot find Project Outcome record (no record for this ID), so cannot update statuses or validate weighting"
+            current.log.error(error)
+            current.session.error = error
             return
 
         if not create:
@@ -4621,7 +4649,7 @@ class S3ProjectPlanningModel(S3Model):
             for r in records:
                 total += r.weighting
             # Add what we're trying to add
-            total += form.vars.weighting
+            total += form_vars.weighting
 
             # Check if we're on 1.0
             if total <> 1.0:
@@ -4670,7 +4698,7 @@ class S3ProjectPlanningModel(S3Model):
         try:
             outcome_id = record.outcome_id
         except:
-            s3_debug("Cannot find Project Output record (no record for this ID), so can't setup default weightings")
+            current.log.error("Cannot find Project Output record (no record for this ID), so cannot setup default weightings")
             return
 
         # Read the records
@@ -4739,7 +4767,7 @@ class S3ProjectPlanningModel(S3Model):
         try:
             self.project_planning_status_update(row.project_id)
         except:
-            s3_debug("Cannot find Project record (no record for this ID), so can't update statuses")
+            current.log.error("Cannot find Project record (no record for this ID), so cannot update statuses")
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -4781,7 +4809,7 @@ class S3ProjectPlanningModel(S3Model):
         try:
             output_id = record.output_id
         except:
-            s3_debug("Cannot find Project Indicator record (no record for this ID), so can't setup default weightings")
+            current.log.error("Cannot find Project Indicator record (no record for this ID), so cannot setup default weightings")
             return
 
         # Read the records
@@ -4866,7 +4894,7 @@ class S3ProjectPlanningModel(S3Model):
         try:
             self.project_planning_status_update(row.project_id)
         except:
-            s3_debug("Cannot find Project record (no record for this ID), so can't update statuses")
+            current.log.error("Cannot find Project record (no record for this ID), so cannot update statuses")
 
     # -------------------------------------------------------------------------
     def project_indicator_data_onaccept(self, form):
@@ -4890,7 +4918,76 @@ class S3ProjectPlanningModel(S3Model):
         try:
             indicator_id = record.indicator_id
         except:
-            s3_debug("Cannot find Project Indicator Data record (no record for this ID), so can't update start_date or statuses")
+            current.log.error("Cannot find Project Indicator Data record (no record for this ID), so cannot update start_date or statuses")
+            return
+        start_date = record.start_date
+        end_date = record.end_date
+
+        # Locate the immediately preceding record
+        query = (table.indicator_id == indicator_id)  & \
+                (table.deleted == False) & \
+                (table.end_date < end_date)
+        date_field = table.end_date
+        record = db(query).select(date_field,
+                                  limitby=(0, 1),
+                                  orderby=date_field,
+                                  ).first()
+        if record and record[date_field] != start_date:
+            # Update this record's start_date
+            db(table.id == record_id).update(start_date = record[date_field])
+
+        # Locate the immediately succeeding record
+        query = (table.indicator_id == indicator_id)  & \
+                (table.deleted == False) & \
+                (table.end_date > end_date)
+        record = db(query).select(table.id,
+                                  table.start_date,
+                                  date_field, # Needed for orderby on Postgres
+                                  limitby=(0, 1),
+                                  orderby=date_field,
+                                  ).first()
+        if record and record.start_date != end_date:
+            # Update that record's start_date
+            db(table.id == record.id).update(start_date = end_date)
+
+        # Update Statuses
+        table = s3db.project_indicator
+        row = db(table.id == indicator_id).select(table.project_id,
+                                                  limitby=(0, 1)
+                                                  ).first()
+        try:
+            project_id = row.project_id
+        except:
+            error = "Cannot find Project record (no record for this ID), so cannot update statuses"
+            current.log.error(error)
+            current.session.error = error
+        else:
+            self.project_planning_status_update(project_id)
+
+    # -------------------------------------------------------------------------
+    def project_indicator_data_ondelete(self, row):
+        """
+            Handle Updates of entries to reset the hidden start_date
+
+            Update Project Status at all levels
+        """
+
+        db = current.db
+        s3db = current.s3db
+        table = s3db.project_indicator_data
+        record_id = row.get("id")
+
+        # Read the Indicator Data record
+        record = db(table.id == record_id).select(table.deleted_fk,
+                                                  table.start_date,
+                                                  table.end_date,
+                                                  limitby=(0, 1)
+                                                  ).first()
+        try:
+            fks = json.loads(record.deleted_fk)
+            indicator_id = fks["indicator_id"]
+        except:
+            current.log.error("Cannot find Project Indicator Data record (no record for this ID), so cannot update start_date or statuses")
             return
         start_date = record.start_date
         end_date = record.end_date
@@ -4930,7 +5027,7 @@ class S3ProjectPlanningModel(S3Model):
         try:
             self.project_planning_status_update(row.project_id)
         except:
-            s3_debug("Cannot find Project record (no record for this ID), so can't update statuses")
+            current.log.error("Cannot find Project record (no record for this ID), so cannot update statuses")
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -7890,7 +7987,7 @@ def project_rheader(r):
         elif settings.get_project_multiple_budgets():
             append((T("Annual Budgets"), "annual_budget"))
         if details_tab:
-            append((T("Details"), "details"))
+            append((T("Other Details"), "details"))
         else:
             if mode_3w:
                 append((T("Documents"), "document"))
@@ -7901,7 +7998,8 @@ def project_rheader(r):
             if not details_tab:
                 #append((STAFF, "human_resource", dict(group="staff")))
                 append((STAFF, "human_resource"))
-            if current.auth.s3_has_permission("create", "project_human_resource"):
+            if settings.get_project_assign_staff_tab() and \
+               current.auth.s3_has_permission("create", "project_human_resource_project"):
                 append((T("Assign %(staff)s") % dict(staff=STAFF), "assign"))
         #if settings.has_module("vol"):
         #    append((T("Volunteers"), "human_resource", dict(group="volunteer")))
@@ -8762,6 +8860,7 @@ class project_Details(S3Method):
                     form = form(r)
                 if form is not None:
                     profile_widgets.append(form)
+
             if settings.get_project_multiple_organisations():
                 orgs_widget = dict(label = "Organizations",
                                    label_create = "Add Organization",
@@ -8775,6 +8874,7 @@ class project_Details(S3Method):
                                    pagesize = None, # all records
                                    )
                 profile_widgets.append(orgs_widget)
+
             if settings.get_project_community():
                 label = "Communities"
                 label_create = "Add Community"
@@ -8793,6 +8893,7 @@ class project_Details(S3Method):
                                     pagesize = None, # all records
                                     )
             profile_widgets.append(locations_widget)
+
             if settings.get_project_mode_3w():
                 beneficiaries_widget = dict(label = "Beneficiaries",
                                             label_create = "Add Beneficiaries",
@@ -8808,7 +8909,8 @@ class project_Details(S3Method):
                 profile_widgets.append(beneficiaries_widget)
                 label = T("Documents")
             else:
-                label = attachments_label
+                label = settings.get_ui_label_attachments()
+
             docs_widget = dict(label = label,
                                label_create = "Add Document",
                                type = "datatable",
@@ -8823,10 +8925,12 @@ class project_Details(S3Method):
                                pagesize = None, # all records
                                )
             profile_widgets.append(docs_widget)
+
             if settings.get_hrm_show_staff():
                 STAFF = settings.get_hrm_staff_label()
                 hr_widget = dict(label = STAFF,
-                                 label_create = "Add %(staff)s" % dict(staff=STAFF),
+                                 # NB T() here to prevent requiring an extra translation of 'Add <translation of Staff>'
+                                 label_create = T("Add %(staff)s") % dict(staff=STAFF),
                                  type = "datatable",
                                  actions = dt_row_actions("human_resource"),
                                  tablename = "hrm_human_resource",
