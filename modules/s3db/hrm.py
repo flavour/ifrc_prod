@@ -700,8 +700,6 @@ class S3HRModel(S3Model):
                                            },
                         # Application for Deployment (RDRT)
                         deploy_application = "human_resource_id",
-                        # Availability
-                        #hrm_availability = "human_resource_id",
                         # Hours
                         #hrm_hours = "human_resource_id",
                         )
@@ -728,6 +726,15 @@ class S3HRModel(S3Model):
                                                   "fkey": "person_id",
                                                   "pkey": "person_id",
                                                   },
+                           # Availability
+                           pr_person_availability = {"link": "pr_person",
+                                                     "joinby": "id",
+                                                     "key": "id",
+                                                     "fkey": "person_id",
+                                                     "pkey": "person_id",
+                                                     # Will need tochange in future
+                                                     "multiple": False,
+                                                     },
                            # Volunteer Details
                            vol_details = {"joinby": "human_resource_id",
                                           "multiple": False,
@@ -772,11 +779,12 @@ class S3HRModel(S3Model):
             #location_context = "person_id$address.location_id" # When not using S3Track()
             if settings.get_hrm_vol_roles():
                 crud_fields.insert(2, "job_title_id")
-                report_fields.extend(("job_title_id"))
+                report_fields.append("job_title_id")
             if settings.get_hrm_vol_departments():
                 crud_fields.insert(4, "department_id")
-                report_fields.extend(("department_id"))
-            if settings.get_hrm_vol_experience() in ("programme", "both"):
+                report_fields.append("department_id")
+            vol_experience = settings.get_hrm_vol_experience()
+            if vol_experience in ("programme", "both"):
                 crud_fields.insert(2, S3SQLInlineComponent("programme_hours",
                                                            label = "",
                                                            fields = ["programme_id",
@@ -784,9 +792,13 @@ class S3HRModel(S3Model):
                                                            link = False,
                                                            multiple = False,
                                                            ))
-            crud_fields.extend(("details.volunteer_type",
-                                "details.availability",
-                                "details.card",
+            elif vol_experience == "activity":
+                report_fields.append("person_id$activity_hours.activity_hours_activity_type.activity_type_id")
+            crud_fields.append("details.volunteer_type")
+            if settings.get_hrm_vol_availability_tab() is False and \
+               settings.get_pr_person_availability_options() is not None:
+                crud_fields.append("person_availability.options")
+            crud_fields.extend(("details.card",
                                 # @ToDo: Move these to the IFRC Template (PH RC only people to use this)
                                 "volunteer_cluster.vol_cluster_type_id",
                                 "volunteer_cluster.vol_cluster_id",
@@ -1947,6 +1959,8 @@ class S3HRJobModel(S3Model):
 
         # =========================================================================
         # Availability
+        #
+        # unused - see vol_availability
         #
         weekdays = {1: T("Monday"),
                     2: T("Tuesday"),
@@ -4324,7 +4338,7 @@ class S3HRProgrammeModel(S3Model):
 
         # =====================================================================
         # Progammes
-        # - not sure yet whether this will map to 'Project' or 'Activity' in future
+        # - not sure yet whether this will map to 'Programme', 'Project' or 'Activity' in future
         #
 
         tablename = "hrm_programme"
@@ -4926,7 +4940,7 @@ class hrm_AssignMethod(S3Method):
                 return items
 
             else:
-                r.error(501, current.ERROR.BAD_FORMAT)
+                r.error(415, current.ERROR.BAD_FORMAT)
         else:
             r.error(405, current.ERROR.BAD_METHOD)
 
@@ -5910,51 +5924,86 @@ def hrm_rheader(r, tabs=[], profile=False):
         experience_tab2 = None
         if group == "volunteer":
             vol_experience = settings.get_hrm_vol_experience()
-            if vol_experience in ("programme", "both"):
+            if vol_experience in ("programme", "both", "activity"):
                 # Integrated into Record tab
                 #experience_tab = (T("Hours"), "hours")
-                # Show all Hours spent on both Programmes & Trainings
+                # Show all Hours spent on both Programmes/Activities & Trainings
                 # - last month & last year
                 now = r.utcnow
                 last_year = now - datetime.timedelta(days=365)
                 db = current.db
                 s3db = current.s3db
-                ptable = s3db.hrm_programme
-                phtable = db.hrm_programme_hours
-                bquery = (phtable.deleted == False) & \
-                         (phtable.person_id == r.id)
-                query = bquery & \
-                        (phtable.programme_id == ptable.id)
-                row = db(query).select(ptable.name,
-                                       phtable.date,
-                                       orderby=phtable.date).last()
-                if row:
-                    programme = row.hrm_programme.name
+                if vol_experience == "activity":
+                    ahtable = db.vol_activity_hours
+                    attable = db.vol_activity_hours_activity_type
+                    bquery = (ahtable.deleted == False) & \
+                             (ahtable.person_id == r.id)
+                    bleft = [attable.on(ahtable.id == attable.activity_hours_id),
+                             ]
+                    dfield = ahtable.date
+                    fields = [dfield,
+                              ahtable.hours,
+                              #ahtable.training,
+                              attable.activity_type_id,
+                              ]
                 else:
-                    programme = ""
+                    ptable = s3db.hrm_programme
+                    phtable = db.hrm_programme_hours
+                    bquery = (phtable.deleted == False) & \
+                             (phtable.person_id == r.id)
+                    bleft = None
+                    query = (phtable.programme_id == ptable.id)
+                    query &= bquery
+                    row = db(query).select(ptable.name,
+                                           phtable.date,
+                                           orderby=phtable.date).last()
+                    if row:
+                        programme = row.hrm_programme.name
+                    else:
+                        programme = ""
+                    dfield = phtable.date
+                    fields = [dfield,
+                              phtable.hours,
+                              phtable.training,
+                              ]
+                    training_hours_year = 0
+                    training_hours_month = 0
+
                 query = bquery & \
-                        (phtable.date > last_year.date())
-                rows = db(query).select(phtable.date,
-                                        phtable.hours,
-                                        phtable.training)
+                        (dfield > last_year.date())
+                rows = db(query).select(*fields,
+                                        left = bleft)
                 programme_hours_year = 0
                 programme_hours_month = 0
-                training_hours_year = 0
-                training_hours_month = 0
                 last_month = now - datetime.timedelta(days=30)
                 last_month = last_month.date()
-                for row in rows:
-                    hours = row.hours
-                    if hours:
-                        training = row.training
-                        if training:
-                            training_hours_year += hours
-                            if row.date > last_month:
-                                training_hours_month += hours
-                        else:
+                if vol_experience == "activity":
+                    activity_type_ids = []
+                    for row in rows:
+                        activity_type_ids.append(row["vol_activity_hours.activity_type_id"])
+                        hours = row["vol_activity_hours.hours"]
+                        if hours:
                             programme_hours_year += hours
                             if row.date > last_month:
                                 programme_hours_month += hours
+                    # Uniquify
+                    activity_type_ids = list(set(activity_type_ids))
+                    # Represent
+                    activity_types = s3db.vol_activity_activity_type.activity_type_id.represent.bulk(activity_type_ids)
+                    activity_types = ", ".join(activity_types.values())
+                else:
+                    for row in rows:
+                        hours = row.hours
+                        if hours:
+                            training = row.training
+                            if training:
+                                training_hours_year += hours
+                                if row.date > last_month:
+                                    training_hours_month += hours
+                            else:
+                                programme_hours_year += hours
+                                if row.date > last_month:
+                                    programme_hours_month += hours
 
                 vol_active = settings.get_hrm_vol_active()
                 if vol_active:
@@ -5996,26 +6045,42 @@ def hrm_rheader(r, tabs=[], profile=False):
                                     active]
                 else:
                     active_cells = []
-                row1 = TR(TH("%s:" % T("Program")),
-                          programme,
-                          *active_cells
-                          )
-                row2 = TR(TH("%s:" % T("Program Hours (Month)")),
-                          str(programme_hours_month),
-                          TH("%s:" % T("Training Hours (Month)")),
-                          str(training_hours_month)
-                          )
-                row3 = TR(TH("%s:" % T("Program Hours (Year)")),
-                          str(programme_hours_year),
-                          TH("%s:" % T("Training Hours (Year)")),
-                          str(training_hours_year)
-                          )
+                if vol_experience == "activity":
+                    row1 = TR(*active_cells
+                              )
+                    row2 = TR(TH("%s:" % T("Activity Types")),
+                              str(activity_types),
+                              )
+                    row3 = TR(TH("%s:" % T("Activity Hours (Month)")),
+                              str(programme_hours_month),
+                              )
+                    row4 = TR(TH("%s:" % T("Activity Hours (Year)")),
+                              str(programme_hours_year),
+                              )
+                else:
+                    row1 = TR(TH("%s:" % T("Program")),
+                              programme,
+                              *active_cells
+                              )
+                    row2 = TR(TH("%s:" % T("Program Hours (Month)")),
+                              str(programme_hours_month),
+                              TH("%s:" % T("Training Hours (Month)")),
+                              str(training_hours_month)
+                              )
+                    row3 = TR(TH("%s:" % T("Program Hours (Year)")),
+                              str(programme_hours_year),
+                              TH("%s:" % T("Training Hours (Year)")),
+                              str(training_hours_year)
+                              )
+                    row4 - ""
+
                 tbl = TABLE(TR(TH(name,
                                   _colspan=4)
                                ),
                             row1,
                             row2,
                             row3,
+                            row4,
                             )
                 service_record = DIV(A(T("Service Record"),
                                        _href = URL(c = "vol",
@@ -6049,6 +6114,11 @@ def hrm_rheader(r, tabs=[], profile=False):
             description_tab = (T("Description"), "physical_description")
         else:
             description_tab = None
+
+        if settings.get_hrm_vol_availability_tab():
+            availability_tab = (T("Availability"), "availability")
+        else:
+            availability_tab = None
 
         if settings.get_hrm_use_education() and not use_cv:
             education_tab = (T("Education"), "education")
@@ -6121,7 +6191,8 @@ def hrm_rheader(r, tabs=[], profile=False):
                 tabs.append((T("Public Contacts"), "public_contacts"))
             if "private" in contacts_tabs:
                 tabs.append((T("Private Contacts"), "private_contacts"))
-            tabs += [education_tab,
+            tabs += [availability_tab,
+                     education_tab,
                      trainings_tab,
                      certificates_tab,
                      skills_tab,
@@ -6148,7 +6219,8 @@ def hrm_rheader(r, tabs=[], profile=False):
                 tabs.append((T("Private Contacts"), "private_contacts"))
             if record_method is not None:
                 hr_tab = (T("Positions"), "human_resource")
-            tabs += [trainings_tab,
+            tabs += [availability_tab,
+                     trainings_tab,
                      certificates_tab,
                      skills_tab,
                      credentials_tab,
@@ -6184,7 +6256,8 @@ def hrm_rheader(r, tabs=[], profile=False):
                 tabs.append((T("Public Contacts"), "public_contacts"))
             if "private" in contacts_tabs:
                 tabs.append((T("Private Contacts"), "private_contacts"))
-            tabs += [salary_tab,
+            tabs += [availability_tab,
+                     salary_tab,
                      education_tab,
                      trainings_tab,
                      certificates_tab,
@@ -6210,6 +6283,26 @@ def hrm_rheader(r, tabs=[], profile=False):
                                   vars = get_vars),
                         ),
                       tbl,
+                      rheader_tabs)
+
+    elif resourcename == "activity":
+        # Tabs
+        tabs = [(T("Activity Details"), None),
+                (T("Hours"), "hours"),
+                ]
+        rheader_tabs = s3_rheader_tabs(r, tabs)
+        rheader = DIV(TABLE(TR(TH("%s: " % table.name.label),
+                               record.name),
+                            TR(TH("%s: " % table.sector_id.label),
+                               table.sector_id.represent(record.sector_id)),
+                            # @ToDo: (ltable)
+                            #TR(TH("%s: " % table.activity_type_id.label),
+                            #   table.activity_type_id.represent(record.activity_type_id)),
+                            TR(TH("%s: " % table.location_id.label),
+                               table.location_id.represent(record.location_id)),
+                            TR(TH("%s: " % table.date.label),
+                               table.date.represent(record.date)),
+                            ),
                       rheader_tabs)
 
     elif resourcename == "training_event":
@@ -6562,7 +6655,7 @@ def hrm_group_controller():
                            create_next = create_next,
                            )
 
-        if r.interactive or r.representation in ("aadata", "xls"):
+        if r.interactive or r.representation in ("aadata", "xls", "pdf"):
             if r.component_name == "group_membership":
                 hrm_configure_pr_group_membership()
                 if r.representation == "xls":
@@ -7762,7 +7855,7 @@ class hrm_CV(S3Method):
             return output
 
         else:
-            raise HTTP(501, current.ERROR.BAD_METHOD)
+            raise HTTP(405, current.ERROR.BAD_METHOD)
 
 # =============================================================================
 class hrm_Record(S3Method):
@@ -7886,6 +7979,35 @@ class hrm_Record(S3Method):
                                         create_controller = controller,
                                         create_function = "person",
                                         create_component = "hours",
+                                        pagesize = None, # all records
+                                        )
+                    profile_widgets.append(hours_widget)
+                elif vol_experience == "activity":
+                    # Exclude records which are just to link to Activity & also Training Hours
+                    #filter = (FS("hours") != None) & \
+                    #         (FS("activity_id") != None)
+                    list_fields = ["id",
+                                   "date",
+                                   "activity_id",
+                                   "job_title_id",
+                                   "hours",
+                                   ]
+                    #if s3db.vol_activity_hours.job_title_id.readable:
+                    #    list_fields.append("job_title_id")
+                    #list_fields.append("hours")
+                    hours_widget = dict(label = "Activity Hours",
+                                        # Don't Add Hours here since the Activity List will be very hard to find the right one in
+                                        insert = False,
+                                        #label_create = "Add Activity Hours",
+                                        type = "datatable",
+                                        actions = dt_row_actions("hours"),
+                                        tablename = "vol_activity_hours",
+                                        context = "person",
+                                        #filter = filter,
+                                        list_fields = list_fields,
+                                        #create_controller = controller,
+                                        #create_function = "person",
+                                        #create_component = "activity_hours",
                                         pagesize = None, # all records
                                         )
                     profile_widgets.append(hours_widget)
@@ -8045,7 +8167,7 @@ class hrm_Record(S3Method):
             return output
 
         else:
-            raise HTTP(501, current.ERROR.BAD_METHOD)
+            raise HTTP(405, current.ERROR.BAD_METHOD)
 
 # =============================================================================
 def hrm_configure_salary(r):
@@ -8775,7 +8897,7 @@ def hrm_human_resource_filters(resource_type=None,
                                    hidden = True,
                                    ))
 
-    # Active Filter / Programme filter (volunteer only)
+    # Active / Activity / Programme filters (volunteer only)
     if module == "vol" or resource_type == "volunteer":
         vol_active = settings.get_hrm_vol_active()
         if vol_active:
@@ -8798,6 +8920,12 @@ def hrm_human_resource_filters(resource_type=None,
                                           #options = lambda: \
                                           #  get_s3_filter_opts("hrm_programme",
                                           #                     org_filter=True),
+                                          hidden = True,
+                                          ))
+        elif vol_experience == "activity":
+            # Programme filter
+            append_filter(S3OptionsFilter("person_id$activity_hours.activity_hours_activity_type.activity_type_id",
+                                          label = T("Activity Types"),
                                           hidden = True,
                                           ))
 

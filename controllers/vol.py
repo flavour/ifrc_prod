@@ -398,6 +398,93 @@ def staff_org_site_json():
     return records.json()
 
 # =============================================================================
+def activity_type():
+    
+    return s3_rest_controller()
+
+# -----------------------------------------------------------------------------
+def activity():
+
+    def prep(r):
+        if r.component_name == "hours":
+            # Limit Activity Types to those for the Activity
+            ltable = s3db.vol_activity_activity_type
+            query = (ltable.deleted == False) & \
+                    (ltable.activity_id == r.id)
+            rows = db(query).select(ltable.activity_type_id)
+            activity_types = [row.activity_type_id for row in rows]
+            # S3SQLInlineComponentCheckbox uses it's own filter, not the requires
+            #field = s3db.vol_activity_hours_activity_type.activity_type_id
+            #field.requires = \
+            #    IS_EMPTY_OR(IS_ONE_OF(db,
+            #                          "vol_activity_type.id",
+            #                          field.represent,
+            #                          filterby="id",
+            #                          filter_opts=activity_types,
+            #                          ))
+
+            from s3 import S3SQLCustomForm, S3SQLInlineComponentCheckbox
+            crud_form = S3SQLCustomForm("person_id",
+                                        "date",
+                                        #"end_date",
+                                        "job_title_id",
+                                        "hours",
+                                        S3SQLInlineComponentCheckbox("activity_type",
+                                                                     label = T("Activity Types"),
+                                                                     field = "activity_type_id",
+                                                                     #filter = {"lookuptable": ,
+                                                                     #          "lookuptable": ,
+                                                                     #          }
+                                                                     filterby = {"field": "id",
+                                                                                 "options": activity_types,
+                                                                                 },
+                                                                     option_help = "comments",
+                                                                     cols = 4,
+                                                                     ),
+                                        "comments",
+                                        )
+
+            s3db.configure("vol_activity_hours",
+                           crud_form = crud_form,
+                           )
+        
+        return True
+    s3.prep = prep
+
+    return s3_rest_controller(rheader = s3db.hrm_rheader,
+                              )
+
+# -----------------------------------------------------------------------------
+def activity_hours():
+    """
+        Volunteer Activity Hours controller
+        - used for Imports & Reports
+    """
+
+    mode = session.s3.hrm.mode
+    def prep(r):
+        if mode is not None:
+            auth.permission.fail()
+        return True
+    s3.prep = prep
+
+    return s3_rest_controller()
+
+# =============================================================================
+def facility():
+    """
+        e.g. Training Venues
+    """
+
+    # Open record in this controller after creation
+    s3db.configure("org_facility",
+                   create_next = URL(c="vol", f="facility",
+                                     args = ["[id]", "read"]),
+                   )
+
+    return s3db.org_facility_controller()
+
+# =============================================================================
 def programme():
     """ Volunteer Programmes controller """
 
@@ -411,12 +498,12 @@ def programme():
             auth.permission.fail()
         if r.component_name == "person":
             s3db.configure("hrm_programme_hours",
-                           list_fields=["person_id",
-                                        "training",
-                                        "programme_id",
-                                        "date",
-                                        "hours",
-                                        ])
+                           list_fields = ["person_id",
+                                          "training",
+                                          "programme_id",
+                                          "date",
+                                          "hours",
+                                          ])
         return True
     s3.prep = prep
 

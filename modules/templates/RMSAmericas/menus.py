@@ -704,19 +704,24 @@ class S3OptionsMenu(default.S3OptionsMenu):
                 M("Import Project Communities", f="location",
                   m="import", p="create"),
              ),
+             M("National Societies",  c="org", f="organisation",
+                                      vars=red_cross_filter)(
+                #M("Create", m="create", restrict=[ADMIN]),
+                #M("Import", m="import", p="create", restrict=[ADMIN]),
+             ),
              M("Partner Organizations",  f="partners")(
-                M("Create", m="create"),
-                M("Import", m="import", p="create"),
+                M("Create", m="create", restrict=[ORG_ADMIN]),
+                M("Import", m="import", p="create", restrict=[ORG_ADMIN]),
              ),
-             M("Activity Types", f="activity_type")(
-                M("Create", m="create"),
-             ),
+             #M("Activity Types", f="activity_type")(
+             #   M("Create", m="create"),
+             #),
              M("Beneficiary Types", f="beneficiary_type")(
                 M("Create", m="create"),
              ),
-             M("Demographics", f="demographic")(
-                M("Create", m="create"),
-             ),
+             #M("Demographics", f="demographic")(
+             #   M("Create", m="create"),
+             #),
              M("Hazards", f="hazard")(
                 M("Create", m="create"),
              ),
