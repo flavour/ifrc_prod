@@ -44,6 +44,8 @@ __all__ = ("S3OrganisationModel",
            "S3OrganisationTypeTagModel",
            "S3SiteModel",
            "S3SiteDetailsModel",
+           "S3SiteNameModel",
+           "S3SiteTagModel",
            "S3FacilityModel",
            "org_facility_rheader",
            "S3RoomModel",
@@ -2985,7 +2987,18 @@ class S3SiteModel(S3Model):
                                           "joinby": "site_id",
                                           "multiple": False,
                                           },
-                       # Coalitions
+
+                       # Local Names
+                       org_site_name = {"name": "name",
+                                        "joinby": "site_id",
+                                        },
+
+                       # Tags
+                       org_site_tag = {"name": "tag",
+                                       "joinby": "site_id",
+                                       },
+
+                       # Groups: Coalitions/Networks
                        org_group = {"link": "org_site_org_group",
                                     "joinby": "site_id",
                                     "key": "group_id",
@@ -3349,11 +3362,122 @@ class S3SiteDetailsModel(S3Model):
         define_table(tablename,
                      # Component not instance
                      super_link("site_id", "org_site"),
-                     self.org_group_id(empty=False),
+                     self.org_group_id(empty = False,
+                                       ondelete = "CASCADE",
+                                       ),
                      *s3_meta_fields())
 
         # Pass names back to global scope (s3.*)
         return {}
+
+# =============================================================================
+class S3SiteNameModel(S3Model):
+    """
+        Location Names model
+        - local names/acronyms for Sites
+    """
+
+    names = ("org_site_name",
+             )
+
+    def model(self):
+
+        T = current.T
+        LANGUAGE_CODE = IS_ISO639_2_LANGUAGE_CODE
+
+        # ---------------------------------------------------------------------
+        # Local Names
+        #
+        tablename = "org_site_name"
+        self.define_table(tablename,
+                          # Component not instance
+                          self.super_link("site_id", "org_site"),
+                          Field("language",
+                                label = T("Language"),
+                                represent = LANGUAGE_CODE.represent,
+                                requires = LANGUAGE_CODE(),
+                                ),
+                          Field("name_l10n",
+                                label = T("Local Name"),
+                                ),
+                          s3_comments(),
+                          *s3_meta_fields())
+
+        self.configure(tablename,
+                       deduplicate = S3Duplicate(primary = ("language",
+                                                            "site_id",
+                                                            )),
+                       )
+
+        # Pass names back to global scope (s3.*)
+        return {}
+
+# =============================================================================
+class S3SiteTagModel(S3Model):
+    """
+        Site Tags
+    """
+
+    names = ("org_site_tag",)
+
+    def model(self):
+
+        T = current.T
+
+        # ---------------------------------------------------------------------
+        # Site Tags
+        # - Key-Value extensions
+        # - can be used to provide conversions to external systems, such as:
+        #   * HXL
+        # - can be a Triple Store for Semantic Web support
+        #
+        tablename = "org_site_tag"
+        self.define_table(tablename,
+                          # Component not instance
+                          self.super_link("site_id", "org_site"),
+                          # key is a reserved word in MySQL
+                          Field("tag",
+                                label = T("Key"),
+                                ),
+                          Field("value",
+                                label = T("Value"),
+                                ),
+                          s3_comments(),
+                          *s3_meta_fields())
+
+        self.configure(tablename,
+                       deduplicate = self.org_site_tag_deduplicate,
+                       )
+
+        # Pass names back to global scope (s3.*)
+        return {}
+
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def org_site_tag_deduplicate(item):
+        """
+           If the record is a duplicate then it will set the item method
+           to update
+
+           @param item: the S3ImportItem
+        """
+
+        data = item.data
+        tag = data.get("tag", None)
+        site_id = data.get("site_id", None)
+
+        if not tag or not site_id:
+            return
+
+        table = item.table
+        query = (table.tag.lower() == tag.lower()) & \
+                (table.site_id == site_id)
+
+        duplicate = current.db(query).select(table.id,
+                                             limitby=(0, 1)).first()
+        if duplicate:
+            item.id = duplicate.id
+            item.method = item.METHOD.UPDATE
 
 # =============================================================================
 class S3FacilityModel(S3Model):
@@ -4604,8 +4728,41 @@ class S3OfficeTypeTagModel(S3Model):
                           s3_comments(),
                           *s3_meta_fields())
 
+
+
+        self.configure(tablename,
+                       deduplicate = self.org_office_type_tag_deduplicate,
+                       )
+
         # Pass names back to global scope (s3.*)
         return {}
+
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def org_office_type_tag_deduplicate(item):
+        """
+           If the record is a duplicate then it will set the item method
+           to update
+
+           @param item: the S3ImportItem
+        """
+
+        data = item.data
+        tag = data.get("tag", None)
+        office_type_id = data.get("office_type_id", None)
+
+        if not tag or not office_type_id:
+            return
+
+        table = item.table
+        query = (table.tag.lower() == tag.lower()) & \
+                (table.office_type_id == office_type_id)
+
+        duplicate = current.db(query).select(table.id,
+                                             limitby=(0, 1)).first()
+        if duplicate:
+            item.id = duplicate.id
+            item.method = item.METHOD.UPDATE
 
 # =============================================================================
 def org_organisation_address(row):
@@ -4858,7 +5015,7 @@ class org_OrganisationRepresent(S3Represent):
         # Translation uses org_organisation_name & not T()
         translate = settings.get_L10n_translate_org_organisation()
         if translate:
-            language = current.session.s3.language
+            self.language = language = current.session.s3.language
             if language == current.deployment_settings.get_L10n_default_language():
                 translate = False
 
@@ -4866,32 +5023,13 @@ class org_OrganisationRepresent(S3Represent):
             # org/branch component which doesn't like the left join
             self.skip_dt_orderby = True
 
-        if parent and settings.get_org_branches():
-            # Need a custom lookup
+        if parent and not settings.get_org_branches():
+            parent = False
+
+        if parent or translate:
             self.lookup_rows = self.custom_lookup_rows
-            self.parent = True
-            if translate:
-                fields = ["org_organisation.name",
-                          "org_organisation.acronym",
-                          "org_parent_organisation.name",
-                          "org_organisation_name.name_l10n",
-                          "org_organisation_name.acronym_l10n",
-                          "org_parent_organisation_name.name_l10n",
-                          ]
-            else:
-                fields = ["org_organisation.name",
-                          "org_organisation.acronym",
-                          "org_parent_organisation.name",
-                          ]
-        elif translate:
-            # Need a custom lookup
-            self.lookup_rows = self.custom_lookup_rows
-            self.parent = False
-            fields = ["org_organisation.name",
-                      "org_organisation.acronym",
-                      "org_organisation_name.name_l10n",
-                      "org_organisation_name.acronym_l10n",
-                      ]
+            self.parent = parent
+            fields = None
         else:
             # Can use standard lookup of fields
             self.parent = False
@@ -4927,45 +5065,46 @@ class org_OrganisationRepresent(S3Represent):
                   otable.acronym,
                   ]
 
-        if self.parent:
+        show_parent = self.parent
+        if show_parent:
             btable = s3db.org_organisation_branch
-            ptable = db.org_organisation.with_alias("org_parent_organisation")
+            ptable = db.org_organisation \
+                       .with_alias("org_parent_organisation")
 
             fields.append(ptable.name)
 
-            left = [btable.on(btable.branch_id == otable.id),
+            left = [btable.on((btable.branch_id == otable.id) &
+                              (btable.deleted != True)),
                     ptable.on(ptable.id == btable.organisation_id),
                     ]
+        else:
+            left = []
 
         if self.translate:
             ltable = s3db.org_organisation_name
-            fields += [ltable.name_l10n,
-                       ltable.acronym_l10n,
-                       ]
-            if self.parent:
-                lptable = db.org_organisation_name.with_alias("org_parent_organisation_name")
-                fields.append(lptable.name_l10n)
-                left += [ltable.on((ltable.organisation_id == otable.id) & \
-                                   (ltable.language == current.session.s3.language)),
-                         lptable.on(lptable.organisation_id == btable.organisation_id),
-                         ]
-            else:
-                left = [ltable.on((ltable.organisation_id == otable.id) & \
-                                  (ltable.language == current.session.s3.language)),
-                        ]
 
-        qty = len(values)
-        if qty == 1:
+            left.append(ltable.on((ltable.organisation_id == otable.id) & \
+                                  (ltable.deleted != True) & \
+                                  (ltable.language == self.language)))
+
+            fields.extend([ltable.name_l10n, ltable.acronym_l10n])
+
+            if show_parent:
+                lptable = db.org_organisation_name \
+                            .with_alias("org_parent_organisation_name")
+                fields.append(lptable.name_l10n)
+
+                left.append(lptable.on(lptable.organisation_id == btable.organisation_id))
+
+        count = len(values)
+        if count == 1:
             query = (otable.id == values[0])
-            limitby = (0, 1)
         else:
             query = (otable.id.belongs(values))
-            limitby = (0, qty)
 
-        rows = db(query).select(left=left,
-                                limitby=limitby,
-                                *fields)
+        rows = db(query).select(left=left, limitby=(0, count), *fields)
         self.queries += 1
+
         return rows
 
     # -------------------------------------------------------------------------
@@ -4976,14 +5115,18 @@ class org_OrganisationRepresent(S3Represent):
             @param row: the org_organisation Row
         """
 
+        show_parent = self.parent
         if self.translate:
             # Custom Row (with the name_l10n left-joined)
-            name = row["org_organisation_name.name_l10n"] or row["org_organisation.name"]
-            acronym = row["org_organisation_name.acronym_l10n"] or row["org_organisation.acronym"]
-            if self.parent:
-                parent = row["org_parent_organisation_name.name_l10n"] or row["org_parent_organisation.name"]
+            name = row["org_organisation_name.name_l10n"] or \
+                   row["org_organisation.name"]
+            acronym = row["org_organisation_name.acronym_l10n"] or \
+                      row["org_organisation.acronym"]
+            if show_parent:
+                parent = row["org_parent_organisation_name.name_l10n"] or \
+                         row["org_parent_organisation.name"]
         else:
-            if self.parent:
+            if show_parent:
                 # Custom Row (with the parent left-joined)
                 name = row["org_organisation.name"]
                 acronym = row["org_organisation.acronym"]
@@ -4997,7 +5140,7 @@ class org_OrganisationRepresent(S3Represent):
             return self.default
         if self.acronym and acronym:
             name = "%s (%s)" % (name, acronym)
-        if self.parent and parent:
+        if show_parent and parent:
             name = "%s > %s" % (parent, name)
 
         return s3_unicode(name)
@@ -5039,14 +5182,20 @@ class org_SiteRepresent(S3Represent):
     """ Representation of Sites """
 
     def __init__(self,
-                 translate = False,
                  show_link = False,
                  multiple = False,
                  show_type = True,
                  ):
 
+        settings = current.deployment_settings
+        # Translation uses org_site_name & not T()
+        translate = settings.get_L10n_translate_org_site()
+        language = current.session.s3.language
+        if language == settings.get_L10n_default_language():
+            translate = False
+
         self.show_type = show_type
-        if show_type or show_link:
+        if show_type or show_link or translate:
             # Need a custom lookup
             self.lookup_rows = self.custom_lookup_rows
         # Need a custom representation
@@ -5105,9 +5254,9 @@ class org_SiteRepresent(S3Represent):
     # -------------------------------------------------------------------------
     def custom_lookup_rows(self, key, values, fields=[]):
         """
-            Custom lookup method for site rows, does a
-            left join with any instance_types found. Parameters
-            key and fields are not used, but are kept for API
+            Custom lookup method for site rows, does a left join with any
+            instance_types found.
+            Parameters key and fields are not used, but are kept for API
             compatibility reasons.
 
             @param values: the site IDs
@@ -5117,13 +5266,14 @@ class org_SiteRepresent(S3Represent):
         s3db = current.s3db
         stable = s3db.org_site
 
-        qty = len(values)
-        if qty == 1:
-            query = (stable.site_id == values[0])
+        count = len(values)
+        if count == 1:
+            value = values[0]
+            query = (stable.site_id == value)
             limitby = (0, 1)
         else:
             query = (stable.site_id.belongs(values))
-            limitby = (0, qty)
+            limitby = (0, count)
 
         if self.show_link:
             # We need the instance_type IDs
@@ -5155,7 +5305,7 @@ class org_SiteRepresent(S3Represent):
                     left.append(ttable.on(ttable.id == ltable.facility_type_id))
             rows = db(query).select(*fields, left=left)
 
-        else:
+        elif self.show_type:
             # We don't need instance_type IDs
             # Just do a join with org_facility_type
             ttable = s3db.org_facility_type
@@ -5170,8 +5320,26 @@ class org_SiteRepresent(S3Represent):
                                     ttable.name,
                                     left=left,
                                     limitby=limitby)
+        else:
+            # We are just translating
+            rows = db(query).select(stable.site_id,
+                                    stable.name,
+                                    limitby=limitby)
 
         self.queries += 1
+
+        if self.translate:
+            table = s3db.org_site_name
+            query = (table.deleted == False) & \
+                    (table.language == current.session.s3.language)
+            if count == 1:
+                query &= (table.site_id == value)
+            else:
+                query &= (table.site_id.belongs(values))
+            self.l10n = db(query).select(table.site_id,
+                                         table.name_l10n,
+                                         limitby = (0, count),
+                                         ).as_dict(key="site_id")
         return rows
 
     # -------------------------------------------------------------------------
@@ -5208,7 +5376,15 @@ class org_SiteRepresent(S3Represent):
             @param row: the org_site Row
         """
 
-        name = row["org_site.name"]
+        if self.translate:
+            _row = self.l10n.get(row["org_site.site_id"])
+            if _row:
+                name = _row["name_l10n"]
+            else:
+                name = row["org_site.name"]
+        else:
+            name = row["org_site.name"]
+
         if not name:
             return self.default
 
@@ -5384,6 +5560,8 @@ def org_rheader(r, tabs=[]):
                         (T("User Roles"), "roles"),
                         #(T("Tasks"), "task"),
                         ]
+                if settings.get_org_tags():
+                    append_tab((T("Tags"), "tag"))
                 if settings.get_org_resources_tab():
                     tabs.insert(-1, (T("Resources"), "resource"))
 
@@ -5455,6 +5633,10 @@ def org_rheader(r, tabs=[]):
                 ]
         append_tab = tabs.append
 
+        if settings.get_L10n_translate_org_site():
+            append_tab((T("Local Names"), "name"))
+        if settings.get_org_tags():
+            append_tab((T("Tags"), "tag"))
         if settings.has_module("hrm") and \
            (r.controller != "inv" or settings.get_inv_facility_manage_staff()):
             STAFF = settings.get_hrm_staff_label()
@@ -6871,7 +7053,7 @@ class org_AssignMethod(S3Method):
                 return items
 
             else:
-                r.error(501, current.ERROR.BAD_FORMAT)
+                r.error(415, current.ERROR.BAD_FORMAT)
         else:
             r.error(405, current.ERROR.BAD_METHOD)
 
@@ -6961,7 +7143,7 @@ class org_CapacityReport(S3Method):
                 return self._xls(data)
 
             else:
-                r.error(501, current.ERROR.BAD_FORMAT)
+                r.error(415, current.ERROR.BAD_FORMAT)
         else:
             r.error(405, current.ERROR.BAD_METHOD)
 

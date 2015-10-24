@@ -1497,6 +1497,12 @@ class S3Config(Storage):
         """
         return self.L10n.get("translate_org_organisation", False)
 
+    def get_L10n_translate_org_site(self):
+        """
+            Whether to translate Site names
+        """
+        return self.L10n.get("translate_org_site", False)
+
     def get_L10n_translate_cap_area(self):
         """
             Whether to translate CAP Area names
@@ -2434,6 +2440,12 @@ class S3Config(Storage):
         """
         return self.cr.get("shelter_housing_unit_management", False)
 
+    def get_cr_tags(self):
+        """
+            Whether Shelters should show a Tags tab
+        """
+        return self.cr.get("tags", False)
+
     # -------------------------------------------------------------------------
     # Deployments
     #
@@ -2562,7 +2574,7 @@ class S3Config(Storage):
                 "site_id" - Use the HR's Site Location
                 "person_id" - Use the HR's Person Location (i.e. Home Address)
                 ("person_id", "site_id") - Use the HR's Person Location if-available, fallback to the Site if-not
-                ("site_id","person_id") - Use the HR's Site Location if-available, fallback to the Person's Home Address if-not
+                ("site_id", "person_id") - Use the HR's Site Location if-available, fallback to the Person's Home Address if-not
             NB This is read onaccept of editing Home Addresses & Assigning Volunteers to Sites so is not a fully-dynamic change
             - onaccept is used for performance (avoiding joins)
         """
@@ -2589,7 +2601,7 @@ class S3Config(Storage):
     def get_hrm_multiple_orgs(self):
         """
             True: Human Resources are being managed across multiple Organisations
-            False: Human Resources are only being manage internally within a single Organisation with no Branches
+            False: Human Resources are only being managed internally within a single Organisation with no Branches
         """
         return self.hrm.get("multiple_orgs", True)
 
@@ -2806,10 +2818,19 @@ class S3Config(Storage):
     #    """
     #    return self.__lazy("hrm", "vol_affiliation", default=None)
 
+    def get_hrm_vol_availability_tab(self):
+        """
+            Whether to use Availability Tab for Volunteers
+            Options:
+                None
+                True
+        """
+        return self.__lazy("hrm", "vol_availability_tab", default=None)
+
     def get_hrm_vol_experience(self):
         """
             Whether to use Experience for Volunteers &, if so, which table to use
-            - options are: False, "experience", "programme" or "both"
+            - options are: False, "experience", "activity", "programme" or "both"
         """
         return self.__lazy("hrm", "vol_experience", default="programme")
 
@@ -3190,6 +3211,12 @@ class S3Config(Storage):
         """
         return self.org.get("facility_code_unique", False)
 
+    def get_org_tags(self):
+        """
+            Whether Organidations, Office & Facilities should show a Tags tab
+        """
+        return self.org.get("tags", False)
+
     # -------------------------------------------------------------------------
     # Persons
     #
@@ -3214,6 +3241,12 @@ class S3Config(Storage):
                 group = "60+"
         return group
 
+    def get_pr_person_availability_options(self):
+        """
+            Dict of integer-keyed options for Person Availability
+        """
+        return self.__lazy("pr", "person_availability_options", default=None)
+
     def get_pr_hide_third_gender(self):
         """
             Whether to hide the third gender ("Other")
@@ -3226,6 +3259,12 @@ class S3Config(Storage):
             item contains a (matching) email address
         """
         return self.pr.get("import_update_requires_email", True)
+
+    def get_pr_label_fullname(self):
+        """
+            Label for the AddPersonWidget2's 'Name' field
+        """
+        return self.__lazy("pr", "label_fullname", default="Name")
 
     def get_pr_lookup_duplicates(self):
         """
@@ -3385,6 +3424,12 @@ class S3Config(Storage):
             Manage Community Volunteers in Projects
         """
         return self.project.get("community_volunteers", False)
+
+    def get_project_demographics(self):
+        """
+            Use Demographics in Projects
+        """
+        return self.project.get("demographics", False)
 
     def get_project_details_tab(self):
         """

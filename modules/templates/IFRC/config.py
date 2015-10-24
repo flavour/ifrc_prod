@@ -272,6 +272,7 @@ def config(settings):
         ("es", "Español"),
         ("fr", "Français"),
         ("km", "ភាសាខ្មែរ"),        # Khmer
+        ("mg", "Мalagasy"),
         ("mn", "Монгол хэл"),  # Mongolian
         ("my", "မြန်မာစာ"),        # Burmese
         ("ne", "नेपाली"),          # Nepali
@@ -306,6 +307,7 @@ def config(settings):
     ARCS = "Afghan Red Crescent Society"
     AURC = "Australian Red Cross"
     BRCS = "Bangladesh Red Crescent Society"
+    CRMADA = "Malagasy Red Cross Society"
     CVTL = "Timor-Leste Red Cross Society (Cruz Vermelha de Timor-Leste)"
     IRCS = "Iraqi Red Crescent Society"
     NRCS = "Nepal Red Cross Society"
@@ -346,6 +348,10 @@ def config(settings):
             currencies["AUD"] = T("Australian Dollars")
         elif root_org == BRCS:
             currencies["BDT"] = T("Taka")
+        elif root_org == CRMADA:
+            currencies["CAD"] = T("Canadian Dollars")
+            currencies["MGA"] = T("Malagasy Ariary")
+            currencies["NOK"] = T("Norwegian Krone")
         elif root_org == IRCS:
             currencies["IQD"] = T("Iraqi Dinar"),
         elif root_org == NRCS:
@@ -375,6 +381,8 @@ def config(settings):
             default = "AUD"
         elif root_org == BRCS:
             default = "BDT"
+        elif root_org == CRMADA:
+            default = "MGA"
         elif root_org == IRCS:
             default = "IQD"
         elif root_org == NRCS:
@@ -426,6 +434,17 @@ def config(settings):
         return default
 
     settings.gis.postcode_selector = postcode_selector
+
+    # -----------------------------------------------------------------------------
+    def label_fullname(default):
+        """ NS-specific selection of label for the AddPersonWidget2's Name field """
+
+        if current.session.s3.language == "mg":
+            # Allow for better localisation
+            default = "Full Name"
+        return default
+
+    settings.pr.label_fullname = label_fullname
 
     # -----------------------------------------------------------------------------
     # Enable this for a UN-style deployment
@@ -481,6 +500,7 @@ def config(settings):
     # Set the label for Sites
     settings.org.site_label = "Office/Warehouse/Facility"
     # Enable certain fields just for specific Organisations
+    # @ToDo: Make these Lazy settings
     settings.org.dependent_fields = \
         {"pr_person.middle_name"                     : (CVTL, VNRC),
          "pr_person_details.mother_name"             : (BRCS, ),
@@ -489,7 +509,6 @@ def config(settings):
          "pr_person_details.year_of_birth"           : (ARCS, ),
          "pr_person_details.affiliations"            : (PRC, ),
          "pr_person_details.company"                 : (PRC, ),
-         "vol_details.availability"                  : (VNRC, ),
          "vol_details.card"                          : (ARCS, ),
          "vol_volunteer_cluster.vol_cluster_type_id"     : (PRC, ),
          "vol_volunteer_cluster.vol_cluster_id"          : (PRC, ),
@@ -549,6 +568,8 @@ def config(settings):
     settings.project.codes = True
     # Uncomment this to call project locations 'Communities'
     settings.project.community = True
+    # Uncomment this to enable Demographics in 3W projects
+    settings.project.demographics = True
     # Uncomment this to enable Hazards in 3W projects
     settings.project.hazards = True
     # Uncomment this to use multiple Budgets per project
@@ -1038,7 +1059,7 @@ def config(settings):
         """ Whether the Last Name is Mandatory """
 
         root_org = current.auth.root_org_name()
-        if root_org in (ARCS, IRCS):
+        if root_org in (ARCS, IRCS, CRMADA):
             return False
         return True
 
@@ -1073,7 +1094,7 @@ def config(settings):
         """ Whether to use Skills """
 
         root_org = current.auth.root_org_name()
-        if root_org in (ARCS, IRCS, PMI, VNRC):
+        if root_org in (ARCS, CRMADA, IRCS, PMI, VNRC):
             return True
         return False
 
@@ -1107,12 +1128,51 @@ def config(settings):
 
         root_org = current.auth.root_org_name()
         if root_org in (ARCS, IRCS):
-            return True # Simple Checkbox
+            # Simple checkbox
+            return True
         elif root_org in (CVTL, PMI, PRC):
-            return vol_active # Use formula
+            # Use formula based on hrm_programme
+            return vol_programme_active
+        elif root_org in (CRMADA, ):
+            # Use formula based on vol_activity
+            return vol_activity_active
         return False
 
     settings.hrm.vol_active = hrm_vol_active
+
+    def pr_person_availability_options(default):
+
+        root_org = current.auth.root_org_name()
+        if root_org == VNRC:
+            # Doesn't seem used anyway...perhaps a bug in hrm_Record?
+            return {1: T("No Restrictions"),
+                    2: T("Weekends only"),
+                    3: T("School Holidays only"),
+                    }
+        elif root_org == CRMADA:
+            return {1: "%s, %s" % (T("Frequent"), T("1-2 times per week")),
+                    2: "%s, %s" % (T("Sometimes"), T("When needed")),
+                    3: "%s, %s" % (T("Projects"), T("1-3 times per month")),
+                    4: T("Once per month"),
+                    5: T("Exceptional Cases"),
+                    6: T("Other"),
+                    }
+
+        # Default to Off
+        return None
+
+    settings.pr.person_availability_options = pr_person_availability_options
+
+    def hrm_vol_availability_tab(default):
+        """ Whether to show Volunteer Availability Tab """
+
+        root_org = current.auth.root_org_name()
+        if root_org == CRMADA:
+            return True
+        # Default to Off
+        return None
+
+    settings.hrm.vol_availability_tab = hrm_vol_availability_tab
 
     def hrm_vol_departments(default):
         """ Whether to use Volunteer Departments """
@@ -1130,6 +1190,8 @@ def config(settings):
         root_org = current.auth.root_org_name()
         if root_org in (IRCS, PMI, VNRC):
             return "both"
+        elif root_org == CRMADA:
+            return "activity"
         return default
 
     settings.hrm.vol_experience = hrm_vol_experience
@@ -1150,6 +1212,8 @@ def config(settings):
         root_org = current.auth.root_org_name()
         if root_org == VNRC:
             return "%(last_name)s %(middle_name)s %(first_name)s"
+        #elif root_org == CRMADA:
+        #    return "%(last_name)s %(first_name)s %(middle_name)s"
         return default
 
     settings.pr.name_format = pr_name_format
@@ -1847,6 +1911,19 @@ def config(settings):
         return "".join(items)
 
     # -----------------------------------------------------------------------------
+    def customise_vol_activity_controller(**attr):
+
+        # Organisation needs to be an NS/Branch
+        ns_only("vol_activity",
+                required = False,
+                branches = True,
+                )
+
+        return attr
+
+    settings.customise_vol_activity_controller = customise_vol_activity_controller
+
+    # -----------------------------------------------------------------------------
     def customise_vol_volunteer_award_resource(r, tablename):
 
         root_org = current.auth.root_org_name()
@@ -2070,6 +2147,7 @@ def config(settings):
             if arcs:
                 field = s3db.vol_details.card
                 field.readable = field.writable = True
+
             elif vnrc:
                 field = table.job_title_id
                 field.readable = field.writable = False
@@ -2126,6 +2204,25 @@ def config(settings):
                                                 )
                     s3db.configure("hrm_human_resource",
                                    crud_form = crud_form,
+                                   )
+
+                elif root_org == CRMADA:
+                    # Add Activity Type & Tweak Order
+                    list_fields = ["person_id",
+                                   "organisation_id",
+                                   "job_title_id",
+                                   (settings.get_ui_label_mobile_phone(), "phone.value"),
+                                   (T("Trainings"), "training.course_id"),
+                                   (T("Activity Types"), "person_id$activity_hours.activity_hours_activity_type.activity_type_id"),
+                                   (T("Activities"), "person_id$activity_hours.activity_id"),
+                                   (T("Certificates"), "person_id$certification.certificate_id"),
+                                   (T("Email"), "email.value"),
+                                   "location_id",
+                                   "details.active",
+                                   ]
+
+                    s3db.configure("hrm_human_resource",
+                                   list_fields = list_fields,
                                    )
 
                 elif root_org == IRCS:
@@ -2514,7 +2611,7 @@ def config(settings):
 
         # Special cases for different NS
         root_org = current.auth.root_org_name()
-        if root_org in (IRCS, AURC):
+        if root_org in (IRCS, AURC, CRMADA):
             # Australian  Iraqi RC use proper Logistics workflow
             settings.inv.direct_stock_edits = False
             current.s3db.configure("inv_inv_item",
@@ -2555,7 +2652,7 @@ def config(settings):
 
         # Special cases for different NS
         root_org = current.auth.root_org_name()
-        if root_org in (ARCS, AURC):
+        if root_org in (ARCS, AURC, CRMADA):
             # Australian & Iraqi RC use proper Logistics workflow
             settings.inv.direct_stock_edits = False
         if root_org != NRCS:
@@ -2964,6 +3061,82 @@ def config(settings):
     settings.customise_pr_contact_emergency_resource = customise_pr_contact_emergency_resource
 
     # -----------------------------------------------------------------------------
+    def customise_pr_person_availability_resource(r, tablename):
+
+        T = current.T
+        s3db = current.s3db
+
+        # Construct slot options
+        # NB this relies on prepopulation of date/time formulae with
+        #    these names, as well as one pr_slot per combination:
+        dow = ("Mondays",
+               "Tuesdays",
+               "Wednesdays",
+               "Thursdays",
+               "Fridays",
+               "Saturdays",
+               "Sundays",
+               )
+        tod = ("Morning", "Afternoon", "Evening")
+
+        stable = s3db.pr_slot
+        dtable = s3db.pr_date_formula
+        ttable = s3db.pr_time_formula
+        join = [dtable.on((dtable.id == stable.date_formula_id) &
+                          (dtable.name.belongs(dow))),
+                ttable.on((ttable.id == stable.time_formula_id) &
+                          (ttable.name.belongs(tod))),
+                ]
+
+        dtname = str(dtable)
+        ttname = str(ttable)
+        stname = str(stable)
+
+        key = lambda row: "%s %s" % (row[dtname]["name"], row[ttname]["name"])
+        query = stable.deleted != True
+        slots = current.db(query).select(stable.id,
+                                         stable.name,
+                                         dtable.name,
+                                         ttable.name,
+                                         join = join
+                                         ).as_dict(key=key)
+
+        opts = []
+        add_option = opts.append
+        for t in tod:
+            for d in dow:
+                slot = slots.get("%s %s" % (d, t))
+                if slot:
+                    add_option((slot[stname]["id"],
+                                T(slot[stname]["name"]),
+                                ))
+
+        # @ToDo: Make prettier
+        # - ideally turn into a Grid (JS? GridWidget?)
+        from s3 import S3SQLCustomForm, S3SQLInlineLink
+        from gluon.validators import IS_IN_SET
+        crud_form = S3SQLCustomForm(
+                        "options",
+                        S3SQLInlineLink("slot",
+                                        cols = len(tod),
+                                        field = "slot_id",
+                                        label = T("Available on"),
+                                        requires = IS_IN_SET(opts,
+                                                             sort = False,
+                                                             zero = None,
+                                                             ),
+                                        sort = False,
+                                        ),
+                        "comments",
+                        )
+
+        s3db.configure("pr_person_availability",
+                       crud_form = crud_form,
+                       )
+
+    settings.customise_pr_person_availability_resource = customise_pr_person_availability_resource
+
+    # -----------------------------------------------------------------------------
     def customise_pr_group_controller(**attr):
 
         # Organisation needs to be an NS/Branch
@@ -3000,7 +3173,7 @@ def config(settings):
     settings.customise_pr_group_controller = customise_pr_group_controller
 
     # =============================================================================
-    def vol_active(person_id):
+    def vol_programme_active(person_id):
         """
             Whether a Volunteer counts as 'Active' based on the number of hours
             they've done (both Trainings & Programmes) per month, averaged over
@@ -3049,10 +3222,39 @@ def config(settings):
             # Active?
             if average >= 8:
                 return True
-            else:
-                return False
-        else:
-            return False
+
+        return False
+
+    # =============================================================================
+    def vol_activity_active(person_id):
+        """
+            Whether a Volunteer counts as 'Active' based on the number of hours
+            they've done on Volunteer Activities (inc Trainings, but not Project Activities)
+            in the last month.
+        """
+
+        from dateutil.relativedelta import relativedelta
+        now = current.request.utcnow
+
+        # Time spent on Volunteer Activities in the last month
+        htable = current.s3db.vol_activity_hours
+        query = (htable.deleted == False) & \
+                (htable.person_id == person_id) & \
+                (htable.date >= (now - relativedelta(months=1)))
+        activities = current.db(query).select(htable.hours,
+                                              )
+        if activities:
+            # Total hours between start and end
+            hours = 0
+            for activity in activities:
+                if activity.hours:
+                    hours += activity.hours
+
+            # Active?
+            if hours >= 4:
+                return True
+
+        return False
 
     # -----------------------------------------------------------------------------
     def vnrc_cv_form(r):
@@ -3105,7 +3307,15 @@ def config(settings):
         arcs = False
         vnrc = False
         root_org = current.auth.root_org_name()
-        if root_org == IRCS:
+        if root_org == CRMADA:
+            table = s3db.pr_person
+            table.initials.readable = table.initials.writable = False
+            table.local_name.readable = table.local_name.writable = False
+            table.preferred_name.readable = table.preferred_name.writable = False
+            dtable = s3db.pr_person_details
+            dtable.religion.readable = dtable.religion.writable = False
+            dtable.nationality.default = "MG"
+        elif root_org == IRCS:
             settings.hrm.activity_types = None
             settings.hrm.use_id = False
             table = s3db.pr_person
@@ -3213,14 +3423,38 @@ def config(settings):
                     ctable = r.component.table
                     ctable.hours.readable = ctable.hours.writable = False
                     ctable.job_title_id.readable = ctable.job_title_id.writable = False
+
             elif component_name == "physical_description":
                 from gluon import DIV
                 ctable = r.component.table
-                if root_org == IRCS:
+                if root_org in (CRMADA, IRCS):
                     ctable.ethnicity.readable = ctable.ethnicity.writable = False
                 ctable.medical_conditions.comment = DIV(_class="tooltip",
                                                         _title="%s|%s" % (T("Medical Conditions"),
                                                                           T("Chronic Illness, Disabilities, Mental/Psychological Condition etc.")))
+
+            elif component_name == "identity":
+                if root_org == CRMADA:
+                    controller = r.controller
+                    table = r.component.table
+                    # Set default to National ID Card
+                    table.type.default = 2
+                    # Relabel
+                    table.valid_from.label = T("Date of Delivery")
+                    field = table.place
+                    field.label = T("Place of Delivery")
+                    field.readable = field.writable = True
+                    # Hide unneeded fields
+                    # @ToDo: Do this dynamically in JS based on Type
+                    hide_fields = ("description", "valid_until", "country_code", "ia_name")
+                    for fname in hide_fields:
+                        field = table[fname]
+                        field.readable = field.writable = False
+                    list_fields = s3db.get_config("pr_identity", "list_fields")
+                    hide_fields = set(hide_fields)
+                    list_fields = (fs for fs in list_fields if fs not in hide_fields)
+                    s3db.configure("pr_identity", list_fields = list_fields)
+
             elif method == "cv" or component_name == "education":
                 if vnrc:
                     etable = s3db.pr_education
@@ -3409,6 +3643,7 @@ def config(settings):
                     s3db.configure("pr_person",
                                    crud_form = S3SQLCustomForm(*crud_fields),
                                    )
+
                 if method == "record" or component_name == "human_resource":
                     # Hide unwanted fields in human_resource
                     htable = s3db.hrm_human_resource
@@ -3764,6 +3999,76 @@ def config(settings):
         return attr
 
     settings.customise_po_area_controller = customise_po_area_controller
+
+    # -------------------------------------------------------------------------
+    def project_project_postprocess(form):
+        """
+            When using Budget Monitoring (i.e. CRMADA) then create the entries
+        """
+
+        db = current.db
+        s3db = current.s3db
+        project_id = form.vars.id
+        # Read Budget Entity ID, Start Date and End Date
+        ptable = s3db.project_project
+        project = db(ptable.id == project_id).select(ptable.budget_entity_id,
+                                                     ptable.name,
+                                                     ptable.start_date,
+                                                     ptable.end_date,
+                                                     limitby=(0, 1)
+                                                     ).first()
+        if not project:
+            return
+
+        # Copy Project Name to Budget Name
+        budget_entity_id = project.budget_entity_id
+        btable = s3db.budget_budget
+        query = (btable.budget_entity_id == budget_entity_id)
+        budget = db(query).select(btable.id, # Needed for update_record
+                                  # If we want to provide smoothed default expected values
+                                  #btable.total_budget,
+                                  btable.currency,
+                                  # Assume Monthly
+                                  #btable.monitoring_frequency,
+                                  limitby=(0, 1)
+                                  ).first()
+        if not budget:
+            return
+        try:
+            budget.update_record(name = project.name)
+        except:
+            # unique=True violation
+            budget.update_record(name = "Budget for %s" % project.name)
+
+        mtable = s3db.budget_monitoring
+        exists = db(mtable.budget_entity_id == budget_entity_id).select(mtable.id,
+                                                                        limitby=(0, 1))
+        if not exists:
+            # Create Monitoring Data entries
+            start_date = project.start_date
+            end_date = project.end_date
+            if not start_date or not end_date:
+                return
+            # Assume Monthly
+            #monitoring_frequency = budget.monitoring_frequency
+            #if not monitoring_frequency:
+            #    return
+            #total_budget = budget.total_budget
+            currency = budget.currency
+            # Create entries for the 1st of every month between start_date and end_date
+            from dateutil import rrule
+            dates = list(rrule.rrule(rrule.MONTHLY, bymonthday=1, dtstart=start_date, until=end_date))
+            for d in dates:
+                mtable.insert(budget_entity_id = budget_entity_id,
+                              # @ToDo: This needs to be modified whenever entries are manually edited
+                              # Set/update this in budget_monitoring_onaccept
+                              # - also check here that we don't exceed overall budget
+                              start_date = start_date,
+                              end_date = d,
+                              currency = currency,
+                              )
+                # Start date relates to previous entry
+                start_date = d
 
     # -----------------------------------------------------------------------------
     def customise_project_programme_controller(**attr):
