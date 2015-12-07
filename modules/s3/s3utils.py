@@ -878,9 +878,9 @@ def s3_avatar_represent(id, tablename="auth_user", gravatar=False, **attr):
             # If no Image uploaded, try Gravatar, which also provides a nice fallback identicon
             import hashlib
             hash = hashlib.md5(email).hexdigest()
-            url = "http://www.gravatar.com/avatar/%s?s=50&d=identicon" % hash
+            url = "//www.gravatar.com/avatar/%s?s=50&d=identicon" % hash
         else:
-            url = "http://www.gravatar.com/avatar/00000000000000000000000000000000?d=mm"
+            url = "//www.gravatar.com/avatar/00000000000000000000000000000000?d=mm"
     else:
         url = URL(c="static", f="img", args="blank-user.gif")
 
@@ -986,13 +986,13 @@ def s3_include_debug_css():
 
     settings = current.deployment_settings
     theme = settings.get_theme()
-    location = settings.get_template_location()
+    location = current.response.s3.theme_location
 
-    css_cfg = "%s/%s/templates/%s/css.cfg" % (folder, location, theme)
+    css_cfg = "%s/modules/templates/%s%s/css.cfg" % (folder, location, theme)
     try:
         f = open(css_cfg, "r")
     except:
-        raise HTTP(500, "Theme configuration file missing: %s/templates/%s/css.cfg" % (location, theme))
+        raise HTTP(500, "Theme configuration file missing: modules/templates/%s%s/css.cfg" % (location, theme))
     files = f.readlines()
     files = files[:-1]
     include = ""
@@ -1061,7 +1061,7 @@ def s3_include_ext():
 
     if s3.cdn:
         # For Sites Hosted on the Public Internet, using a CDN may provide better performance
-        PATH = "http://cdn.sencha.com/ext/gpl/3.4.1.1"
+        PATH = "//cdn.sencha.com/ext/gpl/3.4.1.1"
     else:
         PATH = "/%s/static/scripts/ext" % appname
 
@@ -1841,13 +1841,19 @@ class S3CustomController(object):
         """
             Use a custom view template
 
-            @param template: the name of template (determines the path)
-            @param filename: the name of the view template file
+            @param template: name of the template (determines the path)
+            @param filename: name of the view template file
         """
 
-        view = os.path.join(current.request.folder,
-                            current.deployment_settings.get_template_location(),
-                            "templates", template, "views", filename)
+        if "." in template:
+            subfolder, template = template.split(".", 1)
+            view = os.path.join(current.request.folder,
+                                current.deployment_settings.get_template_location(),
+                                "templates", subfolder, template, "views", filename)
+        else:
+            view = os.path.join(current.request.folder,
+                                current.deployment_settings.get_template_location(),
+                                "templates", template, "views", filename)
         try:
             # Pass view as file not str to work in compiled mode
             current.response.view = open(view, "rb")

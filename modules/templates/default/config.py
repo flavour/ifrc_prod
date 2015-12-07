@@ -31,7 +31,7 @@ def config(settings):
     # ["default", "default/users"]
     # Unless doing a manual DB migration, where prepopulate = 0
     # In Production, prepopulate = 0 (to save 1x DAL hit every page)
-    #settings.base.prepopulate = 1
+    settings.base.prepopulate.append("default")
 
     # Theme (folder to use for views/layout.html)
     #settings.base.theme = "default"
@@ -198,9 +198,9 @@ def config(settings):
 
     # Finance settings
     #settings.fin.currencies = {
-    #    "EUR" : T("Euros"),
-    #    "GBP" : T("Great British Pounds"),
-    #    "USD" : T("United States Dollars"),
+    #    "EUR" : "Euros",
+    #    "GBP" : "Great British Pounds",
+    #    "USD" : "United States Dollars",
     #}
     #settings.fin.currency_default = "USD"
     #settings.fin.currency_writable = False # False currently breaks things
@@ -638,7 +638,7 @@ def config(settings):
     # Uncomment to disable the use of HR Credentials
     #settings.hrm.use_credentials = False
     # Uncomment to disable the use of HR Description
-    #settings.hrm.use_description = False
+    #settings.hrm.use_description = None
     # Uncomment to enable the use of HR Education
     #settings.hrm.use_education = True
     # Uncomment to disable the use of HR ID Tab
