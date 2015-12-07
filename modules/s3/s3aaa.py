@@ -66,7 +66,7 @@ from s3dal import Row, Rows, Query, Table
 from s3datetime import S3DateTime
 from s3error import S3PermissionError
 from s3fields import S3Represent, s3_uid, s3_timestamp, s3_deletion_status, s3_comments
-from s3rest import S3Method
+from s3rest import S3Method, S3Request
 from s3track import S3Tracker
 from s3utils import s3_addrow, s3_get_extension, s3_mark_required
 
@@ -2366,8 +2366,6 @@ $.filterOptionsS3({
         # Send Welcome mail
         self.s3_send_welcome_email(user)
 
-        return
-
     # -------------------------------------------------------------------------
     def s3_link_user(self, user):
         """
@@ -2415,8 +2413,6 @@ $.filterOptionsS3({
             if "member" in link_user_to:
                 # Add Member Record
                 member_id = self.s3_link_to_member(user, person_id)
-
-        return
 
     # -------------------------------------------------------------------------
     @staticmethod
@@ -2855,6 +2851,7 @@ $.filterOptionsS3({
 
         db = current.db
         s3db = current.s3db
+        settings = current.deployment_settings
 
         user_id = user.id
         organisation_id = user.organisation_id
@@ -2863,7 +2860,7 @@ $.filterOptionsS3({
         htable = s3db.table(htablename)
 
         if not htable or (not organisation_id and \
-                          current.deployment_settings.get_hrm_org_required()):
+                          settings.get_hrm_org_required()):
             return None
 
         # Update existing HR record for this user
@@ -2927,6 +2924,15 @@ $.filterOptionsS3({
             if hr_id:
                 record["id"] = hr_id
                 s3db.update_super(htable, record)
+                # Customise the resource
+                customise = settings.customise_resource(htablename)
+                if customise:
+                    #import pydevd;pydevd.settrace()
+                    request = S3Request("hrm", "human_resource",
+                                        current.request,
+                                        args=[str(hr_id)])
+                    customise(request, htablename)
+
                 self.s3_set_record_owner(htable, hr_id)
                 s3db.onaccept(htablename, record, method="create")
 
@@ -2988,6 +2994,14 @@ $.filterOptionsS3({
             member_id = mtable.insert(**record)
             if member_id:
                 record["id"] = member_id
+                # Customise the resource
+                customise = current.deployment_settings.customise_resource(mtablename)
+                if customise:
+                    request = S3Request("member", "membership",
+                                        current.request,
+                                        args=[str(member_id)])
+                    customise(request, mtablename)
+
                 self.s3_set_record_owner(mtable, member_id)
                 s3db.onaccept(mtablename, record, method="create")
 
@@ -3095,7 +3109,6 @@ $.filterOptionsS3({
             results = current.mail.send(to, subject=subject, message=message)
         if not results:
             current.response.error = messages.unable_send_email
-        return
 
     # -------------------------------------------------------------------------
     # S3-specific authentication methods
@@ -3400,8 +3413,6 @@ $.filterOptionsS3({
                 # Anonymous role has no realm
                 self.user["realms"][ANONYMOUS] = None
 
-        return
-
     # -------------------------------------------------------------------------
     def s3_create_role(self, role, description=None, *acls, **args):
         """
@@ -3569,8 +3580,6 @@ $.filterOptionsS3({
         if self.user and str(user_id) == str(self.user.id):
             self.s3_set_roles()
 
-        return
-
     # -------------------------------------------------------------------------
     def s3_withdraw_role(self, user_id, group_id, for_pe=None):
         """
@@ -3641,8 +3650,6 @@ $.filterOptionsS3({
         # Update roles for current user if required
         if self.user and str(user_id) == str(self.user.id):
             self.s3_set_roles()
-
-        return
 
     # -------------------------------------------------------------------------
     def s3_get_roles(self, user_id, for_pe=[]):
@@ -4053,35 +4060,38 @@ $.filterOptionsS3({
         """
             Get the user_id for a person_id
 
-            @param person_id: the pr_person record ID
+            @param person_id: the pr_person record ID, or a user email address
             @param pe_id: the person entity ID, alternatively
         """
 
+        result = None
+
         if isinstance(person_id, basestring) and not person_id.isdigit():
+            # User email address
             utable = self.settings.table_user
             query = (utable.email == person_id)
             user = current.db(query).select(utable.id,
-                                            limitby=(0, 1)).first()
+                                            limitby=(0, 1),
+                                            ).first()
             if user:
-                return user.id
+                result = user.id
         else:
+            # Person/PE ID
             s3db = current.s3db
             ltable = s3db.pr_person_user
-            if not ltable:
-                return None
             if person_id:
                 ptable = s3db.pr_person
-                if not ptable:
-                    return None
                 query = (ptable.id == person_id) & \
                         (ptable.pe_id == ltable.pe_id)
             else:
                 query = (ltable.pe_id == pe_id)
             link = current.db(query).select(ltable.user_id,
-                                            limitby=(0, 1)).first()
+                                            limitby=(0, 1),
+                                            ).first()
             if link:
-                return link.user_id
-        return None
+                result = link.user_id
+
+        return result
 
     # -------------------------------------------------------------------------
     def s3_user_pe_id(self, user_id):
@@ -4093,10 +4103,9 @@ $.filterOptionsS3({
 
         table = current.s3db.pr_person_user
         row = current.db(table.user_id == user_id).select(table.pe_id,
-                                                          limitby=(0, 1)).first()
-        if row:
-            return row.pe_id
-        return None
+                                                          limitby=(0, 1),
+                                                          ).first()
+        return row.pe_id if row else None
 
     # -------------------------------------------------------------------------
     def s3_logged_in_person(self):
@@ -4104,19 +4113,21 @@ $.filterOptionsS3({
             Get the person record ID for the current logged-in user
         """
 
+        row = None
+
         if self.s3_logged_in():
             ptable = current.s3db.pr_person
             try:
                 query = (ptable.pe_id == self.user.pe_id)
             except AttributeError:
-                # Prepop
+                # Prepop (auth.override, self.user is None)
                 pass
             else:
-                record = current.db(query).select(ptable.id,
-                                                  limitby=(0, 1)).first()
-                if record:
-                    return record.id
-        return None
+                row = current.db(query).select(ptable.id,
+                                               limitby=(0, 1),
+                                               ).first()
+
+        return row.id if row else None
 
     # -------------------------------------------------------------------------
     def s3_logged_in_human_resource(self):
@@ -4124,24 +4135,25 @@ $.filterOptionsS3({
             Get the first HR record ID for the current logged-in user
         """
 
+        row = None
+
         if self.s3_logged_in():
             s3db = current.s3db
             ptable = s3db.pr_person
             htable = s3db.hrm_human_resource
-
             try:
                 query = (htable.person_id == ptable.id) & \
                         (ptable.pe_id == self.user.pe_id)
             except AttributeError:
-                # Prepop
+                # Prepop (auth.override, self.user is None)
                 pass
             else:
-                record = current.db(query).select(htable.id,
-                                                  orderby =~htable.modified_on,
-                                                  limitby=(0, 1)).first()
-                if record:
-                    return record.id
-        return None
+                row = current.db(query).select(htable.id,
+                                               orderby = ~htable.modified_on,
+                                               limitby = (0, 1),
+                                               ).first()
+
+        return row.id if row else None
 
     # -------------------------------------------------------------------------
     # Core Authorization Methods
@@ -4384,7 +4396,6 @@ $.filterOptionsS3({
             if record_id not in records:
                 records.append(record_id)
             session.owned_records[table] = records
-        return
 
     # -------------------------------------------------------------------------
     def s3_session_owns(self, table, record_id):
@@ -4433,7 +4444,6 @@ $.filterOptionsS3({
                     del session.owned_records[table]
         else:
             session.owned_records = Storage()
-        return
 
     # -------------------------------------------------------------------------
     def s3_update_record_owner(self, table, record, update=False, **fields):
@@ -4863,7 +4873,6 @@ $.filterOptionsS3({
                 if not updates:
                     continue
                 db(query).update(**updates)
-        return
 
     # -------------------------------------------------------------------------
     def permitted_facilities(self,
@@ -5646,20 +5655,18 @@ class S3Permission(object):
                       constructed
         """
 
-        ANY = "ANY"
         OENT = "realm_entity"
 
-        if ANY in entities:
-            return None
-        elif not entities:
-            return None
-        elif OENT in table.fields:
+        query = None
+
+        if entities and "ANY" not in entities and OENT in table.fields:
             public = (table[OENT] == None)
             if len(entities) == 1:
-                return (table[OENT] == entities[0]) | public
+                query = (table[OENT] == entities[0]) | public
             else:
-                return (table[OENT].belongs(entities)) | public
-        return None
+                query = (table[OENT].belongs(entities)) | public
+
+        return query
 
     # -------------------------------------------------------------------------
     def permitted_realms(self, tablename, method="read"):
@@ -5674,7 +5681,7 @@ class S3Permission(object):
 
         if not self.entity_realm:
             # Security Policy doesn't use Realms, so unrestricted
-            return None
+            return
 
         auth = self.auth
         sr = auth.get_system_roles()
@@ -5819,7 +5826,6 @@ class S3Permission(object):
                 approver.default = auth.user.id
             else:
                 approver.default = None
-        return
 
     # -------------------------------------------------------------------------
     # Authorization
@@ -5834,6 +5840,8 @@ class S3Permission(object):
             @param t: the table or tablename
             @param record: the record or record ID (None for any record)
         """
+
+        #_debug = current.log.debug
 
         # Multiple methods?
         if isinstance(method, (list, tuple)):
@@ -6780,7 +6788,6 @@ class S3Permission(object):
                 if record_id is None or \
                    record_id is not None and r[-1] == str(record_id):
                     del permissions[key]
-        return
 
 # =============================================================================
 class S3Audit(object):

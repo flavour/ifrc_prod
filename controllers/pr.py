@@ -443,6 +443,12 @@ def group():
     return output
 
 # -----------------------------------------------------------------------------
+def group_member_role():
+    """ Group Member Roles: RESTful CRUD Controller """
+
+    return s3_rest_controller()
+
+# -----------------------------------------------------------------------------
 def image():
     """ RESTful CRUD controller """
 
@@ -566,6 +572,15 @@ def filter():
             s3.jquery_ready.append(script)
         return output
     s3.postp = postp
+
+    output = s3_rest_controller()
+    return output
+
+def subscription():
+    """
+        REST controller for subscriptions
+        - to allow Admins to control subscriptions for people
+    """
 
     output = s3_rest_controller()
     return output
