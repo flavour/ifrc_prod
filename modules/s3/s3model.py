@@ -2,7 +2,7 @@
 
 """ S3 Data Model Extensions
 
-    @copyright: 2009-2015 (c) Sahana Software Foundation
+    @copyright: 2009-2016 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -587,7 +587,6 @@ class S3Model(object):
                 hooks[alias] = component
 
         components[master] = hooks
-        return
 
     # -------------------------------------------------------------------------
     @classmethod
@@ -831,7 +830,6 @@ class S3Model(object):
                     alias = get_alias(hooks, link)
                     if alias:
                         return alias
-
         return None
 
     # -------------------------------------------------------------------------
@@ -870,7 +868,6 @@ class S3Model(object):
             if component_name not in cmethods[method]:
                 cmethods[method][component_name] = {}
             cmethods[method][component_name][tablename] = action
-        return
 
     # -------------------------------------------------------------------------
     @classmethod

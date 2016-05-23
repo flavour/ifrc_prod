@@ -1,11 +1,6 @@
 # -*- coding: utf-8 -*-
 
-try:
-    # Python 2.7
-    from collections import OrderedDict
-except:
-    # Python 2.6
-    from gluon.contrib.simplejson.ordered_dict import OrderedDict
+from collections import OrderedDict
 
 from gluon import current
 from gluon.storage import Storage
@@ -24,11 +19,11 @@ def config(settings):
     settings.base.system_name_short = T("Sahana")
 
     # Prepop options
-    settings.base.prepopulate_options = {"mandatory": "CAD",
-                                         "default": ("default/users",
-                                                     "CAD/Demo",
-                                                     ),
-                                         }
+    #settings.base.prepopulate_options = {"mandatory": "CAD",
+    #                                     "default": ("default/users",
+    #                                                 "CAD/Demo",
+    #                                                 ),
+    #                                     }
     # Prepop default
     settings.base.prepopulate += ("CAD", "default/users", "CAD/Demo")
 

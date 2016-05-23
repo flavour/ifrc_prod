@@ -27,6 +27,8 @@ def download():
     tablename = filename.split(".", 1)[0]
     if "_" in tablename:
         table = s3db.table(tablename)
+        if table and not auth.s3_has_permission("read", tablename):
+            auth.permission.fail()
 
     return response.download(request, db)
 
@@ -1023,7 +1025,16 @@ def about():
     else:
         item = H2(T("About"))
 
+    response.title = T("About")
+
     # Technical Support Details
+    if settings.get_security_version_info_requires_login() and \
+       not auth.s3_logged_in():
+
+        return dict(details = "",
+                    item = item,
+                    )
+
     import platform
     import string
     import subprocess

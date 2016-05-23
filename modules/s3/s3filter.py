@@ -2,7 +2,7 @@
 
 """ Framework for filtered REST requests
 
-    @copyright: 2013-15 (c) Sahana Software Foundation
+    @copyright: 2013-2016 (c) Sahana Software Foundation
     @license: MIT
 
     @requires: U{B{I{gluon}} <http://web2py.com>}
@@ -44,22 +44,10 @@ __all__ = ("S3DateFilter",
            )
 
 import datetime
+import json
 import re
 
-try:
-    import json # try stdlib (Python 2.6)
-except ImportError:
-    try:
-        import simplejson as json # try external module
-    except:
-        import gluon.contrib.simplejson as json # fallback to pure-Python module
-
-try:
-    # Python 2.7
-    from collections import OrderedDict
-except:
-    # Python 2.6
-    from gluon.contrib.simplejson.ordered_dict import OrderedDict
+from collections import OrderedDict
 
 from gluon import *
 from gluon.storage import Storage
@@ -3209,6 +3197,8 @@ def s3_get_filter_opts(tablename,
     table = current.s3db.table(tablename)
     if auth.s3_has_permission("read", table):
         query = auth.s3_accessible_query("read", table)
+        if "deleted" in table.fields:
+            query &= (table.deleted != True)
         if location_filter:
             location = current.session.s3.location_filter
             if location:

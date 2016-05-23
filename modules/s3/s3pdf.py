@@ -15,7 +15,7 @@
     process being removed at a later stage.
     ######################################################################
 
-    @copyright: 2011-15 (c) Sahana Software Foundation
+    @copyright: 2011-2016 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -42,12 +42,14 @@
 
 __all__ = ("S3PDF",)
 
-import os
-import sys
+import json
 import math
+import os
 import re
+import sys
 import subprocess
 import unicodedata
+
 from copy import deepcopy
 try:
     from cStringIO import StringIO    # Faster, where available
@@ -58,14 +60,6 @@ from datetime import datetime, timedelta, date
 # to the dependency list for just one utility
 #from lxml.html.soupparser import unescape
 from htmlentitydefs import name2codepoint
-
-try:
-    import json # try stdlib (Python 2.6)
-except ImportError:
-    try:
-        import simplejson as json # try external module
-    except:
-        import gluon.contrib.simplejson as json # fallback to pure-Python module
 
 from gluon import *
 from gluon.storage import Storage

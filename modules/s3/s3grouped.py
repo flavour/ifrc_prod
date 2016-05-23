@@ -2,7 +2,7 @@
 
 """ S3 Grouped Items Report Method
 
-    @copyright: 2015 (c) Sahana Software Foundation
+    @copyright: 2015-2016 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -33,16 +33,9 @@ __all__ = ("S3GroupedItemsReport",
            "S3GroupAggregate",
            )
 
+import json
 import math
 import sys
-
-try:
-    import json # try stdlib (Python 2.6)
-except ImportError:
-    try:
-        import simplejson as json # try external module
-    except ImportError:
-        import gluon.contrib.simplejson as json # fallback to pure-Python module
 
 from gluon import current, DIV, H2, INPUT, SPAN, TABLE, TBODY, TD, TFOOT, TH, THEAD, TR
 from gluon.storage import Storage
