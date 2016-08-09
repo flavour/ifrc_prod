@@ -2802,7 +2802,6 @@ class S3LayerEntityModel(S3Model):
             style["fillOpacity"] = opacity
         else:
             opacity = 1
-        style = json.dumps(style, separators=SEPARATORS)
 
         db = current.db
         s3db = current.s3db
@@ -3075,15 +3074,16 @@ class S3MapModel(S3Model):
         T = current.T
         db = current.db
         request = current.request
+        folder = request.folder
 
+        layer_id = self.super_link("layer_id", "gis_layer_entity")
         marker_id = self.gis_marker_id
         projection_id = self.gis_projection_id
 
-        # Shortcuts
         configure = self.configure
         define_table = self.define_table
 
-        layer_id = self.super_link("layer_id", "gis_layer_entity")
+        MAX_FILENAME_LENGTH = current.MAX_FILENAME_LENGTH
 
         messages = current.messages
         NONE  = messages["NONE"]
@@ -3288,14 +3288,14 @@ class S3MapModel(S3Model):
                            #custom_retrieve_file_properties = gis_marker_retrieve_file_properties,
                            #custom_store?
                            label = T("File"),
-                           length = current.MAX_FILENAME_LENGTH,
+                           length = MAX_FILENAME_LENGTH,
                            represent = self.gis_layer_geojson_file_represent,
                            requires = IS_EMPTY_OR(
                                         IS_UPLOAD_FILENAME(extension="geojson"),
                                         null = "", # Distinguish from Prepop
                                         ),
                            # upload folder needs to be visible to the download() function as well as the upload
-                           uploadfolder = os.path.join(current.request.folder,
+                           uploadfolder = os.path.join(folder,
                                                        "static",
                                                        "cache",
                                                        "geojson"),
@@ -3314,7 +3314,7 @@ class S3MapModel(S3Model):
                   create_next = URL(args=["[id]", "style"]),
                   deduplicate = S3Duplicate(),
                   onaccept = self.gis_layer_geojson_onaccept,
-                  onvalidation = self.gis_layer_geojson_onvalidation,
+                  onvalidation = self.gis_layer_file_onvalidation,
                   super_entity = "gis_layer_entity",
                   )
 
@@ -3328,7 +3328,9 @@ class S3MapModel(S3Model):
                      desc_field()(),
                      Field("url",
                            label = LOCATION,
-                           requires = IS_NOT_EMPTY(),
+                           represent = lambda url: \
+                            url and A(url, _href=url) or NONE,
+                           requires = IS_EMPTY_OR(IS_URL()),
                            ),
                      Field("data",
                            label = T("Data"),
@@ -3392,10 +3394,10 @@ class S3MapModel(S3Model):
                      Field("track", "upload",
                            autodelete=True,
                            label = T("GPS Track File"),
-                           length = current.MAX_FILENAME_LENGTH,
+                           length = MAX_FILENAME_LENGTH,
                            requires = IS_UPLOAD_FILENAME(extension="gpx"),
                            # upload folder needs to be visible to the download() function as well as the upload
-                           uploadfolder = os.path.join(request.folder,
+                           uploadfolder = os.path.join(folder,
                                                        "uploads",
                                                        "tracks"),
                            comment = DIV(_class="tooltip",
@@ -3461,10 +3463,30 @@ class S3MapModel(S3Model):
                      desc_field()(),
                      Field("url",
                            label = LOCATION,
-                           requires = IS_NOT_EMPTY(),
+                           represent = lambda url: \
+                            url and A(url, _href=url) or NONE,
+                           requires = IS_EMPTY_OR(IS_URL()),
                            comment = DIV(_class="tooltip",
                                          _title="%s|%s" % (LOCATION,
                                                            T("The URL to access the service."))),
+                           ),
+                     Field("file", "upload",
+                           autodelete = False,
+                           #custom_retrieve = gis_marker_retrieve,
+                           #custom_retrieve_file_properties = gis_marker_retrieve_file_properties,
+                           #custom_store?
+                           label = T("File"),
+                           length = MAX_FILENAME_LENGTH,
+                           represent = self.gis_layer_kml_file_represent,
+                           requires = IS_EMPTY_OR(
+                                        IS_UPLOAD_FILENAME(extension="kml"),
+                                        null = "", # Distinguish from Prepop
+                                        ),
+                           # upload folder needs to be visible to the download() function as well as the upload
+                           uploadfolder = os.path.join(folder,
+                                                       "static",
+                                                       "cache",
+                                                       "kml"),
                            ),
                      Field("title",
                            default = "name",
@@ -3485,7 +3507,8 @@ class S3MapModel(S3Model):
                   deduplicate = S3Duplicate(primary = ("url",),
                                             ignore_case = False,
                                             ),
-                  onaccept = gis_layer_onaccept,
+                  onaccept = self.gis_layer_kml_onaccept,
+                  onvalidation = self.gis_layer_file_onvalidation,
                   super_entity="gis_layer_entity",
                   )
 
@@ -3600,10 +3623,10 @@ class S3MapModel(S3Model):
                      Field("shape", "upload",
                            autodelete = True,
                            label = T("ESRI Shape File"),
-                           length = current.MAX_FILENAME_LENGTH,
+                           length = MAX_FILENAME_LENGTH,
                            requires = IS_UPLOAD_FILENAME(extension="zip"),
                            # upload folder needs to be visible to the download() function as well as the upload
-                           uploadfolder = os.path.join(request.folder,
+                           uploadfolder = os.path.join(folder,
                                                        "uploads",
                                                        "shapefiles"),
                            comment = DIV(_class="tooltip",
@@ -3990,8 +4013,8 @@ class S3MapModel(S3Model):
                            autodelete = True,
                            custom_retrieve = self.gis_cache2_retrieve,
                            # upload folder needs to be visible to the download() function as well as the upload
-                           length = current.MAX_FILENAME_LENGTH,
-                           uploadfolder = os.path.join(request.folder,
+                           length = MAX_FILENAME_LENGTH,
+                           uploadfolder = os.path.join(folder,
                                                        "uploads",
                                                        "gis_cache"),
                            ),
@@ -4017,25 +4040,7 @@ class S3MapModel(S3Model):
 
     # -------------------------------------------------------------------------
     @staticmethod
-    def gis_layer_geojson_file_represent(file):
-        """ File representation """
-
-        if file:
-            try:
-                # Read the filename from the file
-                filename = current.db.gis_layer_geojson.file.retrieve(file)[0]
-            except IOError:
-                return current.T("File not found")
-            else:
-                return A(filename,
-                         _href=URL(c="static", f="cache",
-                                   args=["geojson", file]))
-        else:
-            return current.messages["NONE"]
-
-    # -------------------------------------------------------------------------
-    @staticmethod
-    def gis_layer_geojson_onvalidation(form):
+    def gis_layer_file_onvalidation(form):
         """
             Check we have either a URL or a file
         """
@@ -4055,6 +4060,24 @@ class S3MapModel(S3Model):
 
     # -------------------------------------------------------------------------
     @staticmethod
+    def gis_layer_geojson_file_represent(file):
+        """ File representation """
+
+        if file:
+            try:
+                # Read the filename from the file
+                filename = current.db.gis_layer_geojson.file.retrieve(file)[0]
+            except IOError:
+                return current.T("File not found")
+            else:
+                return A(filename,
+                         _href=URL(c="static", f="cache",
+                                   args=["geojson", file]))
+        else:
+            return current.messages["NONE"]
+
+    # -------------------------------------------------------------------------
+    @staticmethod
     def gis_layer_geojson_onaccept(form):
         """
             If we have a file, then set the URL to point to it
@@ -4070,6 +4093,48 @@ class S3MapModel(S3Model):
             # Use the filename to build the URL
             record.update_record(url = URL(c="static", f="cache",
                                            args=["geojson", record.file]),
+                                 # Set refresh to 0 (static file)
+                                 refresh = 0,
+                                 )
+
+        # Normal Layer onaccept
+        gis_layer_onaccept(form)
+
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def gis_layer_kml_file_represent(file):
+        """ File representation """
+
+        if file:
+            try:
+                # Read the filename from the file
+                filename = current.db.gis_layer_kml.file.retrieve(file)[0]
+            except IOError:
+                return current.T("File not found")
+            else:
+                return A(filename,
+                         _href=URL(c="static", f="cache",
+                                   args=["kml", file]))
+        else:
+            return current.messages["NONE"]
+
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def gis_layer_kml_onaccept(form):
+        """
+            If we have a file, then set the URL to point to it
+        """
+
+        id = form.vars.id
+
+        table = current.s3db.gis_layer_kml
+        record = current.db(table.id == id).select(table.id,
+                                                   table.file,
+                                                   limitby=(0, 1)).first()
+        if record and record.file:
+            # Use the filename to build the URL
+            record.update_record(url = URL(c="static", f="cache",
+                                           args=["kml", record.file]),
                                  # Set refresh to 0 (static file)
                                  refresh = 0,
                                  )
@@ -4627,14 +4692,6 @@ class S3PoIModel(S3Model):
 
         db = current.db
         s3db = current.s3db
-        try:
-            if "dumps" in db._adapter.driver_auto_json:
-                style = value
-            #else:
-            #    Use the JSON version
-        except:
-            # Use the JSON version
-            pass
 
         # Lookup the PoI Type
         table = s3db.gis_poi_type
@@ -4715,14 +4772,6 @@ class S3PoIModel(S3Model):
                        "externalGraphic": "img/markers/%s" % marker
                        }
                 sappend(cat)
-
-        #try:
-        #    driver_auto_json = current.db._adapter.driver_auto_json
-        #except:
-        #    current.log.warning("Update Web2Py to 2.9.11 to get native JSON support")
-        #    driver_auto_json = []
-        #if "dumps" not in driver_auto_json:
-        #    style = json.dumps(style, separators=SEPARATORS)
 
         # Find correct Layer record
         ltable = s3db.gis_layer_feature

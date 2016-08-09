@@ -47,7 +47,7 @@ from gluon.storage import Storage
 from gluon.languages import lazyT
 from gluon.tools import addrow
 
-from s3dal import Expression, Row
+from s3dal import Expression, Row, S3DAL
 from s3datetime import ISOFORMAT, s3_decode_iso_datetime
 
 URLSCHEMA = re.compile("((?:(())(www\.([^/?#\s]*))|((http(s)?|ftp):)"
@@ -697,17 +697,19 @@ def s3_fullname(person=None, pe_id=None, truncate=True):
         @param truncate: truncate the name to max 24 characters
     """
 
-    db = current.db
-    ptable = db.pr_person
-
     record = None
     query = None
+
     if isinstance(person, (int, long)) or str(person).isdigit():
-        query = (ptable.id == person)# & (ptable.deleted != True)
+        db = current.db
+        ptable = db.pr_person
+        query = (ptable.id == person)
     elif person is not None:
         record = person
     elif pe_id is not None:
-        query = (ptable.pe_id == pe_id)# & (ptable.deleted != True)
+        db = current.db
+        ptable = db.pr_person
+        query = (ptable.pe_id == pe_id)
 
     if not record and query is not None:
         record = db(query).select(ptable.first_name,
@@ -1360,8 +1362,10 @@ def s3_orderby_fields(table, orderby, expr=False):
         return
 
     db = current.db
-    COMMA = db._adapter.COMMA
-    INVERT = db._adapter.INVERT
+
+    adapter = S3DAL()
+    COMMA = adapter.COMMA
+    INVERT = adapter.INVERT
 
     if isinstance(orderby, str):
         items = orderby.split(",")
