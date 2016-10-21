@@ -1040,6 +1040,7 @@ class S3ParsingModel(S3Model):
         # ---------------------------------------------------------------------
         # Message parsing status
         # - component to core msg_message table
+        # - messages which need parsing are placed here & updated when parsed
         #
         tablename = "msg_parsing_status"
         define_table(tablename,
@@ -1284,6 +1285,7 @@ class S3RSSModel(S3ChannelModel):
 
     names = ("msg_rss_channel",
              "msg_rss",
+             "msg_rss_link",
              )
 
     def model(self):
@@ -1315,6 +1317,13 @@ class S3RSSModel(S3ChannelModel):
                      Field("url",
                            label = T("URL"),
                            requires = IS_URL(),
+                           ),
+                     Field("content_type", "boolean",
+                           default = False,
+                           label = T("Content-Type Override"),
+                           represent = s3_yes_no_represent,
+                           # Some feeds have text/html set which feedparser refuses to parse
+                           comment = T("Force content-type to application/xml"),
                            ),
                      s3_datetime(label = T("Last Polled"),
                                  writable = False,
@@ -1417,6 +1426,41 @@ class S3RSSModel(S3ChannelModel):
                                       "body"
                                       ],
                        super_entity = current.s3db.msg_message,
+                       )
+        # Components
+        self.add_components(tablename,
+                            msg_rss_link = "rss_id",
+                            )
+
+        rss_represent = S3Represent(lookup = tablename,
+                                    fields = ["title", "from_address",],
+                                    field_sep = " - ")
+
+        rss_id = S3ReusableField("rss_id", "reference %s" % tablename,
+                                 label = T("RSS Link"),
+                                 ondelete = "CASCADE",
+                                 represent = rss_represent,
+                                 requires = IS_EMPTY_OR(
+                                                IS_ONE_OF(db, "msg_rss.id",
+                                                          rss_represent)),
+                                 )
+
+        # ---------------------------------------------------------------------
+        # Links for RSS Feed
+        #
+        tablename = "msg_rss_link"
+        define_table(tablename,
+                     rss_id(),
+                     Field("url",
+                           requires = IS_EMPTY_OR(IS_URL()),
+                           ),
+                     Field("type",
+                           ),
+                     *s3_meta_fields())
+
+        self.configure(tablename,
+                       deduplicate = S3Duplicate(primary = ("rss_id", "url"),
+                                                 ),
                        )
 
         # ---------------------------------------------------------------------

@@ -241,6 +241,11 @@ def config(settings):
 
     settings.auth.realm_entity = ifrc_realm_entity
 
+    # Sync
+    # Uncomment to add roles which can register repos with accept_push = True
+    # @ToDo: Use approval framework instead
+    settings.sync.roles_which_can_register_repos_with_accept_push = ("SYNC",)
+
     # -------------------------------------------------------------------------
     # Theme (folder to use for views/layout.html)
     settings.base.theme = "IFRC"
@@ -558,6 +563,8 @@ def config(settings):
     settings.hrm.use_education = True
     # Custom label for Organisations in HR module
     settings.hrm.organisation_label = "National Society / Branch"
+    # Custom label for Top-level Organisations in HR module
+    settings.hrm.root_organisation_label = "National Society"
     # Uncomment to consolidate tabs into a single CV
     settings.hrm.cv_tab = True
     # Uncomment to consolidate tabs into Staff Record (set to False to hide the tab)

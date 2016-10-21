@@ -117,21 +117,40 @@ class S3Sync(S3Method):
         message = "registration successful"
         repository_id = None
 
-        if "repository" in r.vars:
-            ruid = r.vars["repository"]
+        get_vars = r.vars
+        ruid = get_vars.get("repository")
+        if ruid:
+            has_role = current.auth.s3_has_role
             db = current.db
             rtable = current.s3db.sync_repository
-            row = db(rtable.uuid == ruid).select(limitby=(0, 1)).first()
+            row = db(rtable.uuid == ruid).select(rtable.id,
+                                                 rtable.accept_push,
+                                                 limitby=(0, 1)).first()
             if row:
                 repository_id = row.id
-                if not row.accept_push and current.auth.s3_has_role("ADMIN"):
-                    row.update_record(accept_push=True)
+                update = Storage(deleted=False)
+                if not row.accept_push:
+                    if has_role("ADMIN"):
+                        update.update(accept_push=True)
+                    else:
+                        roles = current.deployment_settings.get_sync_roles_which_can_register_repos_with_accept_push()
+                        for role in roles:
+                            if has_role(role):
+                                update.update(accept_push=True)
+                                break
+                row.update_record(**update)
             else:
-                if current.auth.s3_has_role("ADMIN"):
+                name = get_vars.get("name", ruid)
+                accept_push = False
+                if has_role("ADMIN"):
                     accept_push = True
                 else:
-                    accept_push = False
-                repository_id = rtable.insert(name=ruid,
+                    roles = current.deployment_settings.get_sync_roles_which_can_register_repos_with_accept_push()
+                    for role in roles:
+                        if has_role(role):
+                            accept_push = True
+                            break
+                repository_id = rtable.insert(name=name,
                                               uuid=ruid,
                                               accept_push=accept_push)
                 if not repository_id:
@@ -752,7 +771,7 @@ class S3SyncLog(S3Method):
 
 # =============================================================================
 class S3SyncRepository(object):
-    """ Class representation a peer repository """
+    """ Class representation of a peer repository """
 
     def __init__(self, repository):
         """

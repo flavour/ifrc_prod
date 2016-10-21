@@ -76,8 +76,9 @@ class S3SyncAdapter(S3SyncBaseAdapter):
 
         # Construct the URL
         config = repository.config
-        url = "%s/sync/repository/register.xml?repository=%s" % \
-              (repository.url, config.uuid)
+        name = current.deployment_settings.get_base_public_url().split("//", 1)[1]
+        url = "%s/sync/repository/register.xml?repository=%s&name=%s" % \
+              (repository.url, config.uuid, name)
 
         current.log.debug("S3Sync: send registration to URL %s" % url)
 
@@ -122,7 +123,7 @@ class S3SyncAdapter(S3SyncBaseAdapter):
         except urllib2.HTTPError, e:
             result = log.FATAL
             remote = True # Peer error
-            code = e.code
+            #code = e.code
             message = e.read()
             success = False
             try:
@@ -132,7 +133,7 @@ class S3SyncAdapter(S3SyncBaseAdapter):
                 pass
         except:
             result = log.FATAL
-            code = 400
+            #code = 400
             message = sys.exc_info()[1]
             success = False
         else:
@@ -208,13 +209,14 @@ class S3SyncAdapter(S3SyncBaseAdapter):
 
         # Send sync filters to peer
         filters = current.sync.get_filters(task.id)
-        filter_string = None
         resource_name = task.resource_name
+
+        from urllib import quote
         for tablename in filters:
             prefix = "~" if not tablename or tablename == resource_name \
                             else tablename
             for k, v in filters[tablename].items():
-                urlfilter = "[%s]%s=%s" % (prefix, k, v)
+                urlfilter = "[%s]%s=%s" % (prefix, k, quote(v))
                 url += "&%s" % urlfilter
 
         # Figure out the protocol from the URL
@@ -222,7 +224,7 @@ class S3SyncAdapter(S3SyncBaseAdapter):
         if len(url_split) == 2:
             protocol, path = url_split
         else:
-            protocol, path = "http", None
+            protocol = "http"
 
         # Create the request
         req = urllib2.Request(url=url)
@@ -461,10 +463,9 @@ class S3SyncAdapter(S3SyncBaseAdapter):
             if len(url_split) == 2:
                 protocol, path = url_split
             else:
-                protocol, path = "http", None
+                protocol = "http"
 
             # Generate the request
-            import urllib2
             req = urllib2.Request(url=url, data=data)
             req.add_header('Content-Type', "text/xml")
             handlers = []

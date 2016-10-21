@@ -1944,6 +1944,7 @@ class S3Msg(object):
         channel = db(query).select(table.date,
                                    table.etag,
                                    table.url,
+                                   table.content_type,
                                    table.username,
                                    table.password,
                                    limitby=(0, 1)).first()
@@ -1960,17 +1961,36 @@ class S3Msg(object):
             base64string = base64.encodestring("%s:%s" % (username, password)).replace("\n", "")
             request_headers = {"Authorization": "Basic %s" % base64string}
         else:
+            # Doesn't help to encourage servers to set correct content-type
+            #request_headers = {"Accept": "application/xml"}
             request_headers = None
+
+        if channel.content_type:
+            # Override content-type (some feeds have text/html set which feedparser refuses to parse)
+            response_headers = {"content-type": "application/xml"}
+        else:
+            response_headers = None
 
         if channel.etag:
             # http://pythonhosted.org/feedparser/http-etag.html
             # NB This won't help for a server like Drupal 7 set to not allow caching & hence generating a new ETag/Last Modified each request!
-            d = feedparser.parse(channel.url, etag=channel.etag, request_headers=request_headers)
+            d = feedparser.parse(channel.url,
+                                 etag=channel.etag,
+                                 request_headers=request_headers,
+                                 response_headers=response_headers,
+                                 )
         elif channel.date:
-            d = feedparser.parse(channel.url, modified=channel.date.utctimetuple(), request_headers=request_headers)
+            d = feedparser.parse(channel.url,
+                                 modified=channel.date.utctimetuple(),
+                                 request_headers=request_headers,
+                                 response_headers=response_headers,
+                                 )
         else:
             # We've not polled this feed before
-            d = feedparser.parse(channel.url, request_headers=request_headers)
+            d = feedparser.parse(channel.url,
+                                 request_headers=request_headers,
+                                 response_headers=response_headers,
+                                 )
 
         if d.bozo:
             # Something doesn't seem right
@@ -1996,6 +2016,8 @@ class S3Msg(object):
         ginsert = gtable.insert
         mtable = db.msg_rss
         minsert = mtable.insert
+        ltable = db.msg_rss_link
+        linsert = ltable.insert
         update_super = s3db.update_super
 
         # Is this channel connected to a parser?
@@ -2084,6 +2106,8 @@ class S3Msg(object):
                     # Don't die on badly-formed Geo
                     pass
 
+            # Get links - these can be multiple with certain type
+            links = entry.get("links", [])
             if exists:
                 db(mtable.id == exists.id).update(channel_id = channel_id,
                                                   title = title,
@@ -2095,6 +2119,25 @@ class S3Msg(object):
                                                   tags = tags,
                                                   # @ToDo: Enclosures
                                                   )
+                if links:
+                    query_ = (ltable.rss_id == exists.id) & (ltable.deleted != True)
+                    for link_ in links:
+                        url_ = link_["url"]
+                        type_ = link_["type"]
+                        query = query_ & (ltable.url == url_) & \
+                                (ltable.type == type_)
+                        dbset = db(query)
+                        row = dbset.select(ltable.id, limitby=(0, 1)).first()
+                        if row:
+                            dbset.update(rss_id = exists.id,
+                                         url = url_,
+                                         type = type_,
+                                         )
+                        else:
+                            linsert(rss_id = exists.id,
+                                    url = url_,
+                                    type = type_,
+                                    )
                 if parser:
                     pinsert(message_id = exists.message_id,
                             channel_id = channel_id)
@@ -2112,6 +2155,11 @@ class S3Msg(object):
                               )
                 record = dict(id=_id)
                 update_super(mtable, record)
+                for link_ in links:
+                    linsert(rss_id = _id,
+                            url = link_["url"],
+                            type = link_["type"],
+                            )
                 if parser:
                     pinsert(message_id = record["message_id"],
                             channel_id = channel_id)
@@ -2238,7 +2286,7 @@ class S3Msg(object):
                                       ).first()
         if old_status:
             # Update
-            if status[0] == "+":
+            if status and status[0] == "+":
                 # Increment status if-numeric
                 old_status = old_status.status
                 try:
