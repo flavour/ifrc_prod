@@ -241,11 +241,6 @@ def config(settings):
 
     settings.auth.realm_entity = ifrc_realm_entity
 
-    # Sync
-    # Uncomment to add roles which can register repos with accept_push = True
-    # @ToDo: Use approval framework instead
-    settings.sync.roles_which_can_register_repos_with_accept_push = ("SYNC",)
-
     # -------------------------------------------------------------------------
     # Theme (folder to use for views/layout.html)
     settings.base.theme = "IFRC"
@@ -2293,13 +2288,16 @@ def config(settings):
         from s3 import s3_fullname, s3_avatar_represent
         name = s3_fullname(person_id)
 
+        has_permission = current.auth.s3_has_permission
         table = r.table
 
         # Organisation
         comments = table.organisation_id.represent(record.organisation_id)
 
         from s3 import s3_unicode
-        from gluon.html import A, DIV, H2, LABEL, P, SPAN
+        from gluon.html import A, DIV, H2, LABEL, P, SPAN, URL
+        SUBMIT = T("Save")
+        EDIT = T("Click to edit")
 
         # Add job title if present
         job_title_id = record.job_title_id
@@ -2307,6 +2305,40 @@ def config(settings):
             comments = (SPAN("%s, " % \
                              s3_unicode(table.job_title_id.represent(job_title_id))),
                              comments)
+
+        # Add Type
+        hr_type_value = record.type
+        tfield = table.type
+        if hr_type_value in (1, 2):
+            record_id = record.id
+            type_represent = tfield.represent
+            hr_type_represent = type_represent(hr_type_value)
+        else:
+            record_id = None
+            hr_type_represent = current.messages.UNKNOWN_OPT
+
+        if record_id and has_permission("update",
+                                        "hrm_human_resource",
+                                        record_id=record_id):
+            # Make inline-editable
+            script = True
+            hr_type_represent = A(hr_type_represent,
+                                  data = {"type": hr_type_value},
+                                  _id = "rdrt-resource-type",
+                                  _title = EDIT,
+                                  )
+            type_script = '''$.rdrtType('%(url)s','%(staff)s','%(volunteer)s','%(submit)s')''' % \
+                {"url": URL(c="deploy", f="human_resource",
+                            args=["%s.s3json" % record_id]),
+                 "staff": type_represent(1),
+                 "volunteer": type_represent(2),
+                 "submit": SUBMIT,
+                 }
+        else:
+            # Read-only
+            script = False
+            hr_type_represent = SPAN(hr_type_represent)
+            type_script = None
 
         # Determine the current roster membership status (active/inactive)
         atable = current.s3db.deploy_application
@@ -2318,38 +2350,45 @@ def config(settings):
         if row:
             active = 1 if row.active else 0
             status_id = row.id
-            roster_status = status.represent(row.active)
+            status_represent = status.represent
+            roster_status = status_represent(row.active)
         else:
             active = None
             status_id = None
             roster_status = current.messages.UNKNOWN_OPT
 
-        if status_id and \
-           current.auth.s3_has_permission("update",
-                                          "deploy_application",
-                                          record_id=status_id):
+        if status_id and has_permission("update",
+                                        "deploy_application",
+                                        record_id=status_id):
             # Make inline-editable
+            script = True
             roster_status = A(roster_status,
                               data = {"status": active},
                               _id = "rdrt-roster-status",
-                              _title = T("Click to edit"),
+                              _title = EDIT,
                               )
+            status_script = '''$.rdrtStatus('%(url)s','%(active)s','%(inactive)s','%(submit)s')''' % \
+                {"url": URL(c="deploy", f="application",
+                            args=["%s.s3json" % status_id]),
+                 "active": status_represent(True),
+                 "inactive": status_represent(False),
+                 "submit": SUBMIT,
+                 }
+        else:
+            # Read-only
+            roster_status = SPAN(roster_status)
+            status_script = None
+
+        if script:
             s3 = current.response.s3
             script = "/%s/static/themes/IFRC/js/rdrt.js" % r.application
             if script not in s3.scripts:
                 s3.scripts.append(script)
-            script = '''$.rdrtStatus('%(url)s','%(active)s','%(inactive)s','%(submit)s')'''
-            from gluon import URL
-            options = {"url": URL(c="deploy", f="application",
-                                  args=["%s.s3json" % status_id]),
-                       "active": status.represent(True),
-                       "inactive": status.represent(False),
-                       "submit": T("Save"),
-                       }
-            s3.jquery_ready.append(script % options)
-        else:
-            # Read-only
-            roster_status = SPAN(roster_status)
+            jqrappend = s3.jquery_ready.append
+            if type_script:
+                jqrappend(type_script)
+            if status_script:
+                jqrappend(status_script)
 
         # Render profile header
         return DIV(A(s3_avatar_represent(person_id,
@@ -2360,6 +2399,7 @@ def config(settings):
                      ),
                    H2(name),
                    P(comments),
+                   DIV(LABEL(tfield.label + ": "), hr_type_represent),
                    DIV(LABEL(status.label + ": "), roster_status),
                    _class="profile-header",
                    )
@@ -2723,8 +2763,9 @@ def config(settings):
                                                       "key": "pe_id",
                                                       "fkey": "pe_id",
                                                       "pkey": "person_id",
-                                                      "filterby": "type",
-                                                      "filterfor": ("2",),
+                                                      "filterby": {
+                                                          "type": "2",
+                                                          },
                                                       },
                                         pr_education = ({"name": "current_education",
                                                          "link": "pr_person",
@@ -2732,8 +2773,9 @@ def config(settings):
                                                          "key": "id",
                                                          "fkey": "person_id",
                                                          "pkey": "person_id",
-                                                         "filterby": "current",
-                                                         "filterfor": (True,),
+                                                         "filterby": {
+                                                             "current": True,
+                                                             },
                                                          "multiple": False,
                                                          },
                                                         {"name": "previous_education",
@@ -2742,8 +2784,9 @@ def config(settings):
                                                          "key": "id",
                                                          "fkey": "person_id",
                                                          "pkey": "person_id",
-                                                         "filterby": "current",
-                                                         "filterfor": (False,),
+                                                         "filterby": {
+                                                             "current": False,
+                                                             },
                                                          "multiple": False,
                                                          },
                                                         ),
@@ -2753,8 +2796,9 @@ def config(settings):
                                                     "key": "pe_id",
                                                     "fkey": "pe_id",
                                                     "pkey": "person_id",
-                                                    "filterby": "profile",
-                                                    "filterfor": (True,),
+                                                    "filterby": {
+                                                        "profile": True,
+                                                        },
                                                     "multiple": False,
                                                     },
                                         )
@@ -3873,8 +3917,9 @@ def config(settings):
                                                "key": "pe_id",
                                                "fkey": "pe_id",
                                                "pkey": "person_id",
-                                               "filterby": "type",
-                                               "filterfor": ("2",),
+                                               "filterby": {
+                                                   "type": "2",
+                                                   },
                                                },
                                               {"name": "temp_address",
                                                "link": "pr_person",
@@ -3882,8 +3927,9 @@ def config(settings):
                                                "key": "pe_id",
                                                "fkey": "pe_id",
                                                "pkey": "person_id",
-                                               "filterby": "type",
-                                               "filterfor": ("1",),
+                                               "filterby": {
+                                                   "type": "1",
+                                                   },
                                                },
                                               ),
                                 pr_contact = {"link": "pr_person",
@@ -3891,8 +3937,9 @@ def config(settings):
                                               "key": "pe_id",
                                               "fkey": "pe_id",
                                               "pkey": "person_id",
-                                              "filterby": "contact_method",
-                                              "filterfor": ("SMS",),
+                                              "filterby": {
+                                                  "contact_method": "SMS",
+                                                  },
                                               },
                                 pr_contact_emergency = {"link": "pr_person",
                                                         "joinby": "id",
@@ -3912,8 +3959,9 @@ def config(settings):
                                                "key": "id",
                                                "fkey": "person_id",
                                                "pkey": "person_id",
-                                               "filterby": "type",
-                                               "filterfor": (2,),
+                                               "filterby": {
+                                                   "type": 2,
+                                                   },
                                                "multiple": False,
                                                },
                                 pr_image = {"link": "pr_person",
@@ -3921,8 +3969,9 @@ def config(settings):
                                             "key": "pe_id",
                                             "fkey": "pe_id",
                                             "pkey": "person_id",
-                                            "filterby": "profile",
-                                            "filterfor": (True,),
+                                            "filterby": {
+                                                "profile": True,
+                                                },
                                             "multiple": False,
                                             },
                                 pr_person_details = {"link": "pr_person",
@@ -4713,38 +4762,45 @@ def config(settings):
             add_components("pr_person",
                            pr_identity = {"name": "idcard",
                                           "joinby": "person_id",
-                                          "filterby": "type",
-                                          "filterfor": (2,),
+                                          "filterby": {
+                                              "type": 2,
+                                              },
                                           "multiple": False,
                                           },
                            pr_person_tag = ({"name": "pte",
                                              "joinby": "person_id",
-                                             "filterby": "tag",
-                                             "filterfor": (PTE_TAG,),
+                                             "filterby": {
+                                                 "tag": PTE_TAG,
+                                                 },
                                              "multiple": False,
-                                             "defaults": {"tag": PTE_TAG,
-                                                          },
+                                             "defaults": {
+                                                 "tag": PTE_TAG,
+                                                 },
                                              },
                                             {"name": "sme",
                                              "joinby": "person_id",
-                                             "filterby": "tag",
-                                             "filterfor": (SME_TAG,),
+                                             "filterby": {
+                                                 "tag": SME_TAG,
+                                                 },
                                              "multiple": False,
-                                             "defaults": {"tag": SME_TAG,
-                                                          },
+                                             "defaults": {
+                                                 "tag": SME_TAG,
+                                                 },
                                              },
                                             ),
                            )
             add_components("hrm_human_resource",
                            hrm_insurance = ({"name": "social_insurance",
                                              "joinby": "human_resource_id",
-                                             "filterby": "type",
-                                             "filterfor": "SOCIAL",
+                                             "filterby": {
+                                                 "type": "SOCIAL",
+                                                 },
                                              },
                                             {"name": "health_insurance",
                                              "joinby": "human_resource_id",
-                                             "filterby": "type",
-                                             "filterfor": "HEALTH",
+                                             "filterby": {
+                                                 "type": "HEALTH",
+                                                 },
                                              }),
                            )
             # Remove 'Commune' level for Addresses
@@ -4916,14 +4972,16 @@ def config(settings):
                 s3db.add_components("pr_person",
                                     pr_address = {"name": "perm_address",
                                                   "joinby": "pe_id",
-                                                  "filterby": "type",
-                                                  "filterfor": ("2",),
+                                                  "filterby": {
+                                                      "type": 2,
+                                                      },
                                                   "multiple": False,
                                                   },
                                     pr_education = {"name": "previous_education",
                                                     "joinby": "person_id",
-                                                    "filterby": "current",
-                                                    "filterfor": (False,),
+                                                    "filterby": {
+                                                        "current": False,
+                                                        },
                                                     "multiple": False,
                                                     },
                                     )
@@ -4950,8 +5008,9 @@ def config(settings):
                     s3db.add_components("pr_person",
                                         hrm_human_resource = {"name": "volunteer",
                                                               "joinby": "person_id",
-                                                              "filterby": "type",
-                                                              "filterfor": ("2",),
+                                                              "filterby": {
+                                                                  "type": 2,
+                                                                  },
                                                               "multiple": False,
                                                               },
                                         #hrm_training = {"name": "vol_training",
@@ -4961,8 +5020,9 @@ def config(settings):
                                         #                },
                                         pr_education = {"name": "current_education",
                                                         "joinby": "person_id",
-                                                        "filterby": "current",
-                                                        "filterfor": (True,),
+                                                        "filterby": {
+                                                            "current": True,
+                                                            },
                                                         "multiple": False,
                                                         },
                                         vol_details = {"name": "volunteer_details",
@@ -5092,8 +5152,9 @@ def config(settings):
                                         #                },
                                         pr_address = {"name": "temp_address",
                                                       "joinby": "pe_id",
-                                                      "filterby": "type",
-                                                      "filterfor": ("1",),
+                                                      "filterby": {
+                                                          "type": 1,
+                                                          },
                                                       "multiple": False,
                                                       },
                                         )

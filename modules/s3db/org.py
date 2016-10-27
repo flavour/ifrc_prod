@@ -602,7 +602,6 @@ class S3OrganisationModel(S3Model):
 
         location_context = settings.get_org_organisation_location_context()
 
-        utablename = auth.settings.table_user_name
         configure(tablename,
                   context = {"location": location_context,
                              },
@@ -617,7 +616,8 @@ class S3OrganisationModel(S3Model):
                   list_orderby = "org_organisation.name",
                   onaccept = self.org_organisation_onaccept,
                   ondelete = self.org_organisation_ondelete,
-                  referenced_by = [(utablename, "organisation_id")],
+                  referenced_by = [(auth.settings.table_user_name,
+                                    "organisation_id")],
                   report_options = report_options,
                   super_entity = "pr_pentity",
                   )
@@ -703,8 +703,9 @@ class S3OrganisationModel(S3Model):
                                                 },
                                                {"name": "active_service_location",
                                                 "joinby": "organisation_id",
-                                                "filterby": "status",
-                                                "filterfor": "ACTIVE",
+                                                "filterby": {
+                                                    "status": "ACTIVE",
+                                                    },
                                                 },
                                                ),
                        # Format for filter_widget
@@ -1607,6 +1608,8 @@ class S3OrganisationGroupModel(S3Model):
                   list_fields = ["name",
                                  "comments",
                                  ],
+                  referenced_by = [(current.auth.settings.table_user_name,
+                                    "org_group_id")],
                   super_entity = ("doc_entity", "pr_pentity"),
                   )
 
@@ -3114,6 +3117,8 @@ class S3SiteModel(S3Model):
                        json_fields = list_fields + ["site_id"],
                        onaccept = self.org_site_onaccept,
                        ondelete_cascade = self.org_site_ondelete_cascade,
+                       referenced_by = [(auth.settings.table_user_name,
+                                         "site_id")],
                        )
 
         # Components
@@ -6126,8 +6131,9 @@ def org_organisation_controller():
                                 add_component(tablename,
                                               org_organisation_tag = {"name": tag,
                                                                       "joinby": "organisation_id",
-                                                                      "filterby": "tag",
-                                                                      "filterfor": (tag,),
+                                                                      "filterby": {
+                                                                          "tag": tag,
+                                                                          },
                                                                       },
                                               )
                                 lappend((label, "%s.value" % tag))
