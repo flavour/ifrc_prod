@@ -344,7 +344,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                 layer = layers[i];
                 if (layer && (layer.s3_layer_id == layer_id)) {
                     // Apply any URL filters
-                    if (queries.length) {
+                    if (queries && queries.length) {
                         url = layer.protocol.url;
                         url = S3.search.filterURL(url, queries);
                         //layer.protocol.options.url = url;
@@ -6140,7 +6140,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                             // Activate Help Tooltips
                             S3.addTooltips();
                             // Activate RoleRequired autocomplete
-                            S3.autocomplete('role', 'admin', 'group', 'gis_layer_' + layer_type + '_role_required');
+                            S3.autocomplete.normal('role', 'admin', 'group', 'gis_layer_' + layer_type + '_role_required');
                         }
                     });
                 }

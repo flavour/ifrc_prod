@@ -63,7 +63,7 @@ from s3data import S3DataTable, S3DataList
 from s3datetime import s3_format_datetime
 from s3fields import S3Represent, s3_all_meta_field_names
 from s3query import FS, S3ResourceField, S3ResourceQuery, S3Joins, S3URLQuery
-from s3utils import s3_has_foreign_key, s3_get_foreign_key, s3_unicode, s3_get_last_record_id, s3_remove_last_record_id
+from s3utils import s3_get_foreign_key, s3_get_last_record_id, s3_has_foreign_key, s3_remove_last_record_id, s3_str, s3_unicode
 from s3validators import IS_ONE_OF
 from s3xml import S3XMLFormat
 
@@ -998,6 +998,7 @@ class S3Resource(object):
                         db.commit()
         else:
             # Hard delete
+            deletable = len(rows) # assume all rows deletable
             for row in rows:
 
                 if joined:
@@ -1014,14 +1015,18 @@ class S3Resource(object):
                 # Delete super-entity
                 success = delete_super(table, row)
                 if not success:
+                    # Super-entity is not deletable
                     self.error = INTEGRITY_ERROR
+                    deletable -= 1
                     continue
+
                 # Delete the row
                 try:
                     del table[record_id]
                 except:
                     # Row is not deletable
                     self.error = INTEGRITY_ERROR
+                    deletable -= 1
                     continue
                 else:
                     # Successfully deleted
@@ -1541,13 +1546,25 @@ class S3Resource(object):
         append = qfields.append
         for f in table.fields:
 
-            if tablename == "gis_location" and \
-               ((f == "the_geom") or (f == "wkt" and current.auth.permission.format != "cap")):
-                # Filter out bulky Polygons
-                continue
-            elif f in ("wkt", "the_geom")  and tablename.startswith("gis_layer_shapefile_"):
-                # Filter out bulky Polygons
-                continue
+            if f in ("wkt", "the_geom"):
+                if tablename == "gis_location":
+                    if f == "the_geom":
+                        # Filter out bulky Polygons
+                        continue
+                    else:
+                        format = current.auth.permission.format
+                        if format == "cap":
+                            # Include WKT
+                            pass
+                        elif format == "xml" and current.deployment_settings.get_gis_xml_wkt():
+                            # Include WKT
+                            pass
+                        else:
+                            # Filter out bulky Polygons
+                            continue
+                elif tablename.startswith("gis_layer_shapefile_"):
+                    # Filter out bulky Polygons
+                    continue
 
             if fields or skip:
 
@@ -1894,6 +1911,7 @@ class S3Resource(object):
                    mcomponents=[],
                    rcomponents=None,
                    references=None,
+                   mdata=False,
                    stylesheet=None,
                    as_tree=False,
                    as_json=False,
@@ -1925,6 +1943,8 @@ class S3Resource(object):
                                 include (list of "tablename:alias")
 
             @param references: foreign keys to include (default: all)
+            @param mdata: mobile data export
+                          (=>reduced field set, lookup-only option)
             @param stylesheet: path to the XSLT stylesheet (if required)
             @param as_tree: return the ElementTree (do not convert into string)
             @param as_json: represent the XML tree as JSON
@@ -1958,6 +1978,7 @@ class S3Resource(object):
                                 rcomponents = rcomponents,
                                 references = references,
                                 filters = filters,
+                                mdata = mdata,
                                 maxbounds = maxbounds,
                                 xmlformat = xmlformat,
                                 location_data = location_data,
@@ -2001,6 +2022,7 @@ class S3Resource(object):
                     mcomponents=None,
                     rcomponents=None,
                     filters=None,
+                    mdata=False,
                     maxbounds=False,
                     xmlformat=None,
                     location_data=None,
@@ -2025,6 +2047,9 @@ class S3Resource(object):
                                 for all
             @param filters: additional URL filters (Sync), as dict
                             {tablename: {url_var: string}}
+            @param mdata: export is intended for mobile offline client
+                          (=>reduced field set, lookup-only option),
+                          overrides fields/references
             @param maxbounds: include lat/lon boundaries in the top
                               level element (off by default)
             @param xmlformat:
@@ -2071,11 +2096,6 @@ class S3Resource(object):
         else:
             orderby = None
 
-        # Determine which components to export for this table
-        components = self.components_to_export(self.tablename,
-                                               mcomponents,
-                                               )
-
         # Construct the record base URL
         prefix = self.prefix
         name = self.name
@@ -2083,6 +2103,26 @@ class S3Resource(object):
             url = "%s/%s/%s" % (base_url, prefix, name)
         else:
             url = "/%s/%s" % (prefix, name)
+
+        # Mobile data settings
+        llrepr = None
+        if mdata:
+            from s3mobile import S3MobileSchema
+            ms = S3MobileSchema(self)
+            if ms.lookup_only:
+                # Override fields/references (only meta fields)
+                llrepr = ms.llrepr
+                fields, references = [], []
+            else:
+                # Determine fields/references from mobile schema
+                fields = references = [f.name for f in ms.fields()]
+
+        # Determine which components to export for this table
+        components_to_export = self.components_to_export
+        if llrepr is None:
+            components = components_to_export(self.tablename, mcomponents)
+        else:
+            components = None
 
         # Separate references and data fields
         (rfields, dfields) = self.split_fields(data = fields,
@@ -2151,6 +2191,7 @@ class S3Resource(object):
                                       master = master,
                                       target = target,
                                       msince = msince,
+                                      llrepr = llrepr,
                                       location_data = location_data,
                                       xmlformat = xmlformat,
                                       )
@@ -2218,7 +2259,7 @@ class S3Resource(object):
                     filter_vars = None
 
                 # Determine which components to export for this table
-                components = self.components_to_export(
+                components = components_to_export(
                                 tablename,
                                 ref_components.get(tablename),
                                 )
@@ -2231,6 +2272,24 @@ class S3Resource(object):
                                             vars = filter_vars,
                                             )
 
+                # Fields and references to export
+                # @todo: applying the same fields/references as for master
+                #        means no differentiation by table => not the best
+                #        solution, but what else is without adding complexity?
+                fields_, references_ = fields, references
+
+                # Mobile data settings
+                if mdata:
+                    ms = S3MobileSchema(rresource)
+                    if ms.lookup_only:
+                        # Override fields/references (only meta fields)
+                        fields_, references_ = [], []
+                        components = None
+                        llrepr = ms.llrepr
+                    else:
+                        # Determine fields/references from mobile schema
+                        fields_ = references_ = [f.name for f in ms.fields()]
+
                 # Construct the URL for the resource
                 # @todo: don't do this for link tables
                 table = rresource.table
@@ -2240,9 +2299,10 @@ class S3Resource(object):
                     url = "/%s/%s" % (prefix, name)
 
                 # Separate references and data fields
-                rfields, dfields = rresource.split_fields(data = fields,
-                                                          references = references,
-                                                          )
+                rfields, dfields = rresource.split_fields(
+                                        data = fields_,
+                                        references = references_,
+                                        )
 
                 # Fields to load
                 if xmlformat:
@@ -2273,6 +2333,7 @@ class S3Resource(object):
                                               filters = filters,
                                               master = False,
                                               target = target,
+                                              llrepr = llrepr,
                                               location_data = location_data,
                                               xmlformat = xmlformat,
                                               )
@@ -2326,6 +2387,7 @@ class S3Resource(object):
                           msince=None,
                           master=True,
                           target=None,
+                          llrepr=None,
                           location_data=None,
                           xmlformat=None,
                           ):
@@ -2347,6 +2409,8 @@ class S3Resource(object):
             @param msince: the minimum update datetime for exported records
             @param master: True of this is the master resource
             @param target: alias of component targetted (or None to target master resource)
+            @param llrepr: lookup list representation method
+                           (suppresses component export if set)
             @param location_data: the location_data for GIS encoding
             @param xmlformat:
         """
@@ -2373,6 +2437,7 @@ class S3Resource(object):
                                             lazy = lazy,
                                             url = record_url,
                                             master = master,
+                                            llrepr = llrepr,
                                             location_data = location_data
                                             )
 
@@ -2388,7 +2453,7 @@ class S3Resource(object):
                 add = False
 
         # Export components
-        if components:
+        if components and llrepr is None:
 
             get_hierarchy_link = current.s3db.hierarchy_link
 
@@ -2557,6 +2622,7 @@ class S3Resource(object):
                        lazy=None,
                        url=None,
                        master=True,
+                       llrepr=None,
                        location_data=None):
         """
             Exports a single record to the element tree.
@@ -2568,6 +2634,7 @@ class S3Resource(object):
             @param export_map: the export map of the current request
             @param url: URL of the record
             @param master: True if this is a record in the master resource
+            @param llrepr: lookup list representation method
             @param location_data: the location_data for GIS encoding
         """
 
@@ -2620,6 +2687,7 @@ class S3Resource(object):
                                alias = alias,
                                lazy = lazy,
                                url = url,
+                               llrepr = llrepr,
                                postprocess = postprocess,
                                )
 
@@ -3200,7 +3268,7 @@ class S3Resource(object):
                     elif field.represent:
                         represent = field.represent(value)
                     else:
-                        represent = s3_unicode(value)
+                        represent = s3_str(value)
                     if isinstance(represent, A):
                         represent = represent.components[0]
 
@@ -3583,11 +3651,19 @@ class S3Resource(object):
 
         if rfields is None or dfields is None:
             if self.tablename == "gis_location":
-                if "wkt" not in skip and current.auth.permission.format != "cap":
-                    # Skip bulky WKT fields
-                    skip.append("wkt")
-                if current.deployment_settings.get_gis_spatialdb() and \
-                   "the_geom" not in skip:
+                settings = current.deployment_settings
+                if "wkt" not in skip:
+                    format = current.auth.permission.format
+                    if format == "cap":
+                        # Include WKT
+                        pass
+                    elif format == "xml" and settings.get_gis_xml_wkt():
+                        # Include WKT
+                        pass
+                    else:
+                        # Skip bulky WKT fields
+                        skip.append("wkt")
+                if "the_geom" not in skip and settings.get_gis_spatialdb():
                     skip.append("the_geom")
 
             xml = current.xml
@@ -3601,19 +3677,24 @@ class S3Resource(object):
             table = self.table
             pkey = table._id.name
             for f in table.fields:
-                if f == UID or \
-                   f in skip or \
-                   f in IGNORE_FIELDS:
+
+                if f == UID or f in skip or f in IGNORE_FIELDS:
+                    # Skip (show_ids=True overrides this for pkey)
                     if f != pkey or not show_ids:
                         continue
-                if s3_has_foreign_key(table[f]) and \
-                    f not in FIELDS_TO_ATTRIBUTES and \
-                    (references is None or f in references):
-                    rfields.append(f)
-                elif data is None or \
-                     f in data or \
-                     f in FIELDS_TO_ATTRIBUTES:
+
+                # Meta-field? => always include (in dfields)
+                meta = f in FIELDS_TO_ATTRIBUTES
+
+                if s3_has_foreign_key(table[f]) and not meta:
+                    # Foreign key => add to rfields unless excluded
+                    if references is None or f in references:
+                        rfields.append(f)
+
+                elif data is None or f in data or meta:
+                    # Data field => add to dfields
                     dfields.append(f)
+
             self.rfields = rfields
             self.dfields = dfields
 
@@ -6284,7 +6365,7 @@ class S3ResourceData(object):
         renderer = rfield.represent
         if not callable(renderer):
             # @ToDo: Don't convert unformatted numbers to strings
-            renderer = lambda v: s3_unicode(v) if v is not None else none
+            renderer = lambda v: s3_str(v) if v is not None else none
 
         # Deactivate linkto if so requested
         if not show_links and hasattr(renderer, "show_link"):
@@ -6305,7 +6386,7 @@ class S3ResourceData(object):
                 try:
                     text = renderer(value)
                 except:
-                    text = s3_unicode(value)
+                    text = s3_str(value)
                 fvalues[value] = text
 
         # Write representations into result
@@ -6327,7 +6408,7 @@ class S3ResourceData(object):
                 try:
                     text = renderer(value)
                 except:
-                    text = s3_unicode(value)
+                    text = s3_str(value)
                 result[colname] = text
                 if raw_data:
                     result["_row"][colname] = value
@@ -6361,7 +6442,7 @@ class S3ResourceData(object):
                                 )[:-1]
                             )
                 else:
-                    data = ", ".join([s3_unicode(v) for v in vlist])
+                    data = ", ".join([s3_str(v) for v in vlist])
 
                 result[colname] = data
                 if raw_data:
