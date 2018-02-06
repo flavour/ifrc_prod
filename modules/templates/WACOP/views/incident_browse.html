@@ -1,8 +1,6 @@
 {{extend "layout.html"}}
 {{=system_wide}}
 <main role='main' class='main'>
- {{=XML(alerts)}}
- {{=XML(events)}}
  <div class='row well'>
   <div id='ff' class='medium-4 columns'>
    {{=filter_form}}
@@ -27,10 +25,10 @@
           </div>
         </div>
       </section>
-      <section class='staff content' id='panel2'>
+      <section class='content' id='panel2'>
         <div class='row'>
           <div class='small-12 columns'>
-            {{#event_incident_datatable}}
+            {{=event_incident_report}}
           </div>
         </div>
       </section>

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from collections import OrderedDict
+import json
 
 from gluon import current
 from gluon.storage import Storage
@@ -161,19 +162,19 @@ def config(settings):
             restricted = True,
             module_type = None  # No Menu
         )),
-    #    ("errors", Storage(
-    #        name_nice = "Ticket Viewer",
-    #        #description = "Needed for Breadcrumbs",
-    #        restricted = False,
-    #        module_type = None  # No Menu
-    #    )),
-       ("sync", Storage(
+        #("errors", Storage(
+        #    name_nice = "Ticket Viewer",
+        #    #description = "Needed for Breadcrumbs",
+        #    restricted = False,
+        #    module_type = None  # No Menu
+        #)),
+        ("sync", Storage(
            name_nice = "Synchronization",
            #description = "Synchronization",
            restricted = True,
            access = "|1|",     # Only Administrators can see this module in the default menu & access the controller
            module_type = None  # This item is handled separately for the menu
-       )),
+        )),
         #("translate", Storage(
         #    name_nice = "Translation Functionality",
         #    #description = "Selective translation of strings based on module.",
@@ -199,6 +200,13 @@ def config(settings):
             module_type = 10
         )),
         # All modules below here should be possible to disable safely
+        ("msg", Storage(
+            name_nice = "Messaging",
+            #description = "Sends & Receives Alerts via Email & SMS",
+            restricted = True,
+            # The user-visible functionality of this module isn't normally required. Rather it's main purpose is to be accessed from other modules.
+            module_type = None,
+        )),
         ("hrm", Storage(
             name_nice = "Contacts",
             #description = "Human Resources Management",
@@ -255,6 +263,7 @@ def config(settings):
         """
             Handle Tags in Create / Update forms
             Auto-Bookmark Updates created from the Dashboard
+            Update the forum modified_on when created from the Forum
         """
 
         post_id = form.vars.id
@@ -268,6 +277,9 @@ def config(settings):
             s3db.cms_post_user.insert(post_id = post_id,
                                       user_id = current.auth.user.id,
                                       )
+        elif request.function == "forum":
+            # Update modified_on to ensure that the Update is visible to subscribers
+            db(s3db.pr_forum.id == request.args[0]).update(modified_on = request.utcnow)
 
         # Process Tags
         ttable = s3db.cms_tag
@@ -306,6 +318,16 @@ def config(settings):
 
         method = r.method
         if method in ("create", "update"):
+            if r.get_vars.get("page") == "SYSTEM_WIDE":
+                # System-wide Alert
+                from s3 import S3SQLCustomForm
+                crud_form = S3SQLCustomForm("body",
+                                            )
+                r.resource.configure(crud_form = crud_form)
+                # No sidebar menu
+                current.menu.options = None
+                return
+                
             # Custom Form
             from s3 import S3SQLCustomForm, S3SQLInlineComponent
 
@@ -381,25 +403,97 @@ def config(settings):
                 tags = ",".join(tags)
                 s3.jquery_ready.append('''wacop_update_tags("%s")''' % tags)
 
-            # Processing Tags/auto-Bookmarks
+            def create_onaccept(form):
+                """
+                    Update the modified_on of any forums to which the Incident/Event this Post links to is Shared
+                """
+                post_id = form.vars.id
+                pltable = s3db.event_post
+                events = db(pltable.post_id == post_id).select(pltable.event_id,
+                                                               pltable.incident_id,
+                                                               )
+                if len(events):
+                    event_ids = []
+                    eappend = event_ids.append
+                    incident_ids = []
+                    iappend = incident_ids.append
+                    for e in events:
+                        incident_id = e.incident_id
+                        if incident_id:
+                            iappend(incident_id)
+                        else:
+                            eappend(e.event_id)
+
+                    fltable = s3db.event_forum
+                    if len(event_ids):
+                        query = (fltable.event_id.belongs(event_ids))
+                        if len(incident_ids):
+                            query |= (fltable.incident_id.belongs(incident_ids))
+                    else:
+                        query = (fltable.incident_id.belongs(incident_ids))
+                    forums = db(query).select(fltable.forum_id)
+                    len_forums = len(forums)
+                    if len_forums:
+                        ftable = s3db.pr_forum
+                        if len_forums == 1:
+                            query = (ftable.id == forums.first().forum_id)
+                        else:
+                            query = (ftable.id.belongs([f.forum_id for f in forums]))
+                        db(query).update(modified_on = r.utcnow)
+
             default = s3db.get_config(tablename, "onaccept")
             if isinstance(default, list):
                 onaccept = default
+                # Processing Tags/auto-Bookmarks
                 onaccept.append(cms_post_onaccept)
+                create_onaccept = list(onaccept) + [create_onaccept]
             else:
+                # Processing Tags/auto-Bookmarks
                 onaccept = [default, cms_post_onaccept]
+                create_onaccept = [create_onaccept, default, cms_post_onaccept]
 
             s3db.configure(tablename,
                            crud_form = crud_form,
                            onaccept = onaccept,
+                           create_onaccept = create_onaccept,
                            )
 
         elif method in ("custom", "dashboard", "datalist", "filter"):
             # dataList configuration
+            from s3 import s3_fieldmethod
             from templates.WACOP.controllers import cms_post_list_layout
 
             s3 = current.response.s3
             s3.dl_no_header = True
+
+            # Virtual Field for Comments
+            # - otherwise need to do per-record DB calls inside cms_post_list_layout
+            #   as direct list_fields come in unsorted, so can't match up to records
+            ctable = s3db.cms_comment
+
+            def comment_as_json(row):
+                body = row["cms_comment.body"]
+                if not body:
+                    return None
+                return json.dumps({"body": body,
+                                   "created_by": row["cms_comment.created_by"],
+                                   "created_on": row["cms_comment.created_on"].isoformat(),
+                                   })
+
+            ctable.json_dump = s3_fieldmethod("json_dump",
+                                              comment_as_json,
+                                              # over-ride the default represent of s3_unicode to prevent HTML being rendered too early
+                                              #represent = lambda v: v,
+                                              )
+
+            s3db.configure("cms_comment",
+                           extra_fields = ["body",
+                                           "created_by",
+                                           "created_on",
+                                           ],
+                           # Doesn't seem to have any impact
+                           #orderby = "cms_comment.created_on asc",
+                           )
 
             s3db.configure(tablename,
                            # No create form in the datalist popups on Resource Browse page
@@ -413,15 +507,14 @@ def config(settings):
                                           "created_by",
                                           "tag.name",
                                           "document.file",
-                                          "comment.id",
-                                          # Extra fields come in unsorted, so can't match up to records
-                                          #"comment.body",
-                                          #"comment.created_by",
-                                          #"comment.created_on",
+                                          #"comment.id",
+                                          "comment.json_dump",
                                           ],
                            list_layout = cms_post_list_layout,
-                           # Default
-                           #orderby = "cms_post.date desc",
+                           # First is Default, 2nd has no impact
+                           #orderby = ("cms_post.date desc",
+                           #           "cms_comment.created_on asc",
+                           #           )
                            )
 
             get_vars = r.get_vars
@@ -675,12 +768,19 @@ def config(settings):
                        (T("Status"), "status"),
                        (T("Zero Hour"), "start_date"),
                        (T("Closed"), "end_date"),
-                       (T("City"), "location.location_id.L3"),
-                       (T("State"), "location.location_id.L1"),
+                       (T("City"), "location.L3"),
+                       (T("State"), "location.L1"),
                        (T("Tags"), "tags"),
                        (T("Incidents"), "incidents"),
                        (T("Resources"), "resources"),
                        ]
+
+        report_fields = ["name",
+                         #"event_type_id",
+                         "status",
+                         (T("City"), "location.L3"),
+                         (T("State"), "location.L1"),
+                         ]
 
         s3db.configure(tablename,
                        extra_fields = ("name",
@@ -688,6 +788,16 @@ def config(settings):
                                        "exercise",
                                        ),
                        list_fields = list_fields,
+                       report_options = Storage(
+                        rows=report_fields,
+                        cols=report_fields,
+                        fact=report_fields,
+                        defaults=Storage(rows = "status",
+                                         #cols = "event_type_id",
+                                         cols = "location.L3",
+                                         fact = "count(name)",
+                                         totals = True)
+                        ),
                        orderby = "event_event.name",
                        )
 
@@ -897,7 +1007,7 @@ def config(settings):
             db = current.db
             ertable = s3db.event_team
             def incident_resources(row):
-                query = (ertable.event_id == row["event_incident.id"]) & \
+                query = (ertable.incident_id == row["event_incident.id"]) & \
                         (ertable.deleted == False)
                 resources = db(query).count()
                 return resources
@@ -941,8 +1051,10 @@ def config(settings):
                            (T("Type"), "incident_type_id"),
                            (T("Zero Hour"), "date"),
                            (T("Closed"), "end_date"),
-                           (T("City"), "location.location_id.L3"),
-                           (T("State"), "location.location_id.L1"),
+                           #(T("City"), "location.location_id.L3"),
+                           #(T("State"), "location.location_id.L1"),
+                           (T("City"), "location_id$L3"),
+                           (T("State"), "location_id$L1"),
                            (T("Tags"), "tags"),
                            (T("Resources"), "resources"),
                            (T("Event"), "event_id"),
@@ -956,13 +1068,33 @@ def config(settings):
                            (T("Start"), "date"),
                            ]
 
+        report_fields = ["name",
+                         "incident_type_id",
+                         "status",
+                         (T("City"), "location_id$L3"),
+                         "source",
+                         "group.organisation_team.organisation_id",
+                         ]
+
         s3db.configure(tablename,
                        extra_fields = ("name",
                                        "end_date",
                                        "exercise",
                                        ),
                        list_fields = list_fields,
+                       report_options = Storage(
+                        rows=report_fields,
+                        cols=report_fields,
+                        fact=report_fields,
+                        defaults=Storage(rows = "status",
+                                         cols = "incident_type_id",
+                                         fact = "count(name)",
+                                         totals = True)
+                        ),
                        orderby = "event_incident.name",
+                       popup_url = URL(c="event", f="incident",
+                                       args=["[id]", "custom"],
+                                       ),
                        )
 
     settings.customise_event_incident_resource = customise_event_incident_resource
@@ -1127,7 +1259,8 @@ def config(settings):
             person_id = row["event_human_resource.person_id"]
             return A(s3_fullname(person_id),
                      _href = URL(c="event", f=f,
-                                 args=[record_id, "person", person_id, "profile"],
+                                 args = [record_id, "person", person_id, "profile"],
+                                 extension = "", # ensure no .aadata
                                  ),
                      )
         ehrtable.name_click = s3_fieldmethod("name_click",
@@ -1140,6 +1273,9 @@ def config(settings):
 
         s3db.configure(tablename,
                        #crud_form = crud_form,
+                       delete_next = URL(c="event", f=f,
+                                         args = [record_id, "custom"],
+                                         ),
                        extra_fields = ("person_id",
                                        ),
                        list_fields = [(T("Name"), "name_click"),
@@ -1186,6 +1322,9 @@ def config(settings):
 
         s3db.configure(tablename,
                        #crud_form = crud_form,
+                       delete_next = URL(c="event", f=f,
+                                         args = [record_id, "custom"],
+                                         ),
                        extra_fields = ("organisation_id",
                                        ),
                        list_fields = [(T("Name"), "name_click"),
@@ -1202,11 +1341,19 @@ def config(settings):
 
         from gluon import A, URL
         from s3 import s3_fieldmethod, S3SQLCustomForm
+        from s3layouts import S3PopupLink
 
+        T = current.T
         s3db = current.s3db
         ertable = s3db.event_team
 
-        #ertable.group_id.label = T("Resource")
+        ertable.group_id.label = T("Resource")
+        ertable.group_id.comment = S3PopupLink(c = "pr",
+                                               f = "group",
+                                               label = T("Create Resource"),
+                                               title = T("Create Resource"),
+                                               tooltip = T("Create a new Resource"),
+                                               )
 
         # Form
         # @ToDo: Have both Team & Event_Team in 1 form
@@ -1266,12 +1413,17 @@ def config(settings):
 
         if f in ("group", "team"):
             # Resource Browse (inc aadata)
-            list_fields = [(T("Group"), "name_click"),
+            list_fields = [(T("Resource"), "name_click"),
                            "incident_id",
                            "status_id",
                            ]
+        elif f == "incident":
+            # Incident Profile
+            list_fields = [(T("Name"), "name_click"),
+                           "status_id",
+                           ]
         else:
-            # Event Profile or Incident Profile
+            # Event Profile
             list_fields = [(T("Name"), "name_click"),
                            "incident_id",
                            "status_id",
@@ -1286,6 +1438,79 @@ def config(settings):
                        )
 
     settings.customise_event_team_resource = customise_event_team_resource
+
+    # -----------------------------------------------------------------------------
+    def pr_forum_notify_subject(resource, data, meta_data):
+        """
+            Custom Method to subject for the email
+            @param resource: the S3Resource
+            @param data: the data returned from S3Resource.select
+            @param meta_data: the meta data for the notification
+        """
+
+        subject = "[%s] %s %s" % (settings.get_system_name_short(),
+                                  data["rows"][0]["pr_forum.name"],
+                                  T("Notification"),
+                                  )
+        # RFC 2822
+        #return s3_str(s3_truncate(subject, length=78))
+        # Truncate happens in s3notify.py
+        return subject
+
+    # -----------------------------------------------------------------------------
+    def pr_forum_notify_renderer(resource, data, meta_data, format=None):
+        """
+            Custom Method to pre-render the contents for the message template
+
+            @param resource: the S3Resource
+            @param data: the data returned from S3Resource.select
+            @param meta_data: the meta data for the notification
+            @param format: the contents format ("text" or "html")
+        """
+
+        from gluon import DIV, H1, P
+
+        # We should always have just a single row
+        row = data["rows"][0]
+        notification = DIV(H1(T(row["pr_forum.name"])))
+        append = notification.append
+        # Updates
+        updates = row["cms_post.json_dump"]
+        if updates:
+            updates = "[%s]" % updates
+            updates = json.loads(updates)
+            for update in updates:
+                #update["date"]
+                #update["series_id"]
+                #update["priority"]
+                #update["status_id"]
+                append(P(update["body"]))
+        # Events
+        events = row["event_event.json_dump"]
+        if events:
+            events = "[%s]" % events
+            events = json.loads(events)
+            for event in events:
+                #event["date"]
+                append(P(event["name"]))
+        # Incidents
+        incidents = row["event_incident.json_dump"]
+        if incidents:
+            incidents = "[%s]" % incidents
+            incidents = json.loads(incidents)
+            for incident in incidents:
+                #incident["date"]
+                append(P(incident["name"]))
+        # Tasks
+        tasks = row["project_task.json_dump"]
+        if tasks:
+            tasks = "[%s]" % tasks
+            tasks= json.loads(tasks)
+            for task in tasks:
+                #task["date"]
+                append(P(task["name"]))
+
+        return {"notification": notification}
 
     # -------------------------------------------------------------------------
     def customise_pr_forum_resource(r, tablename):
@@ -1311,13 +1536,12 @@ def config(settings):
     # -------------------------------------------------------------------------
     def customise_pr_forum_controller(**attr):
 
-        T = current.T
         db = current.db
         s3db = current.s3db
         s3 = current.response.s3
 
         # Custom Browse
-        from templates.WACOP.controllers import group_Browse, group_Profile, text_filter_formstyle
+        from templates.WACOP.controllers import group_Browse, group_Notify, group_Profile, text_filter_formstyle
         set_method = s3db.set_method
         set_method("pr", "forum",
                    method = "browse",
@@ -1327,6 +1551,11 @@ def config(settings):
         set_method("pr", "forum",
                    method = "custom",
                    action = group_Profile)
+
+        # Custom Notifications
+        set_method("pr", "forum",
+                   method = "notify_settings",
+                   action = group_Notify)
 
         from s3 import S3OptionsFilter, S3SQLCustomForm, S3SQLInlineComponent, S3TextFilter
 
@@ -1433,18 +1662,123 @@ def config(settings):
             if callable(standard_prep):
                 result = standard_prep(r)
 
-            if r.method is None:
-                # Override defalt redirects from custom methods
+            if r.representation == "msg":
+                # Notifications
+
+                # Add Virtual Fields for Components
+                # - to keep their data together
+
+                ptable = s3db.cms_post
+                def cms_post_as_json(row):
+                    body = row["cms_post.body"]
+                    if not body:
+                        return None
+                    return json.dumps({"body": body,
+                                       "date": row["cms_post.date"].isoformat(),
+                                       "series_id": row["cms_post.series_id"],
+                                       "priority": row["cms_post.priority"],
+                                       "status_id": row["cms_post.status_id"],
+                                       })
+
+                ptable.json_dump = s3_fieldmethod("json_dump",
+                                                  cms_post_as_json,
+                                                  )
+                s3db.configure("cms_post",
+                               extra_fields = ("date",
+                                               "series_id",
+                                               "priority",
+                                               "status_id",
+                                               "body",
+                                               ),
+                               )
+
+                etable = s3db.event_event
+                def event_event_as_json(row):
+                    name = row["event_event.name"]
+                    if not name:
+                        return None
+                    return json.dumps({"name": name,
+                                       "date": row["event_event.start_date"].isoformat(),
+                                       })
+
+                etable.json_dump = s3_fieldmethod("json_dump",
+                                                  event_event_as_json,
+                                                  )
+                s3db.configure("event_event",
+                               extra_fields = ("name",
+                                               "start_date",
+                                               ),
+                               )
+
+                itable = s3db.event_incident
+                def event_incident_as_json(row):
+                    name = row["event_incident.name"]
+                    if not name:
+                        return None
+                    return json.dumps({"name": name,
+                                       "date": row["event_incident.date"].isoformat(),
+                                       })
+
+                itable.json_dump = s3_fieldmethod("json_dump",
+                                                  event_incident_as_json,
+                                                  )
+                s3db.configure("event_incident",
+                               extra_fields = ("name",
+                                               "date",
+                                               ),
+                               )
+
+                ttable = s3db.project_task
+                def project_task_as_json(row):
+                    name = row["project_task.name"]
+                    if not name:
+                        return None
+                    return json.dumps({"name": name,
+                                       "date": row["project_task.date_due"].isoformat(),
+                                       })
+
+                ttable.json_dump = s3_fieldmethod("json_dump",
+                                                  project_task_as_json,
+                                                  )
+                s3db.configure("project_task",
+                               extra_fields = ("name",
+                                               "date_due",
+                                               ),
+                               )
+
+                notify_fields = ["name",
+                                 "post.json_dump",
+                                 "event.json_dump",
+                                 "incident.json_dump",
+                                 "task.json_dump",
+                                 ]
+                s3db.configure("pr_forum",
+                               notify_fields = notify_fields,
+                               notify_renderer = pr_forum_notify_renderer,
+                               notify_subject = pr_forum_notify_subject,
+                               # Keep default name, but it will use the one in the Template folder
+                               #notify_template = notify_template,
+                               )
+
+            elif r.method is None:
+                # Override default redirects from custom methods
                 if r.component:
-                    from gluon.tools import redirect
-                    current.session.confirmation = current.response.confirmation
-                    redirect(URL(args=[r.id, "custom"]))
+                    if r.representation != "aadata":
+                        from gluon.tools import redirect
+                        current.session.confirmation = current.response.confirmation
+                        redirect(URL(args=[r.id, "custom"],
+                                     extension = "", # ensure no .aadata
+                                     ))
                 elif r.representation != "aadata":
                     r.method = "browse"
 
             return True
         s3.prep = custom_prep
 
+        #if "forum_membership" in current.request.args:
+        #    # No sidebar menu
+        #    current.menu.options = None
+        #    attr["rheader"] = None
         return attr
 
     settings.customise_pr_forum_controller = customise_pr_forum_controller
@@ -1453,7 +1787,9 @@ def config(settings):
     def customise_pr_forum_membership_resource(r, tablename):
 
         s3db = current.s3db
-        f = s3db.pr_forum_membership.admin
+        table = s3db.pr_forum_membership
+
+        f = table.admin
         f.readable = f.writable = True
 
         # CRUD strings
@@ -1484,17 +1820,59 @@ def config(settings):
                 msg_record_deleted = T("Person removed from Group"),
                 msg_list_empty = T("This Group has no Members yet"))
 
-        list_fields = [#(T("Name"), "name_click"),
-                       "person_id",
-                       "admin",
-                       "comments",
-                       ]
+            if function == "forum":
+                # Virtual Fields
+                from gluon import A, URL
+                from s3 import s3_fieldmethod, s3_fullname
+                auth = current.auth
+                if auth.s3_has_role("ADMIN"):
+                    method = "update"
+                else:
+                    ltable = s3db.pr_person_user
+                    ptable = s3db.pr_person
+                    query = (table.forum_id == r.id) & \
+                            (table.admin == True) & \
+                            (table.deleted == False) & \
+                            (table.person_id == ptable.id) & \
+                            (ptable.pe_id == ltable.pe_id) & \
+                            (ltable.user_id == auth.user.id)
+                    admin = current.db(query).select(ltable.id,
+                                                     limitby = (0, 1)
+                                                     ).first()
+                    if admin:
+                        method = "update"
+                    else:
+                        method = "read"
+                def person_membership(row):
+                    return A(s3_fullname(row["pr_forum_membership.person_id"]),
+                             _href = URL(c="pr", f="forum",
+                                         args = [row["pr_forum_membership.forum_id"], "forum_membership", row["pr_forum_membership.id"], "%s.popup" % method],
+                                         vars = {"refresh": "custom-list-pr_forum_membership",
+                                                 },
+                                         extension = "", # ensure no .aadata
+                                         ),
+                             _class = "s3_modal",
+                             )
+                table.name_click = s3_fieldmethod("name_click",
+                                                  person_membership,
+                                                  # over-ride the default represent of s3_unicode to prevent HTML being rendered too early
+                                                  # @ToDo: Bulk lookups
+                                                  represent = lambda v: v,
+                                                  search_field = "person_id",
+                                                  )
 
-        s3db.configure(tablename,
-                       extra_fields = ("name",
-                                       ),
-                       list_fields = list_fields,
-                       )
+                list_fields = [(T("Person"), "name_click"),
+                               #"person_id",
+                               "admin",
+                               "comments",
+                               ]
+
+                s3db.configure(tablename,
+                               extra_fields = ("forum_id",
+                                               "person_id",
+                                               ),
+                               list_fields = list_fields,
+                               )
 
     settings.customise_pr_forum_membership_resource = customise_pr_forum_membership_resource
 
@@ -1576,6 +1954,21 @@ def config(settings):
                                        #search_field = "name",
                                        )
 
+        atable = db.s3_audit
+        stable = s3db.sync_repository
+        def team_source(row):
+            query = (atable.record_id == row["pr_group.id"]) & \
+                    (atable.tablename == "pr_group") & \
+                    (atable.repository_id == stable.id)
+            repo = db(query).select(stable.name,
+                                    limitby=(0, 1)
+                                    ).first()
+            if repo:
+                return repo.name
+            else:
+                return T("Internal")
+        table.source = s3_fieldmethod("source", team_source)
+
         list_fields = [(T("Name"), "name_click"),
                        "status_id",
                        (T("Current Incident"), "active_incident__link.incident_id"),
@@ -1585,11 +1978,27 @@ def config(settings):
                        (T("Updates"), "updates"),
                        ]
 
+        report_fields = ["name",
+                         "status_id",
+                         (T("City"), "location_id$L3"),
+                         "source",
+                         "organisation_team.organisation_id",
+                         ]
+
         s3db.configure(tablename,
                        crud_form = crud_form,
                        extra_fields = ("name",
                                        ),
                        list_fields = list_fields,
+                       report_options = Storage(
+                        rows=report_fields,
+                        cols=report_fields,
+                        fact=report_fields,
+                        defaults=Storage(rows = "status_id",
+                                         cols = "organisation_team.organisation_id",
+                                         fact = "count(name)",
+                                         totals = True)
+                        ),
                        )
 
     settings.customise_pr_group_resource = customise_pr_group_resource
@@ -1837,6 +2246,28 @@ def config(settings):
                                        ),
                           ]
 
+        def onaccept(form):
+            """
+                Update the modified_on of any forums to which the Task is Shared
+            """
+            task_id = form.vars.id
+            ltable = s3db.project_task_forum
+            forums = db(ltable.task_id == task_id).select(ltable.forum_id)
+            len_forums = len(forums)
+            if len_forums:
+                ftable = s3db.pr_forum
+                if len_forums == 1:
+                    query = (ftable.id == forums.first().forum_id)
+                else:
+                    query = (ftable.id.belongs([f.forum_id for f in forums]))
+                db(query).update(modified_on = r.utcnow)
+
+        update_onaccept = s3db.get_config(tablename, "update_onaccept")
+        if update_onaccept:
+            update_onaccept = [update_onaccept, onaccept]
+        else:
+            update_onaccept = onaccept
+
         s3db.configure(tablename,
                        crud_form = crud_form,
                        extra_fields = ("name",
@@ -1849,6 +2280,7 @@ def config(settings):
                                       (T("Due"), "date_due"),
                                       ],
                        orderby = "project_task.date_due",
+                       update_onaccept = update_onaccept,
                        )
 
     settings.customise_project_task_resource = customise_project_task_resource

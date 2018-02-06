@@ -2,7 +2,7 @@
 
 """ S3 Navigation Module
 
-    @copyright: 2011-2017 (c) Sahana Software Foundation
+    @copyright: 2011-2018 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -731,7 +731,7 @@ class S3NavigationItem(object):
             mf = self.get("match_function")
             if function == f or function in mf:
                 level = 2
-            elif f == "index":
+            elif f == "index" or "index" in mf:
                 # "weak" match: homepage link matches any function
                 return 1
             elif f is not None:
@@ -1585,6 +1585,8 @@ class S3ComponentTab(object):
                         get_vars dict is optional.
         """
 
+        # @todo: use component hook label/plural as fallback for title
+        #        (see S3Model.add_components)
         title, component = tab[:2]
         if component and component.find("/") > 0:
             function, component = component.split("/", 1)
@@ -1635,6 +1637,7 @@ class S3ComponentTab(object):
 
         resource = r.resource
         component = self.component
+        function = self.function
         if component:
             clist = get_components(resource.table, names=[component])
             is_component = False
@@ -1657,6 +1660,10 @@ class S3ComponentTab(object):
                 handler = r.get_handler(component)
             if handler is None:
                 return component in ("create", "read", "update", "delete")
+
+        elif function:
+            return current.auth.permission.has_permission("read", f=function)
+
         return True
 
     # -------------------------------------------------------------------------

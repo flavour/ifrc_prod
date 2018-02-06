@@ -2,7 +2,7 @@
 
 """ S3 Notifications
 
-    @copyright: 2011-2017 (c) Sahana Software Foundation
+    @copyright: 2011-2018 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -30,21 +30,19 @@
 import datetime
 import json
 import os
+import string
 import sys
 import urlparse
 import urllib2
 from urllib import urlencode
 from uuid import uuid4
-import string
 
 try:
     from cStringIO import StringIO # Faster, where available
 except:
     from StringIO import StringIO
 
-from gluon import *
-from gluon.storage import Storage
-from gluon.tools import fetch
+from gluon import current, TABLE, THEAD, TBODY, TR, TD, TH, XML
 
 from s3datetime import s3_decode_iso_datetime, s3_encode_iso_datetime, s3_utc
 from s3utils import s3_str, s3_truncate, s3_unicode
@@ -136,8 +134,7 @@ class S3Notifications(object):
         db.commit()
 
         # Construct the send-URL
-        settings = current.deployment_settings
-        public_url = settings.get_base_public_url()
+        public_url = current.deployment_settings.get_base_public_url()
         lookup_url = "%s/%s/%s" % (public_url,
                                    current.request.application,
                                    r.url.lstrip("/"))
@@ -146,12 +143,13 @@ class S3Notifications(object):
         purl = list(urlparse.urlparse(lookup_url))
 
         # Subscription parameters
+        # Date (must ensure we pass to REST as tz-aware)
         last_check_time = s3_encode_iso_datetime(r.last_check_time)
         query = {"subscription": auth_token, "format": "msg"}
         if "upd" in s.notify_on:
-            query["~.modified_on__ge"] = last_check_time
+            query["~.modified_on__ge"] = "%sZ" % last_check_time
         else:
-            query["~.created_on__ge"] = last_check_time
+            query["~.created_on__ge"] = "%sZ" % last_check_time
 
         # Filters
         if f.query:
@@ -435,6 +433,7 @@ class S3Notifications(object):
             #_debug(message)
             try:
                 sent = send(pe_id,
+                            # RFC 2822
                             subject=s3_truncate(subject, 78),
                             message=message,
                             contact_method=method,
@@ -486,17 +485,23 @@ class S3Notifications(object):
         stable = s3db.pr_subscription
         rtable = db.pr_subscription_resource
 
-        # Find all resources with due suscriptions
-        query = ((rtable.next_check_time == None) |
-                 (rtable.next_check_time <= now)) & \
-                (rtable.locked != True) & \
-                (rtable.deleted != True)
+        # Find all resources with due subscriptions
+        next_check = rtable.next_check_time
+        locked_deleted = (rtable.locked != True) & \
+                         (rtable.deleted != True)
+        query = ((next_check == None) |
+                 (next_check <= now)) & \
+                locked_deleted
 
         tname = rtable.resource
-        mtime = rtable.last_check_time.min()
+        last_check = rtable.last_check_time
+        mtime = last_check.min()
         rows = db(query).select(tname,
                                 mtime,
                                 groupby=tname)
+
+        if not rows:
+            return None
 
         # Select those which have updates
         resources = set()
@@ -507,8 +512,7 @@ class S3Notifications(object):
             if not table or not "modified_on" in table.fields:
                 # Can't notify updates in resources without modified_on
                 continue
-            else:
-                modified_on = table.modified_on
+            modified_on = table.modified_on
             msince = row[mtime]
             if msince is None:
                 query = (table.id > 0)
@@ -520,29 +524,29 @@ class S3Notifications(object):
             if update:
                 radd((tablename, update.modified_on))
 
+        if not resources:
+            return None
+
         # Get all active subscriptions to these resources which
         # may need to be notified now:
-        if resources:
-            join = rtable.on((rtable.subscription_id == stable.id) & \
-                             (rtable.locked != True) & \
-                             (rtable.deleted != True))
-            query = None
-            for rname, modified_on in resources:
-                q = (rtable.resource == rname) & \
-                    ((rtable.last_check_time == None) |
-                     (rtable.last_check_time <= modified_on))
-                if query is None:
-                    query = q
-                else:
-                    query |= q
-            query = (stable.frequency != "never") & \
-                    (stable.deleted != True) & \
-                    ((rtable.next_check_time == None) | \
-                     (rtable.next_check_time <= now)) & \
-                    query
-            return db(query).select(rtable.id, join=join)
-        else:
-            return None
+        join = rtable.on((rtable.subscription_id == stable.id) & \
+                         locked_deleted)
+        query = None
+        for rname, modified_on in resources:
+            q = (tname == rname) & \
+                ((last_check == None) |
+                 (last_check <= modified_on))
+            if query is None:
+                query = q
+            else:
+                query |= q
+
+        query = (stable.frequency != "never") & \
+                (stable.deleted != True) & \
+                ((next_check == None) | \
+                 (next_check <= now)) & \
+                query
+        return db(query).select(rtable.id, join=join)
 
     # -------------------------------------------------------------------------
     @classmethod

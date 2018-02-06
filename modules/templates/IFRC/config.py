@@ -1731,7 +1731,7 @@ def config(settings):
 
             elif tablename == "dc_target":
 
-                tabs = ((T("Basic Details"), None, {"native": 1}),
+                tabs = ((T("Basic Details"), None),
                         (T("Responses"), "response"),
                         )
 
@@ -1956,12 +1956,12 @@ def config(settings):
 
             if r.interactive and r.component_name == "response":
 
-                s3db.configure("dc_response",
-                               insertable = False,
-                               list_fields = ["person_id",
-                                              "date",
-                                              ],
-                               )
+                current.s3db.configure("dc_response",
+                                       insertable = False,
+                                       list_fields = ["person_id",
+                                                      "date",
+                                                      ],
+                                       )
 
             return result
         s3.prep = custom_prep
@@ -1976,8 +1976,8 @@ def config(settings):
             if r.interactive and r.component_name == "response":
                 from gluon import URL
                 from s3 import S3CRUD
-                update_url = URL(f="respnse", args = ["[id]", "answer"])
-                S3CRUD.action_buttons(r, update_url=update_url)
+                open_url = URL(f="respnse", args = ["[id]", "answer"])
+                S3CRUD.action_buttons(r, read_url=open_url, update_url=open_url)
 
             return output
         s3.postp = custom_postp
@@ -2123,6 +2123,7 @@ def config(settings):
                 lang = default_language
                 user = Storage(first_name = person.first_name,
                                last_name = person.last_name,
+                               language = lang,
                                email = email,
                                organisation_id = hr.organisation_id,
                                site_id = hr.site_id,
@@ -2607,14 +2608,14 @@ def config(settings):
                        (T("Deploying NS"), "human_resource_id$organisation_id"),
                       ]
         report_options = Storage(
-            rows=report_axis,
-            cols=report_axis,
-            fact=report_fact,
-            defaults=Storage(rows="mission_id$location_id",
-                             cols="mission_id$event_type_id",
-                             fact="count(human_resource_id)",
-                             totals=True
-                             )
+            rows = report_axis,
+            cols = report_axis,
+            fact = report_fact,
+            defaults = Storage(rows="mission_id$location_id",
+                               cols="mission_id$event_type_id",
+                               fact="count(human_resource_id)",
+                               totals=True
+                               )
             )
 
         s3db.configure("deploy_assignment",
@@ -3464,6 +3465,8 @@ def config(settings):
         s3 = current.response.s3
         request = current.request
         controller = request.controller
+        # Enable scalability-optimized strategies
+        settings.base.bigtable = True
 
         tablename = "hrm_human_resource"
 
@@ -4997,7 +5000,7 @@ def config(settings):
     # -------------------------------------------------------------------------
     def hrm_training_event_onaccept(form):
         """
-            Create a Schduled Task to notify EO / MFP to run survey
+            Create a Scheduled Task to notify EO / MFP to run survey
         """
 
         form_vars = form.vars
@@ -5008,15 +5011,18 @@ def config(settings):
             # Nothing we can do
             return
 
+        db = current.db
+        s3db = current.s3db
+
         start_date = form_vars.get("start_date")
         end_date = form_vars.get("end_date")
         if not start_date or not end_date:
             # Read the record
-            etable = current.s3db.hrm_training_event
-            event = current.db(etable.id == training_event_id).select(etable.start_date,
-                                                                      etable.end_date,
-                                                                      limitby = (0, 1)
-                                                                      ).first()
+            etable = s3db.hrm_training_event
+            event = db(etable.id == training_event_id).select(etable.start_date,
+                                                              etable.end_date,
+                                                              limitby = (0, 1)
+                                                              ).first()
             start_date = event.start_date
             end_date = event.end_date
 
@@ -5027,28 +5033,53 @@ def config(settings):
             # No date defined, so exit
             return
 
+        import json
         from dateutil.relativedelta import relativedelta
+        ttable = s3db.scheduler_task
         schedule_task = current.s3task.schedule_task
+        task_name = "hrm_training_event_survey"
 
-        # Send a 3 month reminder
+        # 3 month reminder
         start_time = end_date + relativedelta(months = 3)
-        schedule_task("hrm_training_event_survey",
-                      args = [training_event_id, 3],
-                      start_time = start_time,
-                      #period = 300,  # seconds
-                      timeout = 300, # seconds
-                      repeats = 1    # run once
-                      )
+        args = [training_event_id, 3]
+        query = (ttable.task_name == task_name) & \
+                (ttable.args == json.dumps(args))
+        exists = db(query).select(ttable.id,
+                                  ttable.start_time,
+                                  limitby = (0, 1)
+                                  ).first()
+        if exists:
+            if exists.start_time != start_time:
+                exists.update_record(start_time = start_time)
+        else:
+            schedule_task(task_name,
+                          args = args,
+                          start_time = start_time,
+                          #period = 300,  # seconds
+                          timeout = 300, # seconds
+                          repeats = 1    # run once
+                          )
 
-        # Send a 12 month reminder
+        # 12 month reminder
         start_time = end_date + relativedelta(months = 12)
-        schedule_task("hrm_training_event_survey",
-                      args = [training_event_id, 12],
-                      start_time = start_time,
-                      #period = 300,  # seconds
-                      timeout = 300, # seconds
-                      repeats = 1    # run once
-                      )
+        args = [training_event_id, 12]
+        query = (ttable.task_name == task_name) & \
+                (ttable.args == json.dumps(args))
+        exists = db(query).select(ttable.id,
+                                  ttable.start_time,
+                                  limitby = (0, 1)
+                                  ).first()
+        if exists:
+            if exists.start_time != start_time:
+                exists.update_record(start_time = start_time)
+        else:
+            schedule_task(task_name,
+                          args = args,
+                          start_time = start_time,
+                          #period = 300,  # seconds
+                          timeout = 300, # seconds
+                          repeats = 1    # run once
+                          )
 
     # -------------------------------------------------------------------------
     def customise_hrm_training_event_resource(r, tablename):
@@ -5947,7 +5978,6 @@ def config(settings):
 
             @ToDo: This should be based on the HRM record, not Person record
                    - could be active with Org1 but not with Org2
-            @ToDo: allow to be calculated differently per-Org
         """
 
         now = current.request.utcnow
@@ -6071,6 +6101,8 @@ def config(settings):
         s3db = current.s3db
         s3 = current.response.s3
         request = current.request
+        # Enable scalability-optimized strategies
+        settings.base.bigtable = True
 
         # Special cases for different NS / Roles
         arcs = crmada = ircs = vnrc = False
@@ -7221,7 +7253,7 @@ def config(settings):
         from s3 import s3_set_default_filter
         s3_set_default_filter("~.organisation_id",
                               user_org_root_default_filter,
-                              tablename = "project_project")
+                              tablename = tablename)
 
         # Load standard model
         s3db = current.s3db

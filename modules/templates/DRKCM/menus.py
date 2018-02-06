@@ -237,7 +237,6 @@ class S3OptionsMenu(default.S3OptionsMenu):
             all_activities = M("Activities", f="case_activity")(
                                 M("Emergencies", vars = {"~.priority": "0"}),
                                 M("All Activities"),
-                                M("Report", m="report"),
                                 )
 
         else:
@@ -261,7 +260,6 @@ class S3OptionsMenu(default.S3OptionsMenu):
                                 M("Emergencies", vars = {"~.priority": "0"}),
                                 M(follow_ups_label, f="due_followups"),
                                 M("All Activities"),
-                                M("Report", m="report"),
                                 )
 
         return M(c="dvr")(
@@ -271,6 +269,11 @@ class S3OptionsMenu(default.S3OptionsMenu):
                     all_activities,
                     M("Appointments", f="case_appointment")(
                         M("Overview"),
+                        ),
+                    M("Statistics", c="dvr", link=False)(
+                        M("Actions", f="response_action", m="report"),
+                        M("Activities", f="case_activity", m="report"),
+                        M("Cases", f="person", m="report", vars={"closed": "0"}),
                         ),
                     M("Archive", link=False)(
                         M("Closed Cases", f="person",
@@ -289,6 +292,7 @@ class S3OptionsMenu(default.S3OptionsMenu):
                         M("Appointment Types", f="case_appointment_type"),
                         M("Residence Status Types", f="residence_status_type"),
                         M("Residence Permit Types", f="residence_permit_type"),
+                        M("Service Contact Types", f="service_contact_type"),
                         ),
                     )
 

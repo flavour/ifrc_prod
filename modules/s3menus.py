@@ -2,7 +2,7 @@
 
 """ Sahana Eden Menu Structure and Layout
 
-    @copyright: 2011-2017 (c) Sahana Software Foundation
+    @copyright: 2011-2018 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -905,7 +905,7 @@ class S3OptionsMenu(object):
             EVENT_TYPES = "Event Types"
 
         return M()(
-                    #M("Scenarios", c="scenario", f="scenario")(
+                    #M("Scenarios", c="event", f="scenario")(
                     #    M("Create", m="create"),
                     #    #M("Import", m="import", p="create"),
                     #),
@@ -1388,13 +1388,6 @@ class S3OptionsMenu(object):
                     #M("Ushahidi Import", c="irs", f="ireport", restrict=[ADMIN],
                     #  args="ushahidi")
                 )
-
-    # -------------------------------------------------------------------------
-    def scenario(self):
-        """ SCENARIO """
-
-        # Use EVENT menu
-        return self.event()
 
     # -------------------------------------------------------------------------
     def supply(self):

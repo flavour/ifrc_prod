@@ -4,7 +4,7 @@
     - a front-end UI to manage Assessments which uses the Dynamic Tables
       back-end
 
-    @copyright: 2014-2017 (c) Sahana Software Foundation
+    @copyright: 2014-2018 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -893,10 +893,10 @@ class DataCollectionModel(S3Model):
         """
             Customise the form for Answers to a Template
             Web UI:
-                Create the crud_form, autototals, grids & subheadings
+                Create the crud_form, autototals, grids, hides & subheadings
             Mobile Client:
                 Create the crud_form
-                (autototals, grids & subheadings are in the table.settings)
+                (autototals, grids, hides & subheadings are in the table.settings)
         """
 
         T = current.T

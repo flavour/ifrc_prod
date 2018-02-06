@@ -2,7 +2,7 @@
 
 """ Sahana Eden Disaster Victim Registration Model
 
-    @copyright: 2012-2017 (c) Sahana Software Foundation
+    @copyright: 2012-2018 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -44,6 +44,7 @@ __all__ = ("DVRCaseModel",
            "DVRNotesModel",
            "DVRReferralModel",
            "DVRResponseModel",
+           "DVRServiceContactModel",
            "DVRSiteActivityModel",
            "DVRVulnerabilityModel",
            "dvr_ActivityRepresent",
@@ -308,6 +309,7 @@ class DVRCaseModel(S3Model):
 
         tablename = "dvr_case"
         define_table(tablename,
+                     self.super_link("doc_id", "doc_entity"),
 
                      # The primary case beneficiary
                      person_id(represent = self.pr_PersonRepresent(show_link=True),
@@ -336,6 +338,7 @@ class DVRCaseModel(S3Model):
                              ),
                      # @todo: rename into "code"?
                      # @ToDo: Option to autogenerate these, like Waybills, et al
+                     # @ToDo: Deprecate: We use pe_label as primary ID and Tags for any additional IDs to cross-reference to 3rd-party systems
                      Field("reference",
                            label = T("Case Number"),
                            ),
@@ -508,7 +511,6 @@ class DVRCaseModel(S3Model):
                                                 "multiple": False,
                                                 },
                             dvr_case_event = "case_id",
-                            dvr_case_service_contact = "case_id",
                             dvr_economy = {"joinby": "case_id",
                                            "multiple": False,
                                            },
@@ -549,6 +551,7 @@ class DVRCaseModel(S3Model):
                   onvalidation = self.case_onvalidation,
                   create_onaccept = self.case_create_onaccept,
                   update_onaccept = self.case_onaccept,
+                  super_entity = ("doc_entity",),
                   )
 
         # Reusable field
@@ -1409,6 +1412,8 @@ class DVRResponseModel(S3Model):
 
         hierarchical_response_types = settings.get_dvr_response_types_hierarchical()
 
+        NONE = current.messages["NONE"]
+
         # ---------------------------------------------------------------------
         # Response Types
         #
@@ -1568,6 +1573,14 @@ class DVRResponseModel(S3Model):
                              ),
                      self.hrm_human_resource_id(),
                      response_status_id(),
+                     Field("hours", "double",
+                           label = T("Effort (Hours)"),
+                           requires = IS_EMPTY_OR(
+                                       IS_FLOAT_IN_RANGE(0.0, None)),
+                           represent = lambda hours: "%.2f" % hours if hours else NONE,
+                           widget = S3HoursWidget(precision = 2,
+                                                  ),
+                           ),
                      s3_comments(label = T("Details"),
                                  comment = None,
                                  ),
@@ -1580,6 +1593,7 @@ class DVRResponseModel(S3Model):
                        "human_resource_id",
                        "date_due",
                        "date",
+                       "hours",
                        "status_id",
                        ]
 
@@ -1726,7 +1740,6 @@ class DVRCaseActivityModel(S3Model):
              "dvr_case_activity_status",
              "dvr_case_activity_update",
              "dvr_case_activity_update_type",
-             "dvr_case_service_contact",
              "dvr_provider_type",
              "dvr_termination_type",
              )
@@ -2593,41 +2606,6 @@ class DVRCaseActivityModel(S3Model):
                   )
 
         # ---------------------------------------------------------------------
-        # Case Service Contacts (other than case activities)
-        #
-        tablename = "dvr_case_service_contact"
-        define_table(tablename,
-                     # Beneficiary (component link):
-                     # @todo: populate from case and hide in case perspective
-                     self.pr_person_id(empty = False,
-                                       ondelete = "CASCADE",
-                                       ),
-                     self.dvr_case_id(empty = False,
-                                      label = T("Case Number"),
-                                      ondelete = "CASCADE",
-                                      ),
-                     s3_date(),
-                     self.dvr_need_id(),
-                     organisation_id(label=T("Providing Agency"),
-                                     ),
-                     s3_comments(),
-                     *s3_meta_fields())
-
-        # CRUD Strings
-        crud_strings[tablename] = Storage(
-            label_create = T("Create Service Contact"),
-            title_display = T("Service Contact Details"),
-            title_list = T("Service Contacts"),
-            title_update = T("Edit Service Contacts"),
-            label_list_button = T("List Service Contacts"),
-            label_delete_button = T("Delete Service Contact"),
-            msg_record_created = T("Service Contact added"),
-            msg_record_modified = T("Service Contact updated"),
-            msg_record_deleted = T("Service Contact deleted"),
-            msg_list_empty = T("No Service Contacts currently registered"),
-            )
-
-        # ---------------------------------------------------------------------
         # Case Activity Update Types
         #
         tablename = "dvr_case_activity_update_type"
@@ -2779,7 +2757,7 @@ class DVRCaseActivityModel(S3Model):
         query = (rtable.case_activity_id == case_activity_id) & \
                 (rtable.deleted == False) & \
                 ((stable.is_closed == False) | (stable.id == None))
-        rows = db(query).select(rtable.id)
+        rows = db(query).select(rtable.id, left=left)
 
         if rows:
 
@@ -2870,7 +2848,7 @@ class DVRCaseActivityModel(S3Model):
             activity.update_record(**data)
 
             # Close any open response actions in this activity:
-            if settings.get_dvr_manage_response_actions:
+            if settings.get_dvr_manage_response_actions():
                 cls.case_activity_close_responses(activity.id)
 
         elif activity.end_date:
@@ -5101,6 +5079,146 @@ class DVRActivityFundingModel(S3Model):
         # ---------------------------------------------------------------------
         # Pass names back to global scope (s3.*)
         #
+        return {}
+
+# =============================================================================
+class DVRServiceContactModel(S3Model):
+    """ Model to track external service contacts of beneficiaries """
+
+    names = ("dvr_service_contact",
+             "dvr_service_contact_type",
+             )
+
+    def model(self):
+
+        T = current.T
+
+        db = current.db
+        s3 = current.response.s3
+        settings = current.deployment_settings
+
+        crud_strings = s3.crud_strings
+
+        define_table = self.define_table
+        configure = self.configure
+
+        # ---------------------------------------------------------------------
+        # Service Contact Types
+        #
+        tablename = "dvr_service_contact_type"
+        define_table(tablename,
+                     Field("name",
+                           label = T("Name"),
+                           requires = IS_NOT_EMPTY(),
+                           ),
+                     s3_comments(),
+                     *s3_meta_fields())
+
+        # Table configuration
+        configure(tablename,
+                  deduplicate = S3Duplicate(),
+                  )
+
+        # CRUD Strings
+        ADD_TYPE = T("Create Service Contact Type")
+        crud_strings[tablename] = Storage(
+            label_create = ADD_TYPE,
+            title_display = T("Service Contact Type"),
+            title_list = T("Service Contact Types"),
+            title_update = T("Edit Service Contact Types"),
+            label_list_button = T("List Service Contact Types"),
+            label_delete_button = T("Delete Service Contact Type"),
+            msg_record_created = T("Service Contact Type added"),
+            msg_record_modified = T("Service Contact Type updated"),
+            msg_record_deleted = T("Service Contact Type deleted"),
+            msg_list_empty = T("No Service Contact Types currently defined"),
+            )
+
+        # Reusable field
+        represent = S3Represent(lookup=tablename, translate=True)
+        type_id = S3ReusableField("type_id", "reference %s" % tablename,
+                                  label = T("Service Contact Type"),
+                                  ondelete = "RESTRICT",
+                                  represent = represent,
+                                  requires = IS_EMPTY_OR(
+                                                IS_ONE_OF(db, "%s.id" % tablename,
+                                                          represent,
+                                                          )),
+                                  sortby = "name",
+                                  )
+
+        # ---------------------------------------------------------------------
+        # Service Contacts of Beneficiaries
+        #
+        AGENCY = T("Providing Agency")
+
+        tablename = "dvr_service_contact"
+        define_table(tablename,
+                     # Beneficiary (component link):
+                     self.pr_person_id(empty = False,
+                                       ondelete = "CASCADE",
+                                       ),
+                     type_id(),
+                     #self.dvr_need_id(),
+
+                     self.org_organisation_id(label = AGENCY,
+                                              ),
+                     # Alternative free-text field:
+                     Field("organisation",
+                           label = AGENCY,
+                           readable = False,
+                           writable = False,
+                           ),
+                     Field("reference",
+                           label = T("Ref.No."),
+                           comment = DIV(_class = "tooltip",
+                                         _title = "%s|%s" % (T("Ref.No."),
+                                                             T("Customer number, file reference or other reference number"),
+                                                             ),
+                                         ),
+                           ),
+                     # Enable in template as needed:
+                     Field("contact",
+                           label = T("Contact Person"),
+                           ),
+                     Field("phone",
+                           label = T("Phone"),
+                           ),
+                     Field("email",
+                           label = T("Email"),
+                           ),
+                     s3_comments(),
+                     *s3_meta_fields())
+
+        # CRUD Strings
+        crud_strings[tablename] = Storage(
+            label_create = T("Create Service Contact"),
+            title_display = T("Service Contact Details"),
+            title_list = T("Service Contacts"),
+            title_update = T("Edit Service Contacts"),
+            label_list_button = T("List Service Contacts"),
+            label_delete_button = T("Delete Service Contact"),
+            msg_record_created = T("Service Contact added"),
+            msg_record_modified = T("Service Contact updated"),
+            msg_record_deleted = T("Service Contact deleted"),
+            msg_list_empty = T("No Service Contacts currently registered"),
+            )
+
+        # ---------------------------------------------------------------------
+        # Pass names back to global scope (s3.*)
+        #
+        return {}
+
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def defaults():
+        """ Safe defaults for names in case the module is disabled """
+
+        #dummy = S3ReusableField("dummy_id", "integer",
+        #                        readable = False,
+        #                        writable = False,
+        #                        )
+
         return {}
 
 # =============================================================================
@@ -8326,7 +8444,6 @@ def dvr_rheader(r, tabs=[]):
                         (T("Activities"), "case_activity"),
                         (T("Beneficiaries"), "beneficiary_data"),
                         (T("Economy"), "economy"),
-                        (T("Service Contacts"), "case_service_contact"),
                         (T("Identity"), "identity"),
                         ]
 
