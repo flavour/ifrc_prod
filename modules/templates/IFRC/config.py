@@ -5255,12 +5255,9 @@ def config(settings):
                                 else:
                                     answer_id = dtable.insert(response_id = response_id)
                                     putable = s3db.pr_person_user
-                                    ptable = s3db.pr_person
-                                    query = (ptable.id == person_id) & \
-                                            (ptable.pe_id == putable.pe_id)
-                                    user = db(query).select(putable.user_id,
-                                                            limitby = (0, 1)
-                                                            ).first()
+                                    user = db(putable.pe_id == pe_id).select(putable.user_id,
+                                                                             limitby = (0, 1)
+                                                                             ).first()
                                     if user:
                                         db(dtable.id == answer_id).update(owned_by_user = user.user_id)
                             else:
@@ -5269,12 +5266,9 @@ def config(settings):
                                                             )
                                 answer_id = dtable.insert(response_id = response_id)
                                 putable = s3db.pr_person_user
-                                ptable = s3db.pr_person
-                                query = (ptable.id == person_id) & \
-                                        (ptable.pe_id == putable.pe_id)
-                                user = db(query).select(putable.user_id,
-                                                        limitby = (0, 1)
-                                                        ).first()
+                                user = db(putable.pe_id == pe_id).select(putable.user_id,
+                                                                         limitby = (0, 1)
+                                                                         ).first()
                                 if user:
                                     user_id = user.user_id
                                     db(rtable.id == response_id).update(owned_by_user = user_id)
