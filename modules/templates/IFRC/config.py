@@ -5231,6 +5231,7 @@ def config(settings):
                         if template:
                             template_id = template[ttable.id]
                             dtablename = template[dtable.name]
+                            dtable = s3db[dtablename]
                             components = {dtablename: {"name": "answer",
                                                        "joinby": "response_id",
                                                        "multiple": False,
@@ -5246,7 +5247,6 @@ def config(settings):
                                                        ).first()
                             if respnse:
                                 response_id = respnse[rtable.id]
-                                dtable = s3db[dtablename]
                                 answer = db(dtable.response_id == response_id).select(dtable.id,
                                                                                       limitby = (0, 1)
                                                                                       )
@@ -5254,11 +5254,31 @@ def config(settings):
                                     answer_id = answer.first().id
                                 else:
                                     answer_id = dtable.insert(response_id = response_id)
+                                    putable = s3db.pr_person_user
+                                    ptable = s3db.pr_person
+                                    query = (ptable.id == person_id) & \
+                                            (ptable.pe_id == putable.pe_id)
+                                    user = db(query).select(putable.user_id,
+                                                            limitby = (0, 1)
+                                                            ).first()
+                                    if user:
+                                        db(dtable.id == answer_id).update(owned_by_user = user.user_id)
                             else:
                                 response_id = rtable.insert(template_id = template_id,
                                                             person_id = person_id,
                                                             )
-                                answer_id = s3db[dtablename].insert(response_id = response_id)
+                                answer_id = dtable.insert(response_id = response_id)
+                                putable = s3db.pr_person_user
+                                ptable = s3db.pr_person
+                                query = (ptable.id == person_id) & \
+                                        (ptable.pe_id == putable.pe_id)
+                                user = db(query).select(putable.user_id,
+                                                        limitby = (0, 1)
+                                                        ).first()
+                                if user:
+                                    user_id = user.user_id
+                                    db(rtable.id == response_id).update(owned_by_user = user_id)
+                                    db(dtable.id == answer_id).update(owned_by_user = user_id)
 
                             dynamic_widget = {"label": "Other Information",
                                               "label_create": "Update Information",
