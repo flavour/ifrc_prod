@@ -3761,6 +3761,7 @@ def config(settings):
             filter_opts = list(set(filter_opts) - set(row.branch_id for row in rows))
 
             table = s3db.hrm_experience
+            table.activity_type.default = "rdrt"
             table.organisation_id.requires = IS_ONE_OF(db, "org_organisation.id",
                                                        s3db.org_OrganisationRepresent(acronym = False,
                                                                                       parent = False),
